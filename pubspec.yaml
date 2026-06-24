@@ -27,6 +27,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/figma_home/
+    - assets/pin_home/
   fonts:
     - family: Z Labs RoundPix 12px M CN
       fonts:
