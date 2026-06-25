@@ -455,33 +455,33 @@ class _HeroCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const Positioned(
-                left: 12.98,
-                top: 12.42,
-                child: _DecorativeImage(
-                  asset: 'assets/figma_home/card_hole_141.png',
-                  width: 17,
-                  height: 17,
-                ),
-              ),
-              const Positioned(
-                left: 2.52,
-                top: 32.99,
-                child: _DecorativeImage(
-                  asset: 'assets/figma_home/card_hole_137.png',
-                  width: 9,
-                  height: 9,
-                ),
-              ),
-              const Positioned(
-                left: 5,
-                top: 33,
-                child: _DecorativeImage(
-                  asset: 'assets/figma_home/card_hole_142.png',
-                  width: 9,
-                  height: 9,
-                ),
-              ),
+              // const Positioned(
+              //   left: 12.98,
+              //   top: 12.42,
+              //   child: _DecorativeImage(
+              //     asset: 'assets/figma_home/card_hole_141.png',
+              //     width: 17,
+              //     height: 17,
+              //   ),
+              // ),
+              // const Positioned(
+              //   left: 2.52,
+              //   top: 32.99,
+              //   child: _DecorativeImage(
+              //     asset: 'assets/figma_home/card_hole_137.png',
+              //     width: 9,
+              //     height: 9,
+              //   ),
+              // ),
+              // const Positioned(
+              //   left: 5,
+              //   top: 33,
+              //   child: _DecorativeImage(
+              //     asset: 'assets/figma_home/card_hole_142.png',
+              //     width: 9,
+              //     height: 9,
+              //   ),
+              // ),
               const Positioned(
                 left: 19.61,
                 top: -79.55,
