@@ -145,11 +145,6 @@ class _UploadScreenState extends State<UploadScreen> {
                                       ),
                                     ),
                                   ),
-                                  const Positioned(
-                                    left: 0,
-                                    top: 0,
-                                    child: _PinStatusBar(),
-                                  ),
                                   _HeroCard(
                                     picking: _picking,
                                     onStart: _picking ? null : _pickImage,
@@ -298,121 +293,23 @@ class _BlindBoxSheet extends StatelessWidget {
   }
 }
 
-class _PinStatusBar extends StatelessWidget {
-  const _PinStatusBar();
+class _LightPinkRing extends StatelessWidget {
+  const _LightPinkRing();
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 390,
-      height: 44,
-      child: Stack(
-        children: const [
-          Positioned(
-            left: 21,
-            top: 15.5,
-            width: 54,
-            child: Text(
-              '9:41',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.black,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.28,
-                height: 1,
-              ),
-            ),
-          ),
-          Positioned(right: 14, top: 14, child: _StatusIcons()),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusIcons extends StatelessWidget {
-  const _StatusIcons();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 67,
-      height: 14,
-      child: CustomPaint(painter: _StatusIconPainter()),
-    );
-  }
-}
-
-class _StatusIconPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.fill;
-
-    for (var i = 0; i < 4; i++) {
-      final h = 3.0 + i * 2.2;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0 + i * 4.3, 11 - h, 3, h),
-          const Radius.circular(1),
+    return Container(
+      width: 16.17,
+      height: 16.17,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF4F5F9),
+        shape: BoxShape.circle,
+        border: Border.fromBorderSide(
+          BorderSide(color: Color(0xFFFFD6EF), width: 4),
         ),
-        paint,
-      );
-    }
-
-    final wifiPaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round;
-    final center = const Offset(30, 11);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: 9),
-      -2.25,
-      1.35,
-      false,
-      wifiPaint,
-    );
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: 6),
-      -2.18,
-      1.22,
-      false,
-      wifiPaint,
-    );
-    canvas.drawCircle(const Offset(30, 10.8), 1.5, paint);
-
-    final batteryRect = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(45, 3, 19, 9),
-      const Radius.circular(2),
-    );
-    canvas.drawRRect(
-      batteryRect,
-      Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(47, 5, 14, 5),
-        const Radius.circular(1),
       ),
-      paint,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(65, 6, 2, 4),
-        const Radius.circular(1),
-      ),
-      paint,
     );
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _HeroCard extends StatelessWidget {
@@ -556,6 +453,7 @@ class _HeroCard extends StatelessWidget {
                   ),
                 ),
               ),
+              const Positioned(left: 9.98, top: 11.12, child: _LightPinkRing()),
               const Positioned(left: -11, top: 5.51, child: _PinkHangerDeco()),
               const Positioned(left: 18, top: 104, child: _StepPill()),
               Positioned(
@@ -1007,7 +905,19 @@ class _TitleBadge extends StatelessWidget {
 }
 
 class _TitleRabbitPainter extends CustomPainter {
-  const _TitleRabbitPainter();
+  final Color accentColor;
+  final Color earColor;
+  final Color shadowColor;
+  final double shadowBlur;
+  final Offset accentOffset;
+
+  const _TitleRabbitPainter({
+    this.accentColor = const Color(0xFFFFC516),
+    this.earColor = const Color(0xFFFFD951),
+    this.shadowColor = const Color(0x21000000),
+    this.shadowBlur = 2,
+    this.accentOffset = const Offset(1.46, 2.6),
+  });
 
   static const _viewBoxWidth = 50.3428;
   static const _viewBoxHeight = 49.7651;
@@ -1019,26 +929,34 @@ class _TitleRabbitPainter extends CustomPainter {
 
     final body = _bodyPath();
 
+    final shadowPaint = Paint()..color = shadowColor;
+    if (shadowBlur > 0) {
+      shadowPaint.maskFilter = ui.MaskFilter.blur(
+        ui.BlurStyle.normal,
+        shadowBlur,
+      );
+    }
+
     canvas.save();
     canvas.translate(3, 4);
-    canvas.drawPath(
-      body,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.13)
-        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 2),
-    );
+    canvas.drawPath(body, shadowPaint);
     canvas.restore();
 
     canvas.save();
-    canvas.translate(1.46, 2.6);
-    canvas.drawPath(body, Paint()..color = const Color(0xFFFFC516));
+    canvas.translate(accentOffset.dx, accentOffset.dy);
+    canvas.drawPath(
+      body,
+      Paint()
+        ..color = accentColor
+        ..isAntiAlias = true,
+    );
     canvas.restore();
 
     canvas.drawPath(body, Paint()..color = Colors.white);
     canvas.drawPath(
       body,
       Paint()
-        ..color = const Color(0xFFFFC516)
+        ..color = accentColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.34381
         ..strokeJoin = StrokeJoin.round,
@@ -1050,6 +968,7 @@ class _TitleRabbitPainter extends CustomPainter {
       rx: 10.3724,
       ry: 3.97903,
       angle: -51.0867,
+      color: earColor,
     );
     _drawEar(
       canvas,
@@ -1057,6 +976,7 @@ class _TitleRabbitPainter extends CustomPainter {
       rx: 10.9392,
       ry: 4.7409,
       angle: -51.7846,
+      color: earColor,
     );
 
     final eyePaint = Paint()
@@ -1100,19 +1020,28 @@ class _TitleRabbitPainter extends CustomPainter {
     required double rx,
     required double ry,
     required double angle,
+    required Color color,
   }) {
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.rotate(angle * math.pi / 180);
     canvas.drawOval(
       Rect.fromCenter(center: Offset.zero, width: rx * 2, height: ry * 2),
-      Paint()..color = const Color(0xFFFFD951),
+      Paint()
+        ..color = color
+        ..isAntiAlias = true,
     );
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _TitleRabbitPainter oldDelegate) {
+    return oldDelegate.accentColor != accentColor ||
+        oldDelegate.earColor != earColor ||
+        oldDelegate.shadowColor != shadowColor ||
+        oldDelegate.shadowBlur != shadowBlur ||
+        oldDelegate.accentOffset != accentOffset;
+  }
 }
 
 class _DecorativeImage extends StatelessWidget {
@@ -1376,10 +1305,10 @@ class _GalleryTitle extends StatelessWidget {
       height: 16,
       child: Row(
         children: [
-          Image.asset(
-            'assets/figma_home/gallery_icon.png',
+          const SizedBox(
             width: 16,
             height: 16,
+            child: CustomPaint(painter: _GalleryRabbitIconPainter()),
           ),
           const SizedBox(width: 4),
           const Text(
@@ -1408,18 +1337,47 @@ class _GalleryTitle extends StatelessWidget {
   }
 }
 
+class _GalleryRabbitIconPainter extends CustomPainter {
+  const _GalleryRabbitIconPainter();
+
+  static const _rabbitPainter = _TitleRabbitPainter(
+    accentColor: Colors.black,
+    earColor: Colors.black,
+    shadowColor: Color(0x00000000),
+    shadowBlur: 0,
+    accentOffset: Offset(1.46, 2.6),
+  );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(const Rect.fromLTWH(0, 0, 17, 17));
+    canvas.translate(0.7, 0.65);
+    _rabbitPainter.paint(canvas, const Size(17, 17));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _FilterIconPainter extends CustomPainter {
   const _FilterIconPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF111111)
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(const Offset(4, 5), const Offset(12, 5), paint);
-    canvas.drawLine(const Offset(6, 8), const Offset(12, 8), paint);
-    canvas.drawLine(const Offset(8, 11), const Offset(12, 11), paint);
+      ..color = Colors.black
+      ..style = PaintingStyle.fill
+      ..isAntiAlias = false;
+
+    canvas.save();
+    canvas.scale(size.width / 16, size.height / 16);
+    canvas.clipRect(const Rect.fromLTWH(0, 0, 16, 16));
+    canvas.drawRect(const Rect.fromLTWH(1.9, 3.25, 12.2, 1.45), paint);
+    canvas.drawRect(const Rect.fromLTWH(3.65, 7.35, 8.7, 1.45), paint);
+    canvas.drawRect(const Rect.fromLTWH(5.35, 11.45, 5.3, 1.45), paint);
+    canvas.restore();
   }
 
   @override
@@ -1430,9 +1388,9 @@ class _GalleryGrid extends StatelessWidget {
   const _GalleryGrid();
 
   static const _patterns = [
-    'assets/figma_home/gallery_pattern_1.png',
-    'assets/figma_home/gallery_pattern_2.png',
-    'assets/figma_home/gallery_pattern_3.png',
+    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_1.png'),
+    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_2.png'),
+    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_3.png'),
   ];
 
   @override
@@ -1445,7 +1403,7 @@ class _GalleryGrid extends StatelessWidget {
             Row(
               children: [
                 for (var col = 0; col < 3; col++) ...[
-                  _GalleryTile(asset: _patterns[col], variant: col),
+                  _GalleryTile(pattern: _patterns[col]),
                   if (col < 2) const SizedBox(width: 4),
                 ],
               ],
@@ -1458,20 +1416,19 @@ class _GalleryGrid extends StatelessWidget {
   }
 }
 
-class _GalleryTile extends StatelessWidget {
-  final String asset;
-  final int variant;
+class _GalleryPattern {
+  final String thumbnailUrl;
 
-  const _GalleryTile({required this.asset, required this.variant});
+  const _GalleryPattern({required this.thumbnailUrl});
+}
+
+class _GalleryTile extends StatelessWidget {
+  final _GalleryPattern pattern;
+
+  const _GalleryTile({required this.pattern});
 
   @override
   Widget build(BuildContext context) {
-    final rect = switch (variant) {
-      0 => const Rect.fromLTWH(-7.62, -14.47, 126.57, 169.7),
-      1 => const Rect.fromLTWH(8.51, 21.77, 102.31, 75.8),
-      _ => const Rect.fromLTWH(7.03, 16.6, 92.23, 91.88),
-    };
-
     return SizedBox(
       width: 119.33,
       height: 119.33,
@@ -1481,18 +1438,50 @@ class _GalleryTile extends StatelessWidget {
           decoration: const BoxDecoration(color: Colors.white),
           child: Stack(
             children: [
-              Positioned(
-                left: rect.left,
-                top: rect.top,
-                width: rect.width,
-                height: rect.height,
-                child: Image.asset(asset, fit: BoxFit.cover),
+              Positioned.fill(
+                child: _GalleryThumbnail(url: pattern.thumbnailUrl),
               ),
               const Positioned.fill(child: _GalleryFade()),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _GalleryThumbnail extends StatelessWidget {
+  final String url;
+
+  const _GalleryThumbnail({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    final uri = Uri.tryParse(url);
+    final isNetworkImage =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+
+    if (!isNetworkImage) {
+      return Image.asset(
+        url,
+        fit: BoxFit.cover,
+        alignment: Alignment.center,
+        filterQuality: FilterQuality.medium,
+      );
+    }
+
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      alignment: Alignment.center,
+      filterQuality: FilterQuality.medium,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return const ColoredBox(color: Colors.white);
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return const ColoredBox(color: Colors.white);
+      },
     );
   }
 }
@@ -1535,13 +1524,10 @@ class _BottomNavigation extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(
+          const Positioned(
             left: 83,
             top: 27,
-            child: Transform.rotate(
-              angle: -9 * math.pi / 180,
-              child: const _NavLabel(label: '我的', selected: true),
-            ),
+            child: _NavLabel(label: '制作', selected: true),
           ),
           const Positioned(
             right: 83,
@@ -1562,14 +1548,21 @@ class _NavLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _OutlinedText(
+    final child = _OutlinedText(
       label,
       fontSize: selected ? 19.2 : 16,
-      fillColor: selected ? const Color(0xFFFF55BD) : Colors.black,
-      strokeColor: Colors.white,
-      strokeWidth: 3,
+      fillColor: selected ? Colors.white : Colors.white,
+      strokeColor: selected ? const Color(0xFFFF55BE) : Colors.black,
+      strokeWidth: selected ? 6.6 : 3,
       letterSpacing: 0,
     );
+    if (selected) {
+      return Transform.rotate(
+        angle: -9 * math.pi / 180,
+        child: child,
+      );
+    }
+    return child;
   }
 }
 
@@ -1609,6 +1602,8 @@ class _OutlinedText extends StatelessWidget {
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = strokeWidth
+              ..strokeJoin = StrokeJoin.round
+              ..strokeCap = StrokeCap.round
               ..color = strokeColor,
           ),
         ),
