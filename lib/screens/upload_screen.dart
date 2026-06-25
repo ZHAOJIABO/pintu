@@ -14,6 +14,39 @@ const _scriptFontFamily = 'Taprom';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 const _designWidth = 390.0;
 const _designContentHeight = 1162.0;
+const _bottomNavDesignHeight = 80.0;
+const _compactBottomNavDesignHeight = 60.0;
+const _compactHeightBreakpoint = 700.0;
+
+class _HomeLayoutMetrics {
+  final double pageWidth;
+  final double scale;
+  final double scaledDesignHeight;
+  final double bottomNavDesignHeight;
+  final double bottomNavTotalHeight;
+  final double scrollBottomReserve;
+
+  _HomeLayoutMetrics({required BoxConstraints constraints})
+    : pageWidth = math.min(constraints.maxWidth, _designWidth),
+      scale = math.min(constraints.maxWidth, _designWidth) / _designWidth,
+      scaledDesignHeight =
+          _designContentHeight *
+          (math.min(constraints.maxWidth, _designWidth) / _designWidth),
+      bottomNavDesignHeight = constraints.maxHeight <= _compactHeightBreakpoint
+          ? _compactBottomNavDesignHeight
+          : _bottomNavDesignHeight,
+      bottomNavTotalHeight =
+          (constraints.maxHeight <= _compactHeightBreakpoint
+              ? _compactBottomNavDesignHeight
+              : _bottomNavDesignHeight) *
+          (math.min(constraints.maxWidth, _designWidth) / _designWidth),
+      scrollBottomReserve =
+          (constraints.maxHeight <= _compactHeightBreakpoint
+                  ? _compactBottomNavDesignHeight
+                  : _bottomNavDesignHeight) *
+              (math.min(constraints.maxWidth, _designWidth) / _designWidth) +
+          12;
+}
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -82,17 +115,11 @@ class _UploadScreenState extends State<UploadScreen> {
       backgroundColor: const Color(0xFFF2F1F0),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final pageWidth = math.min(constraints.maxWidth, _designWidth);
-          final scale = pageWidth / _designWidth;
-          final scaledContentHeight = _designContentHeight * scale;
-          final contentHeight = math.max(
-            scaledContentHeight,
-            constraints.maxHeight,
-          );
+          final metrics = _HomeLayoutMetrics(constraints: constraints);
 
           return Center(
             child: SizedBox(
-              width: pageWidth,
+              width: metrics.pageWidth,
               child: Stack(
                 children: [
                   const Positioned.fill(
@@ -101,92 +128,21 @@ class _UploadScreenState extends State<UploadScreen> {
                   SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
                     child: SizedBox(
-                      width: pageWidth,
-                      height: contentHeight,
+                      width: metrics.pageWidth,
+                      height:
+                          metrics.scaledDesignHeight +
+                          metrics.scrollBottomReserve,
                       child: Align(
                         alignment: Alignment.topCenter,
-                        child: SizedBox(
-                          width: _designWidth * scale,
-                          height: scaledContentHeight,
-                          child: Transform.scale(
-                            scale: scale,
-                            alignment: Alignment.topCenter,
-                            child: SizedBox(
-                              width: _designWidth,
-                              height: _designContentHeight,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  const Positioned(
-                                    left: 0,
-                                    top: 0,
-                                    width: 390,
-                                    height: 480,
-                                    child: Image(
-                                      image: AssetImage(
-                                        'assets/figma_home/home_header.png',
-                                      ),
-                                      fit: BoxFit.cover,
-                                    ),
-                                  ),
-                                  const Positioned.fill(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Color(0x00F2F1F0),
-                                            Color(0x00F2F1F0),
-                                            Color(0xFFF2F1F0),
-                                          ],
-                                          stops: [0, 0.48, 0.66],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  _HeroCard(
-                                    picking: _picking,
-                                    onStart: _picking ? null : _pickImage,
-                                  ),
-                                  Positioned(
-                                    left: 12,
-                                    top: 360.55,
-                                    child: _FeatureCard(
-                                      icon:
-                                          'assets/figma_home/feature_illustration_icon.png',
-                                      textImage:
-                                          'assets/figma_home/feature_illustration_text.png',
-                                      onTap: _picking ? null : _pickImage,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 199,
-                                    top: 360.55,
-                                    child: _FeatureCard(
-                                      icon:
-                                          'assets/figma_home/feature_blind_box_icon.png',
-                                      textImage:
-                                          'assets/figma_home/feature_blind_box_text.png',
-                                      onTap: _openBlindBox,
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 20,
-                                    top: 525,
-                                    child: _GalleryTitle(
-                                      onFilter: () =>
-                                          _showComingSoon('筛选功能即将开放'),
-                                    ),
-                                  ),
-                                  const Positioned(
-                                    left: 12,
-                                    top: 557,
-                                    child: _GalleryGrid(),
-                                  ),
-                                ],
-                              ),
-                            ),
+                        child: _ScaledDesignSurface(
+                          designWidth: _designWidth,
+                          designHeight: _designContentHeight,
+                          scale: metrics.scale,
+                          child: _HomeDesignCanvas(
+                            picking: _picking,
+                            onStart: _picking ? null : _pickImage,
+                            onBlindBox: _openBlindBox,
+                            onFilter: () => _showComingSoon('筛选功能即将开放'),
                           ),
                         ),
                       ),
@@ -196,17 +152,15 @@ class _UploadScreenState extends State<UploadScreen> {
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    height: 80 * scale,
-                    child: SizedBox(
-                      width: pageWidth,
-                      height: 80 * scale,
-                      child: Transform.scale(
-                        scale: scale,
-                        alignment: Alignment.bottomCenter,
-                        child: const SizedBox(
-                          width: _designWidth,
-                          height: 80,
-                          child: _BottomNavigation(),
+                    height: metrics.bottomNavTotalHeight,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: _ScaledDesignSurface(
+                        designWidth: _designWidth,
+                        designHeight: metrics.bottomNavDesignHeight,
+                        scale: metrics.scale,
+                        child: _BottomNavigation(
+                          height: metrics.bottomNavDesignHeight,
                         ),
                       ),
                     ),
@@ -216,6 +170,122 @@ class _UploadScreenState extends State<UploadScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ScaledDesignSurface extends StatelessWidget {
+  final double designWidth;
+  final double designHeight;
+  final double scale;
+  final Widget child;
+
+  const _ScaledDesignSurface({
+    required this.designWidth,
+    required this.designHeight,
+    this.scale = 1,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: designWidth * scale,
+      height: designHeight * scale,
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        minWidth: designWidth,
+        maxWidth: designWidth,
+        minHeight: designHeight,
+        maxHeight: designHeight,
+        child: Transform.scale(
+          scale: scale,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            width: designWidth,
+            height: designHeight,
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeDesignCanvas extends StatelessWidget {
+  final bool picking;
+  final VoidCallback? onStart;
+  final VoidCallback? onBlindBox;
+  final VoidCallback? onFilter;
+
+  const _HomeDesignCanvas({
+    required this.picking,
+    required this.onStart,
+    required this.onBlindBox,
+    required this.onFilter,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _designWidth,
+      height: _designContentHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Positioned(
+            left: 0,
+            top: 0,
+            width: 390,
+            height: 480,
+            child: Image(
+              image: AssetImage('assets/figma_home/home_header.png'),
+              fit: BoxFit.cover,
+            ),
+          ),
+          const Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0x00F2F1F0),
+                    Color(0x00F2F1F0),
+                    Color(0xFFF2F1F0),
+                  ],
+                  stops: [0, 0.48, 0.66],
+                ),
+              ),
+            ),
+          ),
+          _HeroCard(picking: picking, onStart: onStart),
+          Positioned(
+            left: 12,
+            top: 360.55,
+            child: _FeatureCard(
+              icon: 'assets/figma_home/feature_illustration_icon.png',
+              textImage: 'assets/figma_home/feature_illustration_text.png',
+              onTap: onStart,
+            ),
+          ),
+          Positioned(
+            left: 199,
+            top: 360.55,
+            child: _FeatureCard(
+              icon: 'assets/figma_home/feature_blind_box_icon.png',
+              textImage: 'assets/figma_home/feature_blind_box_text.png',
+              onTap: onBlindBox,
+            ),
+          ),
+          Positioned(
+            left: 20,
+            top: 525,
+            child: _GalleryTitle(onFilter: onFilter ?? () {}),
+          ),
+          const Positioned(left: 12, top: 557, child: _GalleryGrid()),
+        ],
       ),
     );
   }
@@ -1503,18 +1573,23 @@ class _GalleryFade extends StatelessWidget {
 }
 
 class _BottomNavigation extends StatelessWidget {
-  const _BottomNavigation();
+  final double height;
+
+  const _BottomNavigation({this.height = _bottomNavDesignHeight});
 
   @override
   Widget build(BuildContext context) {
+    final labelTop = height <= _compactBottomNavDesignHeight ? 20.0 : 27.0;
+
     return SizedBox(
       width: 390,
-      height: 80,
+      height: height,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
             child: DecoratedBox(
+              key: const ValueKey('bottom-nav-background'),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: const BorderRadius.vertical(
@@ -1524,15 +1599,15 @@ class _BottomNavigation extends StatelessWidget {
               ),
             ),
           ),
-          const Positioned(
+          Positioned(
             left: 83,
-            top: 27,
-            child: _NavLabel(label: '制作', selected: true),
+            top: labelTop,
+            child: const _NavLabel(label: '制作', selected: true),
           ),
-          const Positioned(
+          Positioned(
             right: 83,
-            top: 27,
-            child: _NavLabel(label: '我的', selected: false),
+            top: labelTop,
+            child: const _NavLabel(label: '我的', selected: false),
           ),
         ],
       ),
@@ -1557,10 +1632,7 @@ class _NavLabel extends StatelessWidget {
       letterSpacing: 0,
     );
     if (selected) {
-      return Transform.rotate(
-        angle: -9 * math.pi / 180,
-        child: child,
-      );
+      return Transform.rotate(angle: -9 * math.pi / 180, child: child);
     }
     return child;
   }
