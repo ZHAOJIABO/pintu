@@ -34,3 +34,6 @@ flutter:
     - family: Alimama FangYuanTi VF
       fonts:
         - asset: assets/fonts/AlimamaFangYuanTiVF-Thin-2.ttf
+    - family: Taprom
+      fonts:
+        - asset: assets/fonts/Taprom-Regular.ttf

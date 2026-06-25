@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -152,16 +153,6 @@ class _UploadScreenState extends State<UploadScreen> {
                                   _HeroCard(
                                     picking: _picking,
                                     onStart: _picking ? null : _pickImage,
-                                  ),
-                                  const Positioned(
-                                    left: 16,
-                                    top: 175,
-                                    child: _DecorativeImage(
-                                      asset:
-                                          'assets/figma_home/deco_curve_black.png',
-                                      width: 9,
-                                      height: 17,
-                                    ),
                                   ),
                                   Positioned(
                                     left: 12,
@@ -444,26 +435,23 @@ class _HeroCard extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: [
+              const Positioned(left: -13, top: 12, child: _LeftHangerDeco()),
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
                     gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Color(0xFFFFBCE5), Color(0xFFFF55BD)],
+                      begin: Alignment(0.50, -0.00),
+                      end: Alignment(0.50, 1.34),
+                      colors: [Color(0xFFFFBCE5), Color(0xFFFF54BD)],
                     ),
                     boxShadow: const [
                       BoxShadow(
-                        color: Color(0x40000000),
+                        color: Color(0x3F000000),
                         offset: Offset(0, 2),
-                        blurRadius: 1,
+                        blurRadius: 2,
                       ),
                     ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: CustomPaint(painter: _HeroPatternPainter()),
                   ),
                 ),
               ),
@@ -505,12 +493,12 @@ class _HeroCard extends StatelessWidget {
                   imageWidth: 139.46,
                   imageHeight: 139.46,
                   radius: 13,
-                  overlayGradient: true,
+                  overlayGradient: false,
                 ),
               ),
               const Positioned(
-                left: 148.62,
-                top: -81.67,
+                left: 145.62,
+                top: -77.67,
                 child: _RotatedPhotoFrame(
                   image: 'assets/figma_home/bead_photo.png',
                   angle: 17.19,
@@ -519,71 +507,63 @@ class _HeroCard extends StatelessWidget {
                   imageWidth: 154.55,
                   imageHeight: 159.12,
                   radius: 15,
-                  fit: BoxFit.cover,
+                  borderWidth: 1,
+                  fit: BoxFit.fill,
+                ),
+              ),
+              Positioned(left: 0, top: 46, child: const _HeroUnionLayer()),
+              const Positioned(left: -8.59, top: 49.34, child: _TitleBadge()),
+              Positioned(
+                left: 13.71,
+                top: 35.50,
+                child: Transform.rotate(
+                  angle: -2 * math.pi / 180,
+                  child: Transform.scale(
+                    scaleX: 1.08,
+                    alignment: Alignment.centerLeft,
+                    child: const _StickerText(label: '照片转图纸', fontSize: 24.88),
+                  ),
                 ),
               ),
               Positioned(
-                left: 0,
-                top: 46,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(46),
-                  child: const _HeroUnionLayer(),
+                left: -2,
+                top: 35,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFFFFE760),
+                      width: 3,
+                    ),
+                  ),
                 ),
               ),
-              const Positioned(
-                left: 9,
-                top: 23.61,
-                child: _DecorativeImage(
-                  asset: 'assets/figma_home/deco_curve_pink.png',
-                  width: 26,
-                  height: 17,
+              Positioned(
+                left: 1,
+                top: 35,
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFBCE5),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFFD62690),
+                      width: 3,
+                    ),
+                  ),
                 ),
               ),
-              const Positioned(left: -21.59, top: 54.34, child: _TitleBadge()),
-              const Positioned(
-                left: 11.41,
-                top: 38.77,
-                child: _StickerText(label: '照片转图纸', fontSize: 27),
-              ),
+              const Positioned(left: -11, top: 5.51, child: _PinkHangerDeco()),
               const Positioned(left: 18, top: 104, child: _StepPill()),
               Positioned(
-                right: -1,
-                top: 163.94,
+                left: 263,
+                top: 145,
                 child: Transform.rotate(
                   angle: -7.56 * math.pi / 180,
-                  child: Text(
-                    picking ? '打开中...' : '开始制作',
-                    style: const TextStyle(
-                      color: Color(0xFF030303),
-                      fontFamily: _pixelFontFamily,
-                      fontFamilyFallback: _fontFallbacks,
-                      fontSize: 19.2,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1.34,
-                      height: 1,
-                      shadows: [
-                        Shadow(color: Color(0xFFFFF095), offset: Offset(2, 2)),
-                        Shadow(color: Colors.white, offset: Offset(0.8, 0.8)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const Positioned(
-                left: 19.24,
-                top: 155.96,
-                child: Opacity(
-                  opacity: 0.25,
-                  child: Text(
-                    'Pinto',
-                    style: TextStyle(
-                      color: Color(0xFFE84BA6),
-                      fontFamily: _scriptFontFamily,
-                      fontFamilyFallback: _fontFallbacks,
-                      fontSize: 20,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
+                  child: _StartMakingLabel(label: picking ? '打开中...' : '开始制作'),
                 ),
               ),
             ],
@@ -594,6 +574,69 @@ class _HeroCard extends StatelessWidget {
   }
 }
 
+class _StartMakingLabel extends StatelessWidget {
+  final String label;
+
+  const _StartMakingLabel({required this.label});
+
+  static const _style = TextStyle(
+    color: Color(0xFF030303),
+    fontFamily: _pixelFontFamily,
+    fontFamilyFallback: _fontFallbacks,
+    fontSize: 19.2,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 1.34,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 11, 16, 13),
+      child: Stack(
+        children: [
+          Text(
+            label,
+            style: _style.copyWith(
+              foreground: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 9.5
+                ..strokeJoin = StrokeJoin.round
+                ..strokeCap = StrokeCap.round
+                ..color = const Color(0xFFFFF09A),
+            ),
+          ),
+          Text(label, style: _style),
+        ],
+      ),
+    );
+  }
+}
+
+class _StartMakingBackgroundPainter extends CustomPainter {
+  const _StartMakingBackgroundPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(24, 3)
+      ..lineTo(size.width - 20, 0)
+      ..quadraticBezierTo(size.width - 2, 1, size.width - 1, 20)
+      ..quadraticBezierTo(size.width + 2, 34, size.width - 13, 39)
+      ..quadraticBezierTo(size.width - 18, 52, size.width - 36, 48)
+      ..quadraticBezierTo(size.width - 50, 56, size.width - 65, 48)
+      ..lineTo(29, 53)
+      ..quadraticBezierTo(14, 57, 7, 44)
+      ..quadraticBezierTo(-1, 34, 5, 23)
+      ..quadraticBezierTo(2, 9, 24, 3)
+      ..close();
+
+    canvas.drawPath(path, Paint()..color = const Color(0xFFFFF09A));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _RotatedPhotoFrame extends StatelessWidget {
   final String image;
   final double angle;
@@ -602,6 +645,7 @@ class _RotatedPhotoFrame extends StatelessWidget {
   final double imageWidth;
   final double imageHeight;
   final double radius;
+  final double borderWidth;
   final BoxFit fit;
   final bool overlayGradient;
 
@@ -613,6 +657,7 @@ class _RotatedPhotoFrame extends StatelessWidget {
     required this.imageWidth,
     required this.imageHeight,
     required this.radius,
+    this.borderWidth = 4,
     this.fit = BoxFit.cover,
     this.overlayGradient = false,
   });
@@ -631,10 +676,10 @@ class _RotatedPhotoFrame extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: Colors.white, width: 4),
+              border: Border.all(color: Colors.white, width: borderWidth),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(radius - 4),
+              borderRadius: BorderRadius.circular(radius - borderWidth),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -651,7 +696,7 @@ class _RotatedPhotoFrame extends StatelessWidget {
                           end: Alignment.bottomRight,
                           colors: [
                             Colors.transparent,
-                            Colors.black.withValues(alpha: 0.12),
+                            Colors.black.withValues(alpha: 0.60),
                           ],
                           stops: const [0.29, 0.9],
                         ),
@@ -672,24 +717,277 @@ class _HeroUnionLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ShaderMask(
-      blendMode: BlendMode.dstIn,
-      shaderCallback: (bounds) {
-        return const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x99FFFFFF), Color(0xD9FFFFFF), Color(0xFFFFFFFF)],
-          stops: [0, 0.36, 1],
-        ).createShader(bounds);
-      },
-      child: Image.asset(
-        'assets/figma_home/hero_union.png',
-        width: 368.44,
-        height: 151.17,
-        fit: BoxFit.fill,
+    return SizedBox(
+      width: 366,
+      height: 151,
+      child: ClipPath(
+        clipBehavior: Clip.antiAlias,
+        clipper: const _HeroPanelClipper(),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: CustomPaint(
+            painter: const _HeroPanelPainter(),
+            child: const Stack(
+              children: [
+                Positioned(
+                  left: 19.24,
+                  top: 109.96,
+                  child: Text(
+                    'Pinto',
+                    style: TextStyle(
+                      color: Color(0xFFE74AA6),
+                      fontFamily: _scriptFontFamily,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
+}
+
+class _HeroPanelClipper extends CustomClipper<Path> {
+  const _HeroPanelClipper();
+
+  @override
+  Path getClip(Size size) => _heroPanelPath(size);
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class _HeroPanelPainter extends CustomPainter {
+  const _HeroPanelPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _heroPanelPath(size);
+    final bounds = Offset.zero & size;
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0x4DFF96D8), Color(0x4DEB0081)],
+          stops: [0, 0.706532],
+        ).createShader(bounds),
+    );
+
+    _paintSparklePattern(canvas, size, path);
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xE8FFE2F4), Color(0x00FFFFFF)],
+        ).createShader(bounds),
+    );
+  }
+
+  void _paintSparklePattern(Canvas canvas, Size size, Path clipPath) {
+    canvas.save();
+    canvas.clipPath(clipPath);
+    final paint = Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(309.198 * size.width / 368.439, 0),
+        Offset(5.9974 * size.width / 368.439, 146.027 * size.height / 151.173),
+        [
+          Colors.white.withValues(alpha: 0),
+          Colors.white.withValues(alpha: 0.16),
+          Colors.white.withValues(alpha: 0),
+        ],
+        [0, 0.388839, 1],
+      )
+      ..style = PaintingStyle.fill;
+
+    const spacing = 9.052;
+    for (var y = 3.187; y < size.height + spacing; y += spacing) {
+      for (var x = 3.187; x < size.width + spacing; x += spacing) {
+        _paintSparkle(canvas, Offset(x, y), paint);
+      }
+    }
+    canvas.restore();
+  }
+
+  void _paintSparkle(Canvas canvas, Offset center, Paint paint) {
+    const outer = 3.8;
+    const inner = 0.36;
+    final path = Path()
+      ..moveTo(center.dx, center.dy - outer)
+      ..lineTo(center.dx + inner, center.dy - inner)
+      ..lineTo(center.dx + outer, center.dy)
+      ..lineTo(center.dx + inner, center.dy + inner)
+      ..lineTo(center.dx, center.dy + outer)
+      ..lineTo(center.dx - inner, center.dy + inner)
+      ..lineTo(center.dx - outer, center.dy)
+      ..lineTo(center.dx - inner, center.dy - inner)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+Path _heroPanelPath(Size size) {
+  final sx = size.width / 366;
+  final sy = size.height / 151;
+
+  double x(double value) => value * sx;
+  double y(double value) => value * sy;
+
+  return Path()
+    ..moveTo(x(0), y(20))
+    ..cubicTo(x(0), y(8.9543), x(8.9543), y(0), x(20), y(0))
+    ..lineTo(x(131.208), y(0))
+    ..cubicTo(x(135.148), y(0), x(139), y(1.1636), x(142.281), y(3.3448))
+    ..lineTo(x(155.094), y(11.8629))
+    ..cubicTo(
+      x(158.375),
+      y(14.0441),
+      x(162.227),
+      y(15.2077),
+      x(166.167),
+      y(15.2077),
+    )
+    ..lineTo(x(199.833), y(15.2077))
+    ..cubicTo(
+      x(203.773),
+      y(15.2077),
+      x(207.625),
+      y(14.0441),
+      x(210.906),
+      y(11.8629),
+    )
+    ..lineTo(x(223.719), y(3.3448))
+    ..cubicTo(x(227), y(1.1636), x(230.852), y(0), x(234.792), y(0))
+    ..lineTo(x(346), y(0))
+    ..cubicTo(x(357.046), y(0), x(366), y(8.9543), x(366), y(20))
+    ..lineTo(x(366), y(131))
+    ..cubicTo(x(366), y(142.046), x(357.046), y(151), x(346), y(151))
+    ..lineTo(x(20), y(151))
+    ..cubicTo(x(8.9543), y(151), x(0), y(142.046), x(0), y(131))
+    ..close();
+}
+
+class _LeftHangerDeco extends StatelessWidget {
+  const _LeftHangerDeco();
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.identity()..scaleByDouble(-1.0, -1.0, 1.0, 1.0),
+      child: const SizedBox(
+        width: 43,
+        height: 43,
+        child: CustomPaint(painter: _RightHangerPainter()),
+      ),
+    );
+  }
+}
+
+class _PinkHangerDeco extends StatelessWidget {
+  const _PinkHangerDeco();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 43,
+      height: 43,
+      child: CustomPaint(painter: _RightHangerPainter()),
+    );
+  }
+}
+
+class _LeftHangerPainter extends CustomPainter {
+  const _LeftHangerPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 12.0006, size.height / 20.0003);
+    final path = Path()
+      ..moveTo(10.5002, 17.4404)
+      ..cubicTo(1.23128, 21.5984, -2.85883, 12.9443, 7.97565, 1.5);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFF030303)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _RightHangerPainter extends CustomPainter {
+  const _RightHangerPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 34, size.height / 36);
+    _drawRightHanger(canvas);
+    canvas.restore();
+  }
+
+  void _drawRightHanger(Canvas canvas) {
+    canvas.save();
+    canvas.translate(12, 11);
+    canvas.scale(15.920249938964844 / 18.921, 19.285276412963867 / 22.2844);
+    final path = Path()
+      ..moveTo(11.2119, 1.5372)
+      ..cubicTo(23.7119, 0.537121, 15.7294, 19.5144, 1.50009, 20.7843);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xFF030303)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.restore();
+  }
+
+  void _drawRing(
+    Canvas canvas, {
+    required Offset center,
+    required double radius,
+    required double strokeWidth,
+    required Color color,
+    Color? fill,
+  }) {
+    if (fill != null) {
+      canvas.drawCircle(center, radius, Paint()..color = fill);
+    }
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _TitleBadge extends StatelessWidget {
@@ -698,14 +996,123 @@ class _TitleBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform.rotate(
-      angle: -14.92 * math.pi / 180,
-      child: Image.asset(
-        'assets/figma_home/title_badge.png',
+      angle: -13.92 * math.pi / 180,
+      child: const SizedBox(
         width: 48.8,
         height: 48.4,
+        child: CustomPaint(painter: _TitleRabbitPainter()),
       ),
     );
   }
+}
+
+class _TitleRabbitPainter extends CustomPainter {
+  const _TitleRabbitPainter();
+
+  static const _viewBoxWidth = 50.3428;
+  static const _viewBoxHeight = 49.7651;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / _viewBoxWidth, size.height / _viewBoxHeight);
+
+    final body = _bodyPath();
+
+    canvas.save();
+    canvas.translate(3, 4);
+    canvas.drawPath(
+      body,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.13)
+        ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 2),
+    );
+    canvas.restore();
+
+    canvas.save();
+    canvas.translate(1.46, 2.6);
+    canvas.drawPath(body, Paint()..color = const Color(0xFFFFC516));
+    canvas.restore();
+
+    canvas.drawPath(body, Paint()..color = Colors.white);
+    canvas.drawPath(
+      body,
+      Paint()
+        ..color = const Color(0xFFFFC516)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.34381
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    _drawEar(
+      canvas,
+      center: const Offset(18.0945, 14.4226),
+      rx: 10.3724,
+      ry: 3.97903,
+      angle: -51.0867,
+    );
+    _drawEar(
+      canvas,
+      center: const Offset(30.6094, 14.4384),
+      rx: 10.9392,
+      ry: 4.7409,
+      angle: -51.7846,
+    );
+
+    final eyePaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.12508
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      const Offset(11.1024, 27.823),
+      const Offset(9.98579, 30.8446),
+      eyePaint,
+    );
+    canvas.drawLine(
+      const Offset(19.5079, 28.2136),
+      const Offset(18.3912, 31.2352),
+      eyePaint,
+    );
+
+    canvas.restore();
+  }
+
+  Path _bodyPath() {
+    return Path()
+      ..moveTo(28.7267, 3.75298)
+      ..cubicTo(32.8613, 0.983631, 37.1774, 0.301665, 39.8437, 2.41398)
+      ..cubicTo(43.7275, 5.49078, 42.6406, 13.3311, 37.416, 19.9262)
+      ..cubicTo(35.3438, 22.5418, 32.9302, 24.5663, 30.5318, 25.8681)
+      ..cubicTo(31.8716, 27.3218, 32.6414, 29.0166, 32.6414, 30.8273)
+      ..cubicTo(32.6414, 36.2209, 25.8206, 40.5932, 17.4067, 40.5932)
+      ..cubicTo(8.99274, 40.5932, 2.1719, 36.2209, 2.1719, 30.8273)
+      ..cubicTo(2.1719, 27.9753, 4.07907, 25.4089, 7.12045, 23.6235)
+      ..cubicTo(6.22066, 19.8209, 7.83138, 14.3633, 11.6326, 9.5652)
+      ..cubicTo(16.8574, 2.97039, 24.241, 0.118557, 28.1247, 3.19525)
+      ..cubicTo(28.3409, 3.36654, 28.5411, 3.5532, 28.7267, 3.75298)
+      ..close();
+  }
+
+  void _drawEar(
+    Canvas canvas, {
+    required Offset center,
+    required double rx,
+    required double ry,
+    required double angle,
+  }) {
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle * math.pi / 180);
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset.zero, width: rx * 2, height: ry * 2),
+      Paint()..color = const Color(0xFFFFD951),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _DecorativeImage extends StatelessWidget {
@@ -734,17 +1141,88 @@ class _StickerText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Transform(
-      transform: Matrix4.skewX(-0.16)..rotateZ(9.73 * math.pi / 180),
-      child: _OutlinedText(
-        label,
-        fontSize: fontSize,
-        fillColor: Colors.white,
-        strokeColor: const Color(0xFF91145F),
-        strokeWidth: 2.4,
-        letterSpacing: 1.8,
-        shadowOffset: const Offset(1.6, 1.6),
+      transform: Matrix4.skewX(-10 * math.pi / 180)
+        ..rotateZ(0.17)
+        ..scaleByDouble(1.0, 0.98, 1.0, 1.0),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          _StickerTextLayer(
+            label: label,
+            fontSize: fontSize,
+            color: const Color(0xFF91145F),
+            strokeWidth: 5.5,
+            letterSpacing: 1.88,
+            fontWeight: FontWeight.w700,
+            offset: const Offset(4, 5),
+          ),
+          _StickerTextLayer(
+            label: label,
+            fontSize: fontSize,
+            color: const Color(0xFFD62690),
+            strokeWidth: 10,
+            letterSpacing: 1.88,
+            fontWeight: FontWeight.w700,
+          ),
+          _StickerTextLayer(
+            label: label,
+            fontSize: fontSize,
+            color: Colors.white,
+            letterSpacing: 1.88,
+            fontWeight: FontWeight.w700,
+            fill: true,
+          ),
+        ],
       ),
     );
+  }
+}
+
+class _StickerTextLayer extends StatelessWidget {
+  final String label;
+  final double fontSize;
+  final Color color;
+  final double strokeWidth;
+  final double letterSpacing;
+  final FontWeight fontWeight;
+  final Offset offset;
+  final bool fill;
+
+  const _StickerTextLayer({
+    required this.label,
+    required this.fontSize,
+    required this.color,
+    required this.letterSpacing,
+    this.strokeWidth = 0,
+    this.fontWeight = FontWeight.w400,
+    this.offset = Offset.zero,
+    this.fill = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      fontFamily: _pixelFontFamily,
+      fontFamilyFallback: _fontFallbacks,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      letterSpacing: letterSpacing,
+    );
+    final text = Text(
+      label,
+      style: fill
+          ? style.copyWith(color: color)
+          : style.copyWith(
+              foreground: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = strokeWidth
+                ..strokeJoin = StrokeJoin.round
+                ..color = color,
+            ),
+    );
+
+    if (offset == Offset.zero) return text;
+    return Transform.translate(offset: offset, child: text);
   }
 }
 
@@ -1102,7 +1580,6 @@ class _OutlinedText extends StatelessWidget {
   final Color strokeColor;
   final double strokeWidth;
   final double letterSpacing;
-  final Offset shadowOffset;
 
   const _OutlinedText(
     this.text, {
@@ -1111,7 +1588,6 @@ class _OutlinedText extends StatelessWidget {
     required this.strokeColor,
     required this.strokeWidth,
     required this.letterSpacing,
-    this.shadowOffset = Offset.zero,
   });
 
   @override
@@ -1127,19 +1603,6 @@ class _OutlinedText extends StatelessWidget {
 
     return Stack(
       children: [
-        if (shadowOffset != Offset.zero)
-          Transform.translate(
-            offset: shadowOffset,
-            child: Text(
-              text,
-              style: baseStyle.copyWith(
-                foreground: Paint()
-                  ..style = PaintingStyle.stroke
-                  ..strokeWidth = strokeWidth
-                  ..color = strokeColor,
-              ),
-            ),
-          ),
         Text(
           text,
           style: baseStyle.copyWith(
@@ -1153,38 +1616,4 @@ class _OutlinedText extends StatelessWidget {
       ],
     );
   }
-}
-
-class _HeroPatternPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final dotPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.1)
-      ..style = PaintingStyle.fill;
-    for (var y = 8.0; y < size.height; y += 8) {
-      for (var x = 8.0; x < size.width; x += 8) {
-        canvas.drawCircle(Offset(x, y), 1, dotPaint);
-      }
-    }
-
-    final overlayPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          Colors.white.withValues(alpha: 0.2),
-          Colors.white.withValues(alpha: 0),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(0, 46, size.width, 94),
-        const Radius.circular(46),
-      ),
-      overlayPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
