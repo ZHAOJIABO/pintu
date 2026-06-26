@@ -22,7 +22,8 @@ class CropScreen extends StatefulWidget {
   State<CropScreen> createState() => _CropScreenState();
 }
 
-class _CropScreenState extends State<CropScreen> {
+class _CropScreenState extends State<CropScreen>
+    with SingleTickerProviderStateMixin {
   static const _displayWidth = 390.0;
   static const _displayHeight = 706.0;
   static const _bottomBarHeight = 138.0;
@@ -38,17 +39,34 @@ class _CropScreenState extends State<CropScreen> {
   CropAspectRatio _ratio = CropAspectRatio.square;
   bool _cropping = false;
   bool _flipped = false;
-  double _scale = 1;
+  double _imageScale = 1;
   double _gestureStartScale = 1;
+  Offset _gestureStartOffset = Offset.zero;
+  Offset _gestureStartFocal = Offset.zero;
   Offset _offset = Offset.zero;
   int _imageWidth = 1;
   int _imageHeight = 1;
   Color _backgroundColor = const Color(0xFF478EA1);
+  late final AnimationController _reboundController;
+  double _reboundStartScale = 1;
+  double _reboundTargetScale = 1;
+  Offset _reboundStartOffset = Offset.zero;
+  Offset _reboundTargetOffset = Offset.zero;
 
   @override
   void initState() {
     super.initState();
+    _reboundController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    )..addListener(_handleReboundTick);
     _inspectImage();
+  }
+
+  @override
+  void dispose() {
+    _reboundController.dispose();
+    super.dispose();
   }
 
   void _inspectImage() {
@@ -57,6 +75,20 @@ class _CropScreenState extends State<CropScreen> {
     _imageWidth = decoded.width;
     _imageHeight = decoded.height;
     _backgroundColor = _averageColor(decoded);
+    _imageScale = _minImageScale(_cropFrameSize(_ratio));
+    _offset = _clampOffset(Offset.zero, _cropFrameSize(_ratio), _imageScale);
+  }
+
+  void _handleReboundTick() {
+    final t = Curves.easeOutCubic.transform(_reboundController.value);
+    setState(() {
+      _imageScale =
+          ui.lerpDouble(_reboundStartScale, _reboundTargetScale, t) ??
+          _reboundTargetScale;
+      _offset =
+          Offset.lerp(_reboundStartOffset, _reboundTargetOffset, t) ??
+          _reboundTargetOffset;
+    });
   }
 
   Color _averageColor(img.Image image) {
@@ -98,17 +130,35 @@ class _CropScreenState extends State<CropScreen> {
     return Size(width, height);
   }
 
-  double _baseFitScale(Size cropSize) {
+  double _minImageScale(Size cropSize) {
     return math.max(
       cropSize.width / _imageWidth,
       cropSize.height / _imageHeight,
     );
   }
 
+  double _maxImageScale(Size cropSize) {
+    final largestRequiredScale = _ratioOptions
+        .map((ratio) => _minImageScale(_cropFrameSize(ratio)))
+        .fold(_minImageScale(cropSize), math.max);
+    return largestRequiredScale * 8;
+  }
+
+  double _clampImageScale(
+    double candidate,
+    Size cropSize, {
+    bool allowRubberBand = false,
+  }) {
+    final minScale = _minImageScale(cropSize);
+    final maxScale = _maxImageScale(cropSize);
+    final minLimit = allowRubberBand ? minScale * 0.86 : minScale;
+    final maxLimit = allowRubberBand ? maxScale * 1.03 : maxScale;
+    return candidate.clamp(minLimit, maxLimit).toDouble();
+  }
+
   Offset _clampOffset(Offset candidate, Size cropSize, double scale) {
-    final renderScale = _baseFitScale(cropSize) * scale;
-    final renderedWidth = _imageWidth * renderScale;
-    final renderedHeight = _imageHeight * renderScale;
+    final renderedWidth = _imageWidth * scale;
+    final renderedHeight = _imageHeight * scale;
     final maxX = math.max(0.0, (renderedWidth - cropSize.width) / 2);
     final maxY = math.max(0.0, (renderedHeight - cropSize.height) / 2);
     return Offset(
@@ -117,11 +167,40 @@ class _CropScreenState extends State<CropScreen> {
     );
   }
 
+  void _settleImageTransform({bool animate = true}) {
+    final cropSize = _cropFrameSize(_ratio);
+    final targetScale = _clampImageScale(_imageScale, cropSize);
+    final targetOffset = _clampOffset(_offset, cropSize, targetScale);
+    final alreadySettled =
+        (targetScale - _imageScale).abs() < 0.001 &&
+        (targetOffset - _offset).distance < 0.001;
+
+    if (!animate || alreadySettled) {
+      setState(() {
+        _imageScale = targetScale;
+        _offset = targetOffset;
+      });
+      return;
+    }
+
+    _reboundStartScale = _imageScale;
+    _reboundTargetScale = targetScale;
+    _reboundStartOffset = _offset;
+    _reboundTargetOffset = targetOffset;
+    _reboundController.forward(from: 0);
+  }
+
+  Offset _stageFocalPoint(Offset localFocalPoint) {
+    return localFocalPoint -
+        const Offset(_displayWidth / 2, _displayHeight / 2);
+  }
+
   void _setRatio(CropAspectRatio ratio) {
+    _reboundController.stop();
     setState(() {
       _ratio = ratio;
-      _offset = _clampOffset(_offset, _cropFrameSize(ratio), _scale);
     });
+    _settleImageTransform();
   }
 
   void _toggleFlip() {
@@ -130,8 +209,8 @@ class _CropScreenState extends State<CropScreen> {
 
   Future<void> _confirmCrop() async {
     final cropSize = _cropFrameSize(_ratio);
-    final offset = _clampOffset(_offset, cropSize, _scale);
-    final renderScale = _baseFitScale(cropSize) * _scale;
+    final renderScale = _clampImageScale(_imageScale, cropSize);
+    final offset = _clampOffset(_offset, cropSize, renderScale);
 
     setState(() => _cropping = true);
     try {
@@ -172,8 +251,11 @@ class _CropScreenState extends State<CropScreen> {
       backgroundColor: _backgroundColor,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final pageWidth = math.min(constraints.maxWidth, 430.0);
-          final scale = pageWidth / _displayWidth;
+          final widthScale =
+              math.min(constraints.maxWidth, 430.0) / _displayWidth;
+          final heightScale = constraints.maxHeight / 844;
+          final scale = math.min(widthScale, heightScale);
+          final pageWidth = _displayWidth * scale;
           final scaledHeight = 844 * scale;
 
           return Center(
@@ -239,8 +321,8 @@ class _CropScreenState extends State<CropScreen> {
 
   Widget _buildCropStage() {
     final cropSize = _cropFrameSize(_ratio);
-    final offset = _clampOffset(_offset, cropSize, _scale);
-    final renderScale = _baseFitScale(cropSize) * _scale;
+    final renderScale = _imageScale;
+    final offset = _clampOffset(_offset, cropSize, renderScale);
     final imageSize = Size(
       _imageWidth * renderScale,
       _imageHeight * renderScale,
@@ -252,23 +334,28 @@ class _CropScreenState extends State<CropScreen> {
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onScaleStart: (_) => _gestureStartScale = _scale,
+      onScaleStart: (details) {
+        _reboundController.stop();
+        _gestureStartScale = _imageScale;
+        _gestureStartOffset = _offset;
+        _gestureStartFocal = _stageFocalPoint(details.localFocalPoint);
+      },
       onScaleUpdate: (details) {
-        final nextScale = (_gestureStartScale * details.scale)
-            .clamp(1.0, 6.0)
-            .toDouble();
+        final nextScale = _clampImageScale(
+          _gestureStartScale * details.scale,
+          cropSize,
+          allowRubberBand: true,
+        );
+        final focal = _stageFocalPoint(details.localFocalPoint);
+        final scaleDelta = nextScale / _gestureStartScale;
+        final nextOffset =
+            focal - (_gestureStartFocal - _gestureStartOffset) * scaleDelta;
         setState(() {
-          _scale = nextScale;
-          _offset = _clampOffset(
-            _offset + details.focalPointDelta,
-            cropSize,
-            nextScale,
-          );
+          _imageScale = nextScale;
+          _offset = _clampOffset(nextOffset, cropSize, nextScale);
         });
       },
-      onScaleEnd: (_) {
-        setState(() => _offset = _clampOffset(_offset, cropSize, _scale));
-      },
+      onScaleEnd: (_) => _settleImageTransform(),
       child: ClipRect(
         child: Stack(
           children: [
@@ -627,16 +714,25 @@ class _ToolButton extends StatelessWidget {
           children: [
             SizedBox(width: 20, height: 20, child: icon),
             const SizedBox(height: 2),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: selected ? const Color(0xFFFF55BE) : Colors.black,
-                fontFamily: _roundFontFamily,
-                fontFamilyFallback: _fontFallbacks,
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
-                height: 1.1,
+            SizedBox(
+              width: 24,
+              height: 14,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: selected ? const Color(0xFFFF55BE) : Colors.black,
+                    fontFamily: _roundFontFamily,
+                    fontFamilyFallback: _fontFallbacks,
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                    height: 1.1,
+                  ),
+                ),
               ),
             ),
           ],
@@ -668,26 +764,29 @@ class _FlipIconPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
-    final stroke = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..strokeCap = StrokeCap.round;
+    final sx = size.width / 20;
+    final sy = size.height / 20;
 
-    canvas.drawLine(const Offset(10, 2.5), const Offset(10, 17.5), stroke);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTRB(8.6 * sx, 2.3 * sy, 11.4 * sx, 17.7 * sy),
+        Radius.circular(1.4 * sx),
+      ),
+      paint,
+    );
     canvas.drawPath(
       Path()
-        ..moveTo(2, 15)
-        ..lineTo(8, 10)
-        ..lineTo(8, 20)
+        ..moveTo(2.4 * sx, 15.2 * sy)
+        ..lineTo(6.9 * sx, 5.0 * sy)
+        ..lineTo(6.9 * sx, 15.2 * sy)
         ..close(),
       paint,
     );
     canvas.drawPath(
       Path()
-        ..moveTo(18, 5)
-        ..lineTo(12, 10)
-        ..lineTo(12, 0)
+        ..moveTo(13.1 * sx, 5.0 * sy)
+        ..lineTo(17.6 * sx, 15.2 * sy)
+        ..lineTo(13.1 * sx, 15.2 * sy)
         ..close(),
       paint,
     );
