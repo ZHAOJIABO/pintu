@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/generated_pattern.dart';
 import '../models/palette.dart';
 import '../services/material_edit_service.dart';
+import '../services/pattern_export_service.dart';
 import '../services/project_storage_service.dart';
 import '../widgets/material_usage_list.dart';
 import '../widgets/pattern_preview.dart';
@@ -19,9 +21,11 @@ class ResultScreen extends StatefulWidget {
 
 class _ResultScreenState extends State<ResultScreen> {
   final MaterialEditService _materialEditService = MaterialEditService();
+  final PatternExportService _exportService = const PatternExportService();
   final ProjectStorageService _storageService = ProjectStorageService();
   late GeneratedPattern _pattern = widget.pattern;
   bool _saving = false;
+  bool _exporting = false;
 
   Future<void> _save() async {
     setState(() => _saving = true);
@@ -48,6 +52,23 @@ class _ResultScreenState extends State<ResultScreen> {
     );
     if (edited != null) {
       setState(() => _pattern = edited);
+    }
+  }
+
+  Future<void> _export() async {
+    setState(() => _exporting = true);
+    try {
+      final file = await _exportService.exportChartPng(_pattern);
+      await Share.shareXFiles([
+        XFile(file.path),
+      ], text: '拼豆图纸 ${_pattern.width}x${_pattern.height}');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('导出失败：$error')));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
     }
   }
 
@@ -104,7 +125,7 @@ class _ResultScreenState extends State<ResultScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F8),
-      appBar: AppBar(title: const Text('图纸生成中')),
+      appBar: AppBar(title: const Text('拼豆图纸')),
       body: SafeArea(
         child: Column(
           children: [
@@ -119,6 +140,8 @@ class _ResultScreenState extends State<ResultScreen> {
                       pixels: _pattern.pixels,
                       width: _pattern.width,
                       height: _pattern.height,
+                      mode: PatternPreviewMode.chart,
+                      paletteEntries: _pattern.paletteEntries,
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -165,6 +188,13 @@ class _ResultScreenState extends State<ResultScreen> {
                     child: TextButton(
                       onPressed: _saving ? null : _save,
                       child: Text(_saving ? '保存中...' : '保存'),
+                    ),
+                  ),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _exporting ? null : _export,
+                      icon: const Icon(Icons.ios_share, size: 18),
+                      label: Text(_exporting ? '导出中...' : '导出'),
                     ),
                   ),
                 ],
