@@ -285,11 +285,6 @@ class _CropScreenState extends State<CropScreen>
                             height: _displayHeight,
                             child: _buildCropStage(),
                           ),
-                          const Positioned(
-                            left: 0,
-                            top: 0,
-                            child: _CropStatusBar(),
-                          ),
                           Positioned(
                             left: 0,
                             top: _displayHeight,
@@ -452,120 +447,6 @@ class _TransformedCropImage extends StatelessWidget {
       ),
     );
   }
-}
-
-class _CropStatusBar extends StatelessWidget {
-  const _CropStatusBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 390,
-      height: 44,
-      child: Stack(
-        children: const [
-          Positioned(
-            left: 21,
-            top: 15.5,
-            width: 54,
-            child: Text(
-              '9:41',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.black,
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.28,
-                height: 1,
-              ),
-            ),
-          ),
-          Positioned(right: 14, top: 14, child: _CropStatusIcons()),
-        ],
-      ),
-    );
-  }
-}
-
-class _CropStatusIcons extends StatelessWidget {
-  const _CropStatusIcons();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 67,
-      height: 14,
-      child: CustomPaint(painter: _CropStatusIconPainter()),
-    );
-  }
-}
-
-class _CropStatusIconPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.fill;
-    for (var i = 0; i < 4; i++) {
-      final h = 3.0 + i * 2.2;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0 + i * 4.3, 11 - h, 3, h),
-          const Radius.circular(1),
-        ),
-        paint,
-      );
-    }
-
-    final wifiPaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round;
-    final center = const Offset(30, 11);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: 9),
-      -2.25,
-      1.35,
-      false,
-      wifiPaint,
-    );
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: 6),
-      -2.18,
-      1.22,
-      false,
-      wifiPaint,
-    );
-    canvas.drawCircle(const Offset(30, 10.8), 1.5, paint);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(45, 3, 19, 9),
-        const Radius.circular(2),
-      ),
-      Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(47, 5, 14, 5),
-        const Radius.circular(1),
-      ),
-      paint,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        const Rect.fromLTWH(65, 6, 2, 4),
-        const Radius.circular(1),
-      ),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _CropToolbar extends StatelessWidget {
