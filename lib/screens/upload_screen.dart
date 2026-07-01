@@ -17,6 +17,7 @@ const _designContentHeight = 1162.0;
 const _bottomNavDesignHeight = 80.0;
 const _compactBottomNavDesignHeight = 60.0;
 const _compactHeightBreakpoint = 700.0;
+const _homeBackgroundColor = Color(0xFFF0F0F4);
 
 class _HomeLayoutMetrics {
   final double pageWidth;
@@ -112,7 +113,7 @@ class _UploadScreenState extends State<UploadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF2F1F0),
+      backgroundColor: _homeBackgroundColor,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final metrics = _HomeLayoutMetrics(constraints: constraints);
@@ -123,7 +124,7 @@ class _UploadScreenState extends State<UploadScreen> {
               child: Stack(
                 children: [
                   const Positioned.fill(
-                    child: ColoredBox(color: Color(0xFFF2F1F0)),
+                    child: ColoredBox(color: _homeBackgroundColor),
                   ),
                   SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
@@ -251,9 +252,9 @@ class _HomeDesignCanvas extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Color(0x00F2F1F0),
-                    Color(0x00F2F1F0),
-                    Color(0xFFF2F1F0),
+                    Color(0x00F0F0F4),
+                    Color(0x00F0F0F4),
+                    _homeBackgroundColor,
                   ],
                   stops: [0, 0.48, 0.66],
                 ),
@@ -271,7 +272,7 @@ class _HomeDesignCanvas extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 199,
+            left: 201,
             top: 360.55,
             child: _FeatureCard(
               icon: 'assets/figma_home/feature_blind_box_icon.png',
@@ -1321,42 +1322,35 @@ class _FeatureCard extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        width: 179,
-        height: 132.9,
+        width: 177,
+        height: 132,
         decoration: BoxDecoration(
           gradient: const RadialGradient(
+            center: Alignment.center,
             colors: [Color(0xFFFFF9C4), Colors.white],
-            radius: 0.82,
+            radius: 0.57,
           ),
-          border: Border.all(color: Color(0xFFF2E59B)),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0xFFF2E59B),
-              offset: Offset(2, 2),
-              blurRadius: 0,
-            ),
-          ],
         ),
-        child: Stack(
-          children: [
-            Positioned(
-              left: 61.5,
-              top: 24,
-              child: Image.asset(icon, width: 56, height: 56),
-            ),
-            Positioned(
-              left: 48,
-              top: 84,
-              child: Image.asset(
-                textImage,
-                width: 83,
-                height: 24.9,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.none,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Image.asset(icon, width: 56, height: 56),
+              const SizedBox(height: 4),
+              SizedBox(
+                width: double.infinity,
+                height: 24,
+                child: Image.asset(
+                  textImage,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.none,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
