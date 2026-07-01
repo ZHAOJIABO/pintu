@@ -5,6 +5,7 @@ import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/screens/result_screen.dart';
+import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -30,6 +31,120 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('ResultScreen switches to bead board mode', (tester) async {
+    tester.view.physicalSize = const Size(375, 667);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    await tester.tap(find.text('拼豆模式'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BeadBoardPreview), findsOneWidget);
+    final boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.boardWidth, 50);
+    expect(boardPainter.boardHeight, 50);
+    expect(boardPainter.showColorRefs, isFalse);
+    expect(boardPainter.selectedRef, isNull);
+    expect(find.text('全部'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ResultScreen filters bead board by selected color ref', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(375, 667);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    await tester.tap(find.text('拼豆模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('R1'));
+    await tester.pump();
+
+    BeadBoardPainter boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.selectedRef, 'R1');
+    expect(
+      tester
+          .widget<BeadModeUsageStrip>(find.byType(BeadModeUsageStrip))
+          .selectedRef,
+      'R1',
+    );
+
+    await tester.tap(find.text('全部'));
+    await tester.pump();
+
+    boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.selectedRef, isNull);
+  });
+
+  testWidgets('ResultScreen shows bead color refs after zooming in', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(375, 667);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    await tester.tap(find.text('拼豆模式'));
+    await tester.pumpAndSettle();
+
+    final center = tester.getCenter(find.byType(BeadBoardPreview));
+    final firstFinger = await tester.createGesture(pointer: 1);
+    final secondFinger = await tester.createGesture(pointer: 2);
+    await firstFinger.down(center - const Offset(10, 0));
+    await secondFinger.down(center + const Offset(10, 0));
+    await tester.pump();
+    await firstFinger.moveTo(center - const Offset(35, 0));
+    await secondFinger.moveTo(center + const Offset(35, 0));
+    await tester.pump();
+    await firstFinger.up();
+    await secondFinger.up();
+    await tester.pump();
+
+    final boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.showColorRefs, isTrue);
+    expect(BeadBoardPreview.colorRefMinEffectiveCellSize, 20);
+    expect(boardPainter.colorRefsByRgb, containsPair(0xFF2850, 'R1'));
+    expect(boardPainter.colorRefsByRgb, containsPair(0x000000, 'H7'));
+    expect(tester.takeException(), isNull);
+  });
 }
 
 GeneratedPattern _pattern() {
