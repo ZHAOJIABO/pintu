@@ -969,7 +969,15 @@ class _TitleBadge extends StatelessWidget {
       child: const SizedBox(
         width: 48.8,
         height: 48.4,
-        child: CustomPaint(painter: _TitleRabbitPainter()),
+        child: CustomPaint(
+          painter: _TitleRabbitPainter(
+            accentColor: Color(0xFFFFC516),
+            earColor: Color(0xFFFFD951),
+            shadowColor: Color(0x21000000),
+            shadowBlur: 2,
+            accentOffset: Offset(1.46, 2.6),
+          ),
+        ),
       ),
     );
   }
@@ -1106,13 +1114,7 @@ class _TitleRabbitPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TitleRabbitPainter oldDelegate) {
-    return oldDelegate.accentColor != accentColor ||
-        oldDelegate.earColor != earColor ||
-        oldDelegate.shadowColor != shadowColor ||
-        oldDelegate.shadowBlur != shadowBlur ||
-        oldDelegate.accentOffset != accentOffset;
-  }
+  bool shouldRepaint(covariant _TitleRabbitPainter oldDelegate) => true;
 }
 
 class _DecorativeImage extends StatelessWidget {
@@ -1233,7 +1235,7 @@ class _StepPill extends StatelessWidget {
   Widget build(BuildContext context) {
     const steps = [
       ('Step 1', '上传照片'),
-      ('Step 2', '转为插画'),
+      ('Step 2', '转换风格'),
       ('Step 3', '确定参数'),
       ('Step 4', '生成图纸'),
     ];
@@ -1366,26 +1368,11 @@ class _GalleryTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: 350,
-      height: 16,
+      height: 20,
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const SizedBox(
-            width: 16,
-            height: 16,
-            child: CustomPaint(painter: _GalleryRabbitIconPainter()),
-          ),
-          const SizedBox(width: 4),
-          const Text(
-            '兔子的图库',
-            style: TextStyle(
-              color: Colors.black,
-              fontFamily: _roundFontFamily,
-              fontFamilyFallback: _fontFallbacks,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              height: 1,
-            ),
-          ),
+          const _GalleryTitleLabel(),
           const Spacer(),
           GestureDetector(
             onTap: onFilter,
@@ -1401,28 +1388,49 @@ class _GalleryTitle extends StatelessWidget {
   }
 }
 
-class _GalleryRabbitIconPainter extends CustomPainter {
-  const _GalleryRabbitIconPainter();
-
-  static const _rabbitPainter = _TitleRabbitPainter(
-    accentColor: Colors.black,
-    earColor: Colors.black,
-    shadowColor: Color(0x00000000),
-    shadowBlur: 0,
-    accentOffset: Offset(1.46, 2.6),
-  );
+class _GalleryTitleLabel extends StatelessWidget {
+  const _GalleryTitleLabel();
 
   @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.clipRect(const Rect.fromLTWH(0, 0, 17, 17));
-    canvas.translate(0.7, 0.65);
-    _rabbitPainter.paint(canvas, const Size(17, 17));
-    canvas.restore();
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: 18, height: 18, child: _GalleryRabbitIcon()),
+        SizedBox(width: 4),
+        Text(
+          '兔子的图库',
+          style: TextStyle(
+            color: Colors.black,
+            fontFamily: _roundFontFamily,
+            fontFamilyFallback: _fontFallbacks,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
   }
+}
+
+class _GalleryRabbitIcon extends StatelessWidget {
+  const _GalleryRabbitIcon();
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    return Transform.translate(
+      offset: const Offset(0, 1),
+      child: Image.asset(
+        'assets/figma_home/gallery_title_icon.png',
+        width: 18,
+        height: 18,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
+    );
+  }
 }
 
 class _FilterIconPainter extends CustomPainter {
