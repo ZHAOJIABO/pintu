@@ -535,6 +535,7 @@ class _CropToolbar extends StatelessWidget {
                       fontFamily: _roundFontFamily,
                       fontFamilyFallback: _fontFallbacks,
                       fontSize: 16,
+                      fontWeight: FontWeight.w500,
                       height: 1.2,
                     ),
                   ),
