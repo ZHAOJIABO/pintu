@@ -24,8 +24,12 @@ class ImageService {
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) throw Exception('Failed to decode image');
 
-    // Create transparent canvas of target size (same as web version)
-    final canvas = img.Image(width: targetWidth, height: targetHeight);
+    // Use an explicit alpha channel so letterboxed areas stay transparent.
+    final canvas = img.Image(
+      width: targetWidth,
+      height: targetHeight,
+      numChannels: 4,
+    )..clear(img.ColorUint8.rgba(0, 0, 0, 0));
 
     // Calculate aspect-ratio-preserving dimensions (mirrors drawImageInsideCanvas)
     final imageAspect = decoded.width / decoded.height;

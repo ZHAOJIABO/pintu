@@ -8,17 +8,36 @@ import '../models/pattern_chart.dart';
 
 class PatternChartPainter extends CustomPainter {
   static const double minReadableCellSize = 7;
+  static const int minBorderCellCount = 30;
+  static const Color defaultBorderColor = Color(0xFF8A1F18);
+  static const Color defaultBorderLabelColor = Color(0xFFFFFFFF);
+  static const Color defaultMinorGridColor = Color(0xFFE9EBED);
+  static const Color defaultMajorGridColor = Color(0xB3FF3D43);
 
   final PatternChartData chart;
   final double cellSize;
   final bool showCellLabels;
   final bool showCoordinates;
+  final bool showBorderCoordinates;
+  final Color canvasBackground;
+  final Color chartBackground;
+  final Color minorGridColor;
+  final Color majorGridColor;
+  final Color borderColor;
+  final Color borderLabelColor;
 
   PatternChartPainter({
     required this.chart,
     required this.cellSize,
     this.showCellLabels = true,
     this.showCoordinates = false,
+    this.showBorderCoordinates = false,
+    this.canvasBackground = const Color(0xFFFFFFFF),
+    this.chartBackground = const Color(0xFFFDFDFD),
+    this.minorGridColor = defaultMinorGridColor,
+    this.majorGridColor = defaultMajorGridColor,
+    this.borderColor = defaultBorderColor,
+    this.borderLabelColor = defaultBorderLabelColor,
   });
 
   static double coordinateGutter({
@@ -29,19 +48,58 @@ class PatternChartPainter extends CustomPainter {
     return (cellSize * 1.25).clamp(18.0, 32.0).toDouble();
   }
 
+  static double borderBand({
+    required double cellSize,
+    required bool showBorderCoordinates,
+  }) {
+    if (!showBorderCoordinates) return 0;
+    return cellSize;
+  }
+
   static Size chartSize({
     required PatternChartData chart,
     required double cellSize,
     required bool showCoordinates,
+    bool showBorderCoordinates = false,
   }) {
     final gutter = coordinateGutter(
       cellSize: cellSize,
       showCoordinates: showCoordinates,
     );
-    return Size(
-      gutter + chart.width * cellSize,
-      gutter + chart.height * cellSize,
+    final border = borderBand(
+      cellSize: cellSize,
+      showBorderCoordinates: showBorderCoordinates,
     );
+    final gridColumns = gridColumnCount(
+      chart: chart,
+      showBorderCoordinates: showBorderCoordinates,
+    );
+    final gridRows = gridRowCount(
+      chart: chart,
+      showBorderCoordinates: showBorderCoordinates,
+    );
+    return Size(
+      gutter + border * 2 + gridColumns * cellSize,
+      gutter + border * 2 + gridRows * cellSize,
+    );
+  }
+
+  static int gridColumnCount({
+    required PatternChartData chart,
+    required bool showBorderCoordinates,
+  }) {
+    if (!showBorderCoordinates) return chart.width;
+    return chart.width < minBorderCellCount ? minBorderCellCount : chart.width;
+  }
+
+  static int gridRowCount({
+    required PatternChartData chart,
+    required bool showBorderCoordinates,
+  }) {
+    if (!showBorderCoordinates) return chart.height;
+    return chart.height < minBorderCellCount
+        ? minBorderCellCount
+        : chart.height;
   }
 
   @override
@@ -50,17 +108,35 @@ class PatternChartPainter extends CustomPainter {
       cellSize: cellSize,
       showCoordinates: showCoordinates,
     );
-    final origin = Offset(gutter, gutter);
-    final gridWidth = chart.width * cellSize;
-    final gridHeight = chart.height * cellSize;
-
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = const Color(0xFFFFFFFF),
+    final border = borderBand(
+      cellSize: cellSize,
+      showBorderCoordinates: showBorderCoordinates,
     );
+    final borderOrigin = Offset(gutter, gutter);
+    final origin = Offset(gutter + border, gutter + border);
+    final gridColumns = gridColumnCount(
+      chart: chart,
+      showBorderCoordinates: showBorderCoordinates,
+    );
+    final gridRows = gridRowCount(
+      chart: chart,
+      showBorderCoordinates: showBorderCoordinates,
+    );
+    final gridWidth = gridColumns * cellSize;
+    final gridHeight = gridRows * cellSize;
+    final cellOffsetX = (gridColumns - chart.width) ~/ 2;
+    final cellOffsetY = (gridRows - chart.height) ~/ 2;
+
+    canvas.drawRect(Offset.zero & size, Paint()..color = canvasBackground);
+    if (showBorderCoordinates) {
+      canvas.drawRect(
+        borderOrigin & Size(gridWidth + border * 2, gridHeight + border * 2),
+        Paint()..color = borderColor,
+      );
+    }
     canvas.drawRect(
       origin & Size(gridWidth, gridHeight),
-      Paint()..color = const Color(0xFFFDFDFD),
+      Paint()..color = chartBackground,
     );
 
     final fillPaint = Paint()..style = PaintingStyle.fill;
@@ -71,8 +147,8 @@ class PatternChartPainter extends CustomPainter {
       for (int x = 0; x < chart.width; x++) {
         final cell = chart.cellAt(x, y);
         final rect = Rect.fromLTWH(
-          origin.dx + x * cellSize,
-          origin.dy + y * cellSize,
+          origin.dx + (x + cellOffsetX) * cellSize,
+          origin.dy + (y + cellOffsetY) * cellSize,
           cellSize,
           cellSize,
         );
@@ -103,36 +179,156 @@ class PatternChartPainter extends CustomPainter {
       }
     }
 
-    _drawGrid(canvas, origin, gridWidth, gridHeight);
+    _drawGrid(canvas, origin, gridWidth, gridHeight, gridColumns, gridRows);
+    if (showBorderCoordinates) {
+      _drawBorderCoordinates(
+        canvas,
+        borderOrigin,
+        origin,
+        gridWidth,
+        gridHeight,
+        gridColumns,
+        gridRows,
+      );
+    }
     if (showCoordinates) {
       _drawCoordinates(canvas, origin);
     }
   }
 
-  void _drawGrid(Canvas canvas, Offset origin, double width, double height) {
+  void _drawGrid(
+    Canvas canvas,
+    Offset origin,
+    double width,
+    double height,
+    int columns,
+    int rows,
+  ) {
     final minorPaint = Paint()
-      ..color = const Color(0x33000000)
-      ..strokeWidth = math.max(0.4, cellSize * 0.025);
-    final majorPaint = Paint()
-      ..color = const Color(0x665C54D8)
-      ..strokeWidth = math.max(0.8, cellSize * 0.055);
+      ..color = minorGridColor
+      ..strokeWidth = math.max(0.45, cellSize * 0.022);
+    final dashedPaint = Paint()
+      ..color = majorGridColor
+      ..strokeWidth = math.max(1.8, cellSize * 0.15);
+    final solidPaint = Paint()
+      ..color = majorGridColor
+      ..strokeWidth = math.max(2.0, cellSize * 0.15);
 
-    for (int x = 0; x <= chart.width; x++) {
-      final paint = x % 5 == 0 ? majorPaint : minorPaint;
+    for (int x = 0; x <= columns; x++) {
       final dx = origin.dx + x * cellSize;
       canvas.drawLine(
         Offset(dx, origin.dy),
         Offset(dx, origin.dy + height),
-        paint,
+        minorPaint,
       );
     }
-    for (int y = 0; y <= chart.height; y++) {
-      final paint = y % 5 == 0 ? majorPaint : minorPaint;
+    for (int y = 0; y <= rows; y++) {
       final dy = origin.dy + y * cellSize;
       canvas.drawLine(
         Offset(origin.dx, dy),
         Offset(origin.dx + width, dy),
+        minorPaint,
+      );
+    }
+
+    for (int x = 5; x < columns; x += 5) {
+      final dx = origin.dx + x * cellSize;
+      final start = Offset(dx, origin.dy);
+      final end = Offset(dx, origin.dy + height);
+      if (x % 10 == 0) {
+        canvas.drawLine(start, end, solidPaint);
+      } else {
+        _drawDashedLine(canvas, start, end, dashedPaint);
+      }
+    }
+    for (int y = 5; y < rows; y += 5) {
+      final dy = origin.dy + y * cellSize;
+      final start = Offset(origin.dx, dy);
+      final end = Offset(origin.dx + width, dy);
+      if (y % 10 == 0) {
+        canvas.drawLine(start, end, solidPaint);
+      } else {
+        _drawDashedLine(canvas, start, end, dashedPaint);
+      }
+    }
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    final delta = end - start;
+    final distance = delta.distance;
+    if (distance == 0) return;
+
+    final direction = Offset(delta.dx / distance, delta.dy / distance);
+    final dashLength = math.max(2.0, cellSize * 0.16);
+    final gapLength = math.max(1.5, cellSize * 0.15);
+    var cursor = 0.0;
+
+    while (cursor < distance) {
+      final next = math.min(cursor + dashLength, distance);
+      canvas.drawLine(
+        start + direction * cursor,
+        start + direction * next,
         paint,
+      );
+      cursor += dashLength + gapLength;
+    }
+  }
+
+  void _drawBorderCoordinates(
+    Canvas canvas,
+    Offset borderOrigin,
+    Offset origin,
+    double width,
+    double height,
+    int columns,
+    int rows,
+  ) {
+    final border = borderBand(
+      cellSize: cellSize,
+      showBorderCoordinates: showBorderCoordinates,
+    );
+    final style = TextStyle(
+      color: borderLabelColor,
+      fontSize: (cellSize * 0.34).clamp(5.0, 9.0).toDouble(),
+      fontWeight: FontWeight.w700,
+      height: 1,
+    );
+    final cache = <String, TextPainter>{};
+
+    TextPainter label(String text) {
+      return cache.putIfAbsent(
+        text,
+        () => TextPainter(
+          text: TextSpan(text: text, style: style),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout(),
+      );
+    }
+
+    for (int x = 0; x < columns; x++) {
+      final painter = label('${x + 1}');
+      final dx = origin.dx + x * cellSize + cellSize / 2 - painter.width / 2;
+      painter.paint(
+        canvas,
+        Offset(dx, borderOrigin.dy + border / 2 - painter.height / 2),
+      );
+      painter.paint(
+        canvas,
+        Offset(dx, origin.dy + height + border / 2 - painter.height / 2),
+      );
+    }
+
+    for (int y = 0; y < rows; y++) {
+      final painter = label('${y + 1}');
+      final dy = origin.dy + y * cellSize + cellSize / 2 - painter.height / 2;
+      painter.paint(
+        canvas,
+        Offset(borderOrigin.dx + border / 2 - painter.width / 2, dy),
+      );
+      painter.paint(
+        canvas,
+        Offset(origin.dx + width + border / 2 - painter.width / 2, dy),
       );
     }
   }
@@ -200,7 +396,14 @@ class PatternChartPainter extends CustomPainter {
     return oldDelegate.chart != chart ||
         oldDelegate.cellSize != cellSize ||
         oldDelegate.showCellLabels != showCellLabels ||
-        oldDelegate.showCoordinates != showCoordinates;
+        oldDelegate.showCoordinates != showCoordinates ||
+        oldDelegate.showBorderCoordinates != showBorderCoordinates ||
+        oldDelegate.canvasBackground != canvasBackground ||
+        oldDelegate.chartBackground != chartBackground ||
+        oldDelegate.minorGridColor != minorGridColor ||
+        oldDelegate.majorGridColor != majorGridColor ||
+        oldDelegate.borderColor != borderColor ||
+        oldDelegate.borderLabelColor != borderLabelColor;
   }
 }
 
@@ -229,7 +432,8 @@ class PatternChartPagePainter extends CustomPainter {
     final chartSize = PatternChartPainter.chartSize(
       chart: chart,
       cellSize: cellSize,
-      showCoordinates: true,
+      showCoordinates: false,
+      showBorderCoordinates: true,
     );
     final width = math.max(680.0, chartSize.width + pageMargin * 2);
     final legendRows = math.max(
@@ -256,7 +460,8 @@ class PatternChartPagePainter extends CustomPainter {
     final chartPainter = PatternChartPainter(
       chart: chart,
       cellSize: cellSize,
-      showCoordinates: true,
+      showCoordinates: false,
+      showBorderCoordinates: true,
     );
     canvas.save();
     canvas.translate(chartOrigin.dx, chartOrigin.dy);
@@ -265,7 +470,8 @@ class PatternChartPagePainter extends CustomPainter {
       PatternChartPainter.chartSize(
         chart: chart,
         cellSize: cellSize,
-        showCoordinates: true,
+        showCoordinates: false,
+        showBorderCoordinates: true,
       ),
     );
     canvas.restore();
@@ -273,7 +479,8 @@ class PatternChartPagePainter extends CustomPainter {
     final chartSize = PatternChartPainter.chartSize(
       chart: chart,
       cellSize: cellSize,
-      showCoordinates: true,
+      showCoordinates: false,
+      showBorderCoordinates: true,
     );
     _drawLegend(
       canvas,
