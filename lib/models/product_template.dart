@@ -91,7 +91,7 @@ class ProductTemplate {
 
 class ProductTemplateCatalog {
   static const int minCustomBeads = 8;
-  static const int maxCustomBeads = 128;
+  static const int maxCustomBeads = 150;
 
   // These are MVP placeholders. Product should tune the exact bead dimensions
   // once the commercial template sizes are final.

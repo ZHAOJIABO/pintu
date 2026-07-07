@@ -4,9 +4,20 @@ import 'dart:typed_data';
 import 'color_limit.dart';
 import 'product_template.dart';
 
+enum DraftImageSource {
+  photo('照片'),
+  illustration('插画');
+
+  final String label;
+
+  const DraftImageSource(this.label);
+}
+
 class DraftProject {
   final Uint8List originalImageBytes;
   final Uint8List? croppedImageBytes;
+  final Uint8List? styledImageBytes;
+  final DraftImageSource imageSource;
   final CropAspectRatio cropAspectRatio;
   final ProductTemplate? selectedTemplate;
   final int? customBeadWidth;
@@ -18,16 +29,19 @@ class DraftProject {
   const DraftProject({
     required this.originalImageBytes,
     this.croppedImageBytes,
+    this.styledImageBytes,
+    this.imageSource = DraftImageSource.photo,
     this.cropAspectRatio = CropAspectRatio.square,
     this.selectedTemplate,
     this.customBeadWidth,
     this.customBeadHeight,
     this.paletteBrandId,
-    this.colorLimit = ColorLimit.sixteen,
+    this.colorLimit = ColorLimit.unlimited,
     this.smoothingEnabled = true,
   });
 
-  Uint8List get imageForGeneration => croppedImageBytes ?? originalImageBytes;
+  Uint8List get imageForGeneration =>
+      styledImageBytes ?? croppedImageBytes ?? originalImageBytes;
 
   ProductTemplate get effectiveTemplate =>
       selectedTemplate ?? ProductTemplateCatalog.defaultTemplate;
@@ -57,6 +71,8 @@ class DraftProject {
   DraftProject copyWith({
     Uint8List? originalImageBytes,
     Uint8List? croppedImageBytes,
+    Uint8List? styledImageBytes,
+    DraftImageSource? imageSource,
     CropAspectRatio? cropAspectRatio,
     ProductTemplate? selectedTemplate,
     int? customBeadWidth,
@@ -68,6 +84,8 @@ class DraftProject {
     return DraftProject(
       originalImageBytes: originalImageBytes ?? this.originalImageBytes,
       croppedImageBytes: croppedImageBytes ?? this.croppedImageBytes,
+      styledImageBytes: styledImageBytes ?? this.styledImageBytes,
+      imageSource: imageSource ?? this.imageSource,
       cropAspectRatio: cropAspectRatio ?? this.cropAspectRatio,
       selectedTemplate: selectedTemplate ?? this.selectedTemplate,
       customBeadWidth: customBeadWidth ?? this.customBeadWidth,
@@ -82,6 +100,9 @@ class DraftProject {
     if (includeImages) 'originalImageBytes': base64Encode(originalImageBytes),
     if (includeImages && croppedImageBytes != null)
       'croppedImageBytes': base64Encode(croppedImageBytes!),
+    if (includeImages && styledImageBytes != null)
+      'styledImageBytes': base64Encode(styledImageBytes!),
+    'imageSource': imageSource.name,
     'cropAspectRatio': cropAspectRatio.name,
     'selectedTemplate': effectiveTemplate.toJson(),
     'customBeadWidth': customBeadWidth,

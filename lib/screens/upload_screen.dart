@@ -66,7 +66,10 @@ class _UploadScreenState extends State<UploadScreen> {
   final ImageService _imageService = ImageService();
   bool _picking = false;
 
-  Future<void> _pickImage({ImageSource source = ImageSource.gallery}) async {
+  Future<void> _pickImage({
+    required DraftImageSource imageSource,
+    ImageSource source = ImageSource.gallery,
+  }) async {
     setState(() => _picking = true);
     try {
       final file = await _imageService.pickImage(source: source);
@@ -76,8 +79,12 @@ class _UploadScreenState extends State<UploadScreen> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              CropScreen(draft: DraftProject(originalImageBytes: bytes)),
+          builder: (_) => CropScreen(
+            draft: DraftProject(
+              originalImageBytes: bytes,
+              imageSource: imageSource,
+            ),
+          ),
         ),
       );
     } catch (error) {
@@ -141,7 +148,16 @@ class _UploadScreenState extends State<UploadScreen> {
                           scale: metrics.scale,
                           child: _HomeDesignCanvas(
                             picking: _picking,
-                            onStart: _picking ? null : _pickImage,
+                            onPhotoStart: _picking
+                                ? null
+                                : () => _pickImage(
+                                    imageSource: DraftImageSource.photo,
+                                  ),
+                            onIllustrationStart: _picking
+                                ? null
+                                : () => _pickImage(
+                                    imageSource: DraftImageSource.illustration,
+                                  ),
                             onBlindBox: _openBlindBox,
                             onFilter: () => _showComingSoon('筛选功能即将开放'),
                           ),
@@ -216,13 +232,15 @@ class _ScaledDesignSurface extends StatelessWidget {
 
 class _HomeDesignCanvas extends StatelessWidget {
   final bool picking;
-  final VoidCallback? onStart;
+  final VoidCallback? onPhotoStart;
+  final VoidCallback? onIllustrationStart;
   final VoidCallback? onBlindBox;
   final VoidCallback? onFilter;
 
   const _HomeDesignCanvas({
     required this.picking,
-    required this.onStart,
+    required this.onPhotoStart,
+    required this.onIllustrationStart,
     required this.onBlindBox,
     required this.onFilter,
   });
@@ -261,14 +279,14 @@ class _HomeDesignCanvas extends StatelessWidget {
               ),
             ),
           ),
-          _HeroCard(picking: picking, onStart: onStart),
+          _HeroCard(picking: picking, onStart: onPhotoStart),
           Positioned(
             left: 12,
             top: 360.55,
             child: _FeatureCard(
               icon: 'assets/figma_home/feature_illustration_icon.png',
               textImage: 'assets/figma_home/feature_illustration_text.png',
-              onTap: onStart,
+              onTap: onIllustrationStart,
             ),
           ),
           Positioned(

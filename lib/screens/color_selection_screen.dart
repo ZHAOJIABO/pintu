@@ -18,7 +18,7 @@ class ColorSelectionScreen extends StatefulWidget {
 class _ColorSelectionScreenState extends State<ColorSelectionScreen> {
   final PaletteService _paletteService = PaletteService();
   String? _brandId;
-  ColorLimit _limit = ColorLimit.sixteen;
+  ColorLimit _limit = ColorLimit.unlimited;
   bool _smoothing = true;
 
   @override

@@ -1,5 +1,5 @@
 enum ColorLimit {
-  unlimited(null, '不限制'),
+  unlimited(null, '不限'),
   eight(8, '8'),
   sixteen(16, '16'),
   twentyFour(24, '24'),
@@ -13,7 +13,7 @@ enum ColorLimit {
   static ColorLimit fromName(String? name) {
     return ColorLimit.values.firstWhere(
       (limit) => limit.name == name,
-      orElse: () => ColorLimit.sixteen,
+      orElse: () => ColorLimit.unlimited,
     );
   }
 }

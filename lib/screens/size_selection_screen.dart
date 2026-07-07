@@ -102,7 +102,7 @@ class _SizeSelectionScreenState extends State<SizeSelectionScreen> {
               if (!_customValid)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text('自定义尺寸需在 8 到 128 颗之间'),
+                  child: Text('自定义尺寸需在 8 到 150 颗之间'),
                 ),
             ],
             const SizedBox(height: 24),

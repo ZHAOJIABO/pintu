@@ -13,8 +13,9 @@ void main() {
   test('custom dimension validation enforces bounds', () {
     expect(ProductTemplateCatalog.isValidCustomDimension(8), isTrue);
     expect(ProductTemplateCatalog.isValidCustomDimension(128), isTrue);
+    expect(ProductTemplateCatalog.isValidCustomDimension(150), isTrue);
     expect(ProductTemplateCatalog.isValidCustomDimension(7), isFalse);
-    expect(ProductTemplateCatalog.isValidCustomDimension(129), isFalse);
+    expect(ProductTemplateCatalog.isValidCustomDimension(151), isFalse);
     expect(ProductTemplateCatalog.isValidCustomDimension(0), isFalse);
   });
 }

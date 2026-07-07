@@ -8,7 +8,8 @@ import 'package:image/image.dart' as img;
 import '../models/draft_project.dart';
 import '../models/product_template.dart';
 import '../services/crop_service.dart';
-import 'size_selection_screen.dart';
+import 'parameter_config_screen.dart';
+import 'style_conversion_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
@@ -229,11 +230,12 @@ class _CropScreenState extends State<CropScreen>
         croppedImageBytes: cropped,
         cropAspectRatio: _ratio,
       );
+      final nextScreen = nextDraft.imageSource == DraftImageSource.photo
+          ? StyleConversionScreen(draft: nextDraft)
+          : ParameterConfigScreen(draft: nextDraft);
       await Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => SizeSelectionScreen(draft: nextDraft),
-        ),
+        MaterialPageRoute(builder: (_) => nextScreen),
       );
     } catch (error) {
       if (!mounted) return;
