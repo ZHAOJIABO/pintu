@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/color.dart';
 import '../models/generated_pattern.dart';
@@ -21,17 +20,34 @@ const _chartMajorGrid = PatternChartPainter.defaultMajorGridColor;
 
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
+  final bool showGeneratedHint;
+  final PatternExportService exportService;
 
-  const ResultScreen({super.key, required this.pattern});
+  const ResultScreen({
+    super.key,
+    required this.pattern,
+    this.showGeneratedHint = false,
+    this.exportService = const PatternExportService(),
+  });
 
   @override
   State<ResultScreen> createState() => _ResultScreenState();
 }
 
 class _ResultScreenState extends State<ResultScreen> {
-  final PatternExportService _exportService = const PatternExportService();
+  late final PatternExportService _exportService = widget.exportService;
   late final GeneratedPattern _pattern = widget.pattern;
   bool _exporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showGeneratedHint) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showGeneratedHintDialog();
+      });
+    }
+  }
 
   Future<void> _openBeadMode() async {
     await Navigator.push<void>(
@@ -45,18 +61,44 @@ class _ResultScreenState extends State<ResultScreen> {
 
     setState(() => _exporting = true);
     try {
-      final file = await _exportService.exportChartPng(_pattern);
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], text: '拼豆图纸 ${_pattern.width}x${_pattern.height}');
+      await _exportService.saveChartPngToPhotoLibrary(_pattern);
+      if (!mounted) return;
+      _showToast('图纸已保存');
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存失败：$error')));
+      _showToast('保存失败：$error');
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  void _showToast(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+  }
+
+  Future<void> _showGeneratedHintDialog() {
+    return showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          content: const Text('图纸可以在“我的-图集”中查看哦～'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('我知道啦！'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

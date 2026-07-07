@@ -10,6 +10,7 @@ import '../models/product_template.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
 import '../services/pattern_generation_service.dart';
+import '../services/project_storage_service.dart';
 import 'result_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -81,6 +82,7 @@ class ParameterConfigScreen extends StatefulWidget {
 
 class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   final PaletteService _paletteService = PaletteService();
+  final ProjectStorageService _projectStorageService = ProjectStorageService();
   late final PatternGenerationService _generationService =
       PatternGenerationService(imageService: ImageService());
 
@@ -178,12 +180,16 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         draft: nextDraft,
         palette: palette,
       );
+      await _projectStorageService.saveGeneratedPattern(pattern);
       if (!mounted) return;
 
       setState(() => _generating = false);
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => ResultScreen(pattern: pattern)),
+        MaterialPageRoute(
+          builder: (_) =>
+              ResultScreen(pattern: pattern, showGeneratedHint: true),
+        ),
       );
     } catch (error) {
       if (!mounted) return;

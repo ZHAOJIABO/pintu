@@ -4,6 +4,7 @@ import '../models/draft_project.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
 import '../services/pattern_generation_service.dart';
+import '../services/project_storage_service.dart';
 import 'result_screen.dart';
 
 class GenerationScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class GenerationScreen extends StatefulWidget {
 
 class _GenerationScreenState extends State<GenerationScreen> {
   final PaletteService _paletteService = PaletteService();
+  final ProjectStorageService _projectStorageService = ProjectStorageService();
   late final PatternGenerationService _generationService =
       PatternGenerationService(imageService: ImageService());
 
@@ -45,10 +47,14 @@ class _GenerationScreenState extends State<GenerationScreen> {
         draft: widget.draft,
         palette: palette,
       );
+      await _projectStorageService.saveGeneratedPattern(pattern);
       if (!mounted || token != _generationToken) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => ResultScreen(pattern: pattern)),
+        MaterialPageRoute(
+          builder: (_) =>
+              ResultScreen(pattern: pattern, showGeneratedHint: true),
+        ),
       );
     } catch (error) {
       if (!mounted || token != _generationToken) return;

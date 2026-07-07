@@ -6,6 +6,7 @@ import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/rendering/pattern_chart_painter.dart';
 import 'package:bobobeads/screens/result_screen.dart';
+import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,6 +98,65 @@ void main() {
     expect(chartPainter.showCellLabels, isTrue);
   });
 
+  testWidgets('exported PNG uses a high resolution canvas', (tester) async {
+    final imageSize = const PatternExportService().exportChartPngPixelSize(
+      _pattern(),
+    );
+
+    expect(imageSize.width, greaterThanOrEqualTo(1200));
+  });
+
+  testWidgets('save album action shows success toast', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    var saved = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          exportService: _FakePatternExportService(
+            onSave: (_) async => saved = true,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('保存相册'));
+    await tester.pump();
+
+    expect(saved, isTrue);
+    expect(find.text('图纸已保存'), findsOneWidget);
+  });
+
+  testWidgets('generated result shows gallery hint dialog', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(pattern: _pattern(), showGeneratedHint: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('图纸可以在“我的-图集”中查看哦～'), findsOneWidget);
+    expect(find.text('我知道啦！'), findsOneWidget);
+
+    await tester.tap(find.text('我知道啦！'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('图纸可以在“我的-图集”中查看哦～'), findsNothing);
+  });
+
   testWidgets('immediate start opens bead mode', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -167,6 +227,17 @@ void main() {
         .single;
     expect(boardPainter.selectedRef, isNull);
   });
+}
+
+class _FakePatternExportService extends PatternExportService {
+  final Future<void> Function(GeneratedPattern pattern) onSave;
+
+  const _FakePatternExportService({required this.onSave});
+
+  @override
+  Future<void> saveChartPngToPhotoLibrary(GeneratedPattern pattern) {
+    return onSave(pattern);
+  }
 }
 
 GeneratedPattern _pattern() {
