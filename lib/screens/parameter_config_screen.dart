@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import '../models/color_limit.dart';
 import '../models/draft_project.dart';
 import '../models/product_template.dart';
+import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
 import '../services/pattern_generation_service.dart';
@@ -99,6 +100,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   bool _denoise = false;
   int _saturation = 100;
   bool _generating = false;
+  bool _serverAttemptStarted = false;
 
   ProductTemplate get _customTemplate =>
       _sizeOptions.firstWhere((template) => template.custom);
@@ -175,12 +177,24 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     setState(() => _generating = true);
 
     try {
+      final backendServices = BackendScope.maybeOf(context);
+      if (backendServices != null && !_serverAttemptStarted) {
+        await backendServices.generationCompletion.startNewAttempt();
+        _serverAttemptStarted = true;
+      }
+      if (!mounted) return;
       final palette = await _paletteService.loadByName(brandId);
       final pattern = await _generationService.generate(
         draft: nextDraft,
         palette: palette,
       );
       await _projectStorageService.saveGeneratedPattern(pattern);
+      if (!mounted) return;
+      if (backendServices != null) {
+        await backendServices.generationCompletion.completeGeneratedPattern(
+          pattern,
+        );
+      }
       if (!mounted) return;
 
       setState(() => _generating = false);
@@ -249,13 +263,22 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           brandLabel: _brandLabel,
                           palettes: _paletteService.availablePalettes,
                           onTemplateSelected: (template) {
-                            setState(() => _selectedTemplate = template);
+                            setState(() {
+                              _selectedTemplate = template;
+                              _serverAttemptStarted = false;
+                            });
                           },
                           onCustomSizeChanged: (value) {
-                            setState(() => _customSize = value);
+                            setState(() {
+                              _customSize = value;
+                              _serverAttemptStarted = false;
+                            });
                           },
                           onSmoothingChanged: () {
-                            setState(() => _smoothing = !_smoothing);
+                            setState(() {
+                              _smoothing = !_smoothing;
+                              _serverAttemptStarted = false;
+                            });
                           },
                           onRemoveBackgroundChanged: () {
                             setState(
@@ -289,10 +312,14 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                               _brandId = value == _brandUnlimitedValue
                                   ? null
                                   : value;
+                              _serverAttemptStarted = false;
                             });
                           },
                           onColorLimitSelected: (limit) {
-                            setState(() => _limit = limit);
+                            setState(() {
+                              _limit = limit;
+                              _serverAttemptStarted = false;
+                            });
                           },
                           onGenerate: _generate,
                         ),

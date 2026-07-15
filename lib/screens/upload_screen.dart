@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/draft_project.dart';
+import '../services/api/api_models.dart';
+import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import 'crop_screen.dart';
+import 'result_screen.dart';
 
 const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -64,7 +67,50 @@ class _UploadScreenState extends State<UploadScreen> {
   ];
 
   final ImageService _imageService = ImageService();
+  BackendServices? _backendServices;
+  List<TemplateItem> _galleryTemplates = const [];
   bool _picking = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final services = BackendScope.maybeOf(context);
+    if (identical(services, _backendServices)) return;
+
+    _backendServices = services;
+    if (services != null) {
+      _loadGalleryTemplates(services);
+    }
+  }
+
+  Future<void> _loadGalleryTemplates(BackendServices services) async {
+    try {
+      final result = await services.loadHomeTemplates();
+      if (!mounted || !identical(_backendServices, services)) return;
+      setState(() => _galleryTemplates = result.items);
+    } catch (_) {
+      // Keep the existing local thumbnails when the gallery cannot load.
+    }
+  }
+
+  Future<void> _openTemplateDetail(String templateId) async {
+    final services = _backendServices;
+    if (services == null || templateId.isEmpty) return;
+
+    try {
+      final detail = await services.templates.getTemplate(templateId);
+      if (!mounted || !identical(_backendServices, services)) return;
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (_) =>
+              ResultScreen(pattern: detail.patternData.toGeneratedPattern()),
+        ),
+      );
+    } catch (_) {
+      // Keep the gallery usable when the template cannot be opened.
+    }
+  }
 
   Future<void> _pickImage({
     required DraftImageSource imageSource,
@@ -148,6 +194,8 @@ class _UploadScreenState extends State<UploadScreen> {
                           scale: metrics.scale,
                           child: _HomeDesignCanvas(
                             picking: _picking,
+                            galleryTemplates: _galleryTemplates,
+                            onGalleryTemplateTap: _openTemplateDetail,
                             onPhotoStart: _picking
                                 ? null
                                 : () => _pickImage(
@@ -232,6 +280,8 @@ class _ScaledDesignSurface extends StatelessWidget {
 
 class _HomeDesignCanvas extends StatelessWidget {
   final bool picking;
+  final List<TemplateItem> galleryTemplates;
+  final ValueChanged<String>? onGalleryTemplateTap;
   final VoidCallback? onPhotoStart;
   final VoidCallback? onIllustrationStart;
   final VoidCallback? onBlindBox;
@@ -239,6 +289,8 @@ class _HomeDesignCanvas extends StatelessWidget {
 
   const _HomeDesignCanvas({
     required this.picking,
+    required this.galleryTemplates,
+    required this.onGalleryTemplateTap,
     required this.onPhotoStart,
     required this.onIllustrationStart,
     required this.onBlindBox,
@@ -303,7 +355,14 @@ class _HomeDesignCanvas extends StatelessWidget {
             top: 525,
             child: _GalleryTitle(onFilter: onFilter ?? () {}),
           ),
-          const Positioned(left: 12, top: 557, child: _GalleryGrid()),
+          Positioned(
+            left: 12,
+            top: 557,
+            child: _GalleryGrid(
+              templates: galleryTemplates,
+              onTemplateTap: onGalleryTemplateTap,
+            ),
+          ),
         ],
       ),
     );
@@ -1475,16 +1534,47 @@ class _FilterIconPainter extends CustomPainter {
 }
 
 class _GalleryGrid extends StatelessWidget {
-  const _GalleryGrid();
+  final List<TemplateItem> templates;
+  final ValueChanged<String>? onTemplateTap;
 
-  static const _patterns = [
-    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_1.png'),
-    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_2.png'),
-    _GalleryPattern(thumbnailUrl: 'assets/figma_home/gallery_pattern_3.png'),
+  const _GalleryGrid({required this.templates, required this.onTemplateTap});
+
+  static const _fallbackPatterns = [
+    _GalleryPattern(
+      id: 'fallback-1',
+      thumbnailUrl: 'assets/figma_home/gallery_pattern_1.png',
+    ),
+    _GalleryPattern(
+      id: 'fallback-2',
+      thumbnailUrl: 'assets/figma_home/gallery_pattern_2.png',
+    ),
+    _GalleryPattern(
+      id: 'fallback-3',
+      thumbnailUrl: 'assets/figma_home/gallery_pattern_3.png',
+    ),
   ];
+
+  List<_GalleryPattern> get _patterns {
+    final remotePatterns = templates
+        .map(
+          (template) => _GalleryPattern(
+            id: template.templateId,
+            templateId: template.templateId,
+            thumbnailUrl: template.thumbnailUrl.isNotEmpty
+                ? template.thumbnailUrl
+                : template.previewUrl,
+          ),
+        )
+        .where(
+          (pattern) => pattern.id.isNotEmpty && pattern.thumbnailUrl.isNotEmpty,
+        )
+        .toList();
+    return remotePatterns.isEmpty ? _fallbackPatterns : remotePatterns;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final patterns = _patterns;
     return SizedBox(
       width: 366,
       child: Column(
@@ -1493,7 +1583,22 @@ class _GalleryGrid extends StatelessWidget {
             Row(
               children: [
                 for (var col = 0; col < 3; col++) ...[
-                  _GalleryTile(pattern: _patterns[col]),
+                  _GalleryTile(
+                    pattern: patterns[(row * 3 + col) % patterns.length],
+                    fallbackThumbnailUrl:
+                        _fallbackPatterns[(row * 3 + col) %
+                                _fallbackPatterns.length]
+                            .thumbnailUrl,
+                    onTap:
+                        patterns[(row * 3 + col) % patterns.length]
+                                .templateId ==
+                            null
+                        ? null
+                        : () => onTemplateTap?.call(
+                            patterns[(row * 3 + col) % patterns.length]
+                                .templateId!,
+                          ),
+                  ),
                   if (col < 2) const SizedBox(width: 4),
                 ],
               ],
@@ -1507,32 +1612,52 @@ class _GalleryGrid extends StatelessWidget {
 }
 
 class _GalleryPattern {
+  final String id;
+  final String? templateId;
   final String thumbnailUrl;
 
-  const _GalleryPattern({required this.thumbnailUrl});
+  const _GalleryPattern({
+    required this.id,
+    this.templateId,
+    required this.thumbnailUrl,
+  });
 }
 
 class _GalleryTile extends StatelessWidget {
   final _GalleryPattern pattern;
+  final String fallbackThumbnailUrl;
+  final VoidCallback? onTap;
 
-  const _GalleryTile({required this.pattern});
+  const _GalleryTile({
+    required this.pattern,
+    required this.fallbackThumbnailUrl,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 119.33,
-      height: 119.33,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(color: Colors.white),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: _GalleryThumbnail(url: pattern.thumbnailUrl),
-              ),
-              const Positioned.fill(child: _GalleryFade()),
-            ],
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 119.33,
+        height: 119.33,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(color: Colors.white),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _GalleryThumbnail(
+                    key: ValueKey('gallery-thumbnail-${pattern.id}'),
+                    url: pattern.thumbnailUrl,
+                    fallbackUrl: fallbackThumbnailUrl,
+                  ),
+                ),
+                const Positioned.fill(child: _GalleryFade()),
+              ],
+            ),
           ),
         ),
       ),
@@ -1542,8 +1667,13 @@ class _GalleryTile extends StatelessWidget {
 
 class _GalleryThumbnail extends StatelessWidget {
   final String url;
+  final String fallbackUrl;
 
-  const _GalleryThumbnail({required this.url});
+  const _GalleryThumbnail({
+    super.key,
+    required this.url,
+    required this.fallbackUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1560,18 +1690,29 @@ class _GalleryThumbnail extends StatelessWidget {
       );
     }
 
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      alignment: Alignment.center,
-      filterQuality: FilterQuality.medium,
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return const ColoredBox(color: Colors.white);
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return const ColoredBox(color: Colors.white);
-      },
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(
+          fallbackUrl,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          filterQuality: FilterQuality.medium,
+        ),
+        Image.network(
+          url,
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          filterQuality: FilterQuality.medium,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return const SizedBox.expand();
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return const SizedBox.expand();
+          },
+        ),
+      ],
     );
   }
 }

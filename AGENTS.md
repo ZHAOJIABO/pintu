@@ -87,6 +87,17 @@ Before considering UI work complete, check:
 
 The backend is not available yet, so frontend work should be prepared for future API integration without over-engineering.
 
+### API Integration Requirements
+
+When integrating a backend API, document and implement the interface contract explicitly before wiring it into the UI:
+
+- Define the request input clearly, including endpoint, method, required and optional parameters, parameter types, validation rules, authentication requirements, and idempotency expectations where relevant.
+- Define the response output clearly, including success payload fields, field types, nullable fields, pagination/cursor data, error codes/messages, and the UI behavior mapped to each result.
+- Specify how every meaningful response state is presented: initial loading, refresh/loading more, success, empty data, recoverable error, unauthorized/expired session, and retry. Do not leave backend output without a defined presentation or interaction outcome.
+- Keep API models, mapping, and error handling outside visual widgets where practical, so temporary mock data can be replaced without redesigning screens.
+- Preserve the existing approved page design and styles when connecting APIs. Do not change layout, colors, typography, spacing, component hierarchy, or interaction design unless the API contract genuinely requires it or the user explicitly requests the visual change.
+- Account for response speed and unreliable networks: avoid blocking the UI, show a design-consistent loading state when needed, set appropriate timeouts, support cancellation or stale-response protection where relevant, and prevent duplicate submissions/requests. Keep already available content visible during refresh whenever the product flow allows it.
+
 - Separate UI, state, data models, and data access logic where practical.
 - Do not hard-code mock data deep inside visual widgets.
 - Keep mock data easy to replace with real API responses later.
