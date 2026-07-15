@@ -33,7 +33,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "build/web/*"
-          target: "~/admin-web/build/"
+          target: "~/work/pinto_server/admin-web/build/"
           strip_components: 2
 
       - name: Restart Nginx
