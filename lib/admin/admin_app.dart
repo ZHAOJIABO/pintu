@@ -813,7 +813,7 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _StatPill(label: '管理员模式');
+    return const _StatPill(label: '管理员');
   }
 }
 
