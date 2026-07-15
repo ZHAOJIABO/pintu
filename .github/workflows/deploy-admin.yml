@@ -24,7 +24,7 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build web --target lib/admin_main.dart --release
+      - run: flutter build web --target lib/admin_main.dart --release --dart-define=BOBOBEADS_API_BASE_URL=
 
       - name: Deploy to server
         uses: appleboy/scp-action@v0.1.7
