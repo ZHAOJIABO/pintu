@@ -15,6 +15,7 @@ import '../widgets/pattern_preview.dart';
 import 'admin_api.dart';
 import 'admin_preview_exporter.dart';
 
+/// Internal admin portal for publishing official bead templates.
 class BoboBeadsAdminApp extends StatelessWidget {
   const BoboBeadsAdminApp({super.key});
 
