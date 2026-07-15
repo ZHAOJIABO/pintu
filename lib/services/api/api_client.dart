@@ -67,6 +67,28 @@ class ApiClient {
     );
   }
 
+  /// Sends an authenticated binary body to the API and decodes the standard
+  /// JSON response envelope. This keeps internal Web uploads on the API origin
+  /// instead of requiring browser CORS access to object storage.
+  Future<JsonMap> postBytes(
+    String path, {
+    required Uint8List bytes,
+    required String contentType,
+    Map<String, Object?> query = const {},
+    bool includeAuth = true,
+    bool retryUnauthorized = true,
+  }) {
+    return _sendBytes(
+      'POST',
+      path,
+      bytes: bytes,
+      contentType: contentType,
+      query: query,
+      includeAuth: includeAuth,
+      retryUnauthorized: retryUnauthorized,
+    );
+  }
+
   Future<JsonMap> delete(
     String path, {
     Object? body,
@@ -145,7 +167,9 @@ class ApiClient {
     }
 
     if (kDebugMode) {
-      debugPrint('[API] $method $path${query.isNotEmpty ? ' query=$query' : ''}');
+      debugPrint(
+        '[API] $method $path${query.isNotEmpty ? ' query=$query' : ''}',
+      );
       if (body != null) debugPrint('[API] body: ${jsonEncode(body)}');
     }
 
@@ -212,6 +236,91 @@ class ApiClient {
       );
     }
 
+    return data;
+  }
+
+  Future<JsonMap> _sendBytes(
+    String method,
+    String path, {
+    required Uint8List bytes,
+    required String contentType,
+    Map<String, Object?> query = const {},
+    required bool includeAuth,
+    required bool retryUnauthorized,
+  }) async {
+    final request = http.Request(method, _resolve(path, query));
+    request.headers.addAll(await _headers(includeAuth: includeAuth));
+    request.headers['Content-Type'] = contentType;
+    request.bodyBytes = bytes;
+
+    if (kDebugMode) {
+      debugPrint('[API] $method bytes $path (${bytes.length} bytes)');
+    }
+
+    final streamed = await httpClient.send(request);
+    final response = await http.Response.fromStream(streamed);
+
+    if (kDebugMode) {
+      debugPrint('[API] $method bytes $path -> ${response.statusCode}');
+    }
+
+    if (response.statusCode == 401 && retryUnauthorized) {
+      final refreshed = await _handleUnauthorized();
+      if (refreshed) {
+        return _sendBytes(
+          method,
+          path,
+          bytes: bytes,
+          contentType: contentType,
+          query: query,
+          includeAuth: includeAuth,
+          retryUnauthorized: false,
+        );
+      }
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(
+        response.statusCode,
+        _httpErrorMessage(response),
+        httpStatusCode: response.statusCode,
+      );
+    }
+
+    final data = _decodeBody(response);
+    final header = ResponseHeader.fromJson(
+      (data['header'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
+    if (header.code == 1001 || header.code == 1002) {
+      if (retryUnauthorized) {
+        final refreshed = await _handleUnauthorized();
+        if (refreshed) {
+          return _sendBytes(
+            method,
+            path,
+            bytes: bytes,
+            contentType: contentType,
+            query: query,
+            includeAuth: includeAuth,
+            retryUnauthorized: false,
+          );
+        }
+      }
+      throw ApiException(
+        header.code,
+        header.message,
+        traceId: header.traceId,
+        httpStatusCode: response.statusCode,
+      );
+    }
+    if (header.code != 0) {
+      throw ApiException(
+        header.code,
+        header.message,
+        traceId: header.traceId,
+        httpStatusCode: response.statusCode,
+      );
+    }
     return data;
   }
 
