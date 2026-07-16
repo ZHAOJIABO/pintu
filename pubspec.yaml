@@ -17,6 +17,7 @@ dependencies:
   path_provider: ^2.1.0
   share_plus: ^10.0.0
   image_picker: ^1.1.0
+  flutter_svg: ^2.2.3
 
 dev_dependencies:
   flutter_test:
@@ -28,6 +29,7 @@ flutter:
   assets:
     - assets/figma_home/
     - assets/figma_style/
+    - assets/pin_icon/
     - assets/palettes/mard221.csv
   fonts:
     - family: Z Labs RoundPix 12px M CN

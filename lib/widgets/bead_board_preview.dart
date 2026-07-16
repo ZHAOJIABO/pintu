@@ -16,6 +16,9 @@ class BeadBoardPreview extends StatefulWidget {
   final int boardHeight;
   final List<PaletteEntry> paletteEntries;
   final String? selectedRef;
+  final bool showRulers;
+  final bool mirrorHorizontally;
+  final bool interactionLocked;
 
   const BeadBoardPreview({
     super.key,
@@ -26,6 +29,9 @@ class BeadBoardPreview extends StatefulWidget {
     this.boardHeight = defaultBoardSize,
     this.paletteEntries = const [],
     this.selectedRef,
+    this.showRulers = true,
+    this.mirrorHorizontally = false,
+    this.interactionLocked = false,
   });
 
   @override
@@ -82,28 +88,62 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
         final showColorRefs =
             cellSize * _scale >= BeadBoardPreview.colorRefMinEffectiveCellSize;
 
-        return InteractiveViewer(
-          transformationController: _transformationController,
-          boundaryMargin: const EdgeInsets.all(96),
-          minScale: 0.8,
-          maxScale: 18,
-          child: Center(
-            child: CustomPaint(
-              size: boardSize,
-              painter: BeadBoardPainter(
-                pixels: widget.pixels,
-                patternWidth: widget.width,
-                patternHeight: widget.height,
-                boardWidth: widget.boardWidth,
-                boardHeight: widget.boardHeight,
-                cellSize: cellSize,
-                labelBand: labelBand,
-                colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
-                showColorRefs: showColorRefs,
-                selectedRef: widget.selectedRef,
+        final childOffset = Offset(
+          (maxWidth - boardSize.width) / 2,
+          (maxHeight - boardSize.height) / 2,
+        );
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                transformationController: _transformationController,
+                boundaryMargin: const EdgeInsets.all(96),
+                minScale: 0.8,
+                maxScale: 18,
+                panEnabled: !widget.interactionLocked,
+                scaleEnabled: !widget.interactionLocked,
+                child: Center(
+                  child: CustomPaint(
+                    size: boardSize,
+                    painter: BeadBoardPainter(
+                      pixels: widget.pixels,
+                      patternWidth: widget.width,
+                      patternHeight: widget.height,
+                      boardWidth: widget.boardWidth,
+                      boardHeight: widget.boardHeight,
+                      cellSize: cellSize,
+                      labelBand: labelBand,
+                      colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
+                      showColorRefs: showColorRefs,
+                      selectedRef: widget.selectedRef,
+                      showRulers: false,
+                      mirrorHorizontally: widget.mirrorHorizontally,
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
+            if (widget.showRulers)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: ValueListenableBuilder<Matrix4>(
+                    valueListenable: _transformationController,
+                    builder: (context, transform, child) => CustomPaint(
+                      key: const ValueKey('bead-mode-pinned-rulers'),
+                      painter: _PinnedBoardRulerPainter(
+                        transform: transform,
+                        boardWidth: widget.boardWidth,
+                        boardHeight: widget.boardHeight,
+                        cellSize: cellSize,
+                        labelBand: labelBand,
+                        childOffset: childOffset,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         );
       },
     );
@@ -129,6 +169,8 @@ class BeadBoardPainter extends CustomPainter {
   final Map<int, String> colorRefsByRgb;
   final bool showColorRefs;
   final String? selectedRef;
+  final bool showRulers;
+  final bool mirrorHorizontally;
 
   const BeadBoardPainter({
     required this.pixels,
@@ -141,6 +183,8 @@ class BeadBoardPainter extends CustomPainter {
     this.colorRefsByRgb = const {},
     this.showColorRefs = false,
     this.selectedRef,
+    this.showRulers = true,
+    this.mirrorHorizontally = false,
   });
 
   @override
@@ -152,17 +196,17 @@ class BeadBoardPainter extends CustomPainter {
       boardHeight * cellSize,
     );
 
-    _drawNumberBands(canvas, boardRect);
+    if (showRulers) _drawNumberBands(canvas, boardRect);
     _drawBoardBackground(canvas, boardRect);
     _drawPattern(canvas, boardRect);
     _drawFineGrid(canvas, boardRect);
     _drawMajorGrid(canvas, boardRect);
     _drawPatternDetails(canvas, boardRect);
-    _drawNumbers(canvas, boardRect);
+    if (showRulers) _drawNumbers(canvas, boardRect);
   }
 
   void _drawNumberBands(Canvas canvas, Rect boardRect) {
-    final labelPaint = Paint()..color = const Color(0xFFFF7FA2);
+    final labelPaint = Paint()..color = const Color(0x99000000);
     canvas.drawRect(
       Rect.fromLTWH(boardRect.left, 0, boardRect.width, labelBand),
       labelPaint,
@@ -192,21 +236,19 @@ class BeadBoardPainter extends CustomPainter {
   }
 
   void _drawBoardBackground(Canvas canvas, Rect boardRect) {
-    final lightPaint = Paint()..color = const Color(0xFFFFFFFF);
-    final shadePaint = Paint()..color = const Color(0xFFF1F7FC);
+    final lightPaint = Paint()..color = const Color(0xFFF9FAFC);
+    final dotPaint = Paint()..color = const Color(0xFFE2E7EE);
     canvas.drawRect(boardRect, lightPaint);
 
     for (var y = 0; y < boardHeight; y++) {
       for (var x = 0; x < boardWidth; x++) {
-        if ((x + y).isEven) continue;
-        canvas.drawRect(
-          Rect.fromLTWH(
-            boardRect.left + x * cellSize,
-            boardRect.top + y * cellSize,
-            cellSize,
-            cellSize,
+        canvas.drawCircle(
+          Offset(
+            boardRect.left + (x + 0.5) * cellSize,
+            boardRect.top + (y + 0.5) * cellSize,
           ),
-          shadePaint,
+          math.max(0.4, cellSize * 0.10),
+          dotPaint,
         );
       }
     }
@@ -258,7 +300,7 @@ class BeadBoardPainter extends CustomPainter {
               )
             : originalColor;
         final beadRect = Rect.fromLTWH(
-          xOffset + x * cellSize,
+          xOffset + _displayX(x, bounds) * cellSize,
           yOffset + y * cellSize,
           cellSize,
           cellSize,
@@ -316,7 +358,7 @@ class BeadBoardPainter extends CustomPainter {
                 pixels[offset + 2],
               );
         final beadRect = Rect.fromLTWH(
-          xOffset + x * cellSize,
+          xOffset + _displayX(x, bounds) * cellSize,
           yOffset + y * cellSize,
           cellSize,
           cellSize,
@@ -360,8 +402,8 @@ class BeadBoardPainter extends CustomPainter {
 
   void _drawMajorGrid(Canvas canvas, Rect boardRect) {
     final majorPaint = Paint()
-      ..color = const Color(0xFFE63946)
-      ..strokeWidth = cellSize.clamp(7.0, 14.0) * 0.22
+      ..color = const Color(0xFFFF0000)
+      ..strokeWidth = cellSize.clamp(7.0, 14.0) * 0.06
       ..strokeCap = StrokeCap.square;
 
     for (var x = 0; x <= boardWidth; x += 10) {
@@ -401,6 +443,8 @@ class BeadBoardPainter extends CustomPainter {
     final style = TextStyle(
       color: Colors.white,
       fontSize: math.min(labelBand * 0.62, cellSize * 0.72),
+      fontFamily: 'Alimama FangYuanTi VF',
+      fontFamilyFallback: const ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'],
       fontWeight: FontWeight.w800,
       height: 1,
     );
@@ -498,6 +542,11 @@ class BeadBoardPainter extends CustomPainter {
     canvas.drawRect(rect.deflate(strokeWidth / 2), borderPaint);
   }
 
+  int _displayX(int x, _PixelBounds bounds) {
+    if (!mirrorHorizontally) return x;
+    return bounds.left + bounds.right - x;
+  }
+
   _PixelBounds? _activeBounds() {
     var minX = patternWidth;
     var minY = patternHeight;
@@ -530,8 +579,144 @@ class BeadBoardPainter extends CustomPainter {
         oldDelegate.labelBand != labelBand ||
         oldDelegate.colorRefsByRgb != colorRefsByRgb ||
         oldDelegate.showColorRefs != showColorRefs ||
-        oldDelegate.selectedRef != selectedRef;
+        oldDelegate.selectedRef != selectedRef ||
+        oldDelegate.showRulers != showRulers ||
+        oldDelegate.mirrorHorizontally != mirrorHorizontally;
   }
+}
+
+class _PinnedBoardRulerPainter extends CustomPainter {
+  final Matrix4 transform;
+  final int boardWidth;
+  final int boardHeight;
+  final double cellSize;
+  final double labelBand;
+  final Offset childOffset;
+
+  const _PinnedBoardRulerPainter({
+    required this.transform,
+    required this.boardWidth,
+    required this.boardHeight,
+    required this.cellSize,
+    required this.labelBand,
+    required this.childOffset,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = transform.getMaxScaleOnAxis();
+    final bandSize = (labelBand * scale).clamp(
+      5.0,
+      math.min(size.width, size.height) * 0.2,
+    );
+    final bandPaint = Paint()..color = const Color(0x99000000);
+    final textStyle = TextStyle(
+      color: Colors.white,
+      fontSize: (math.min(labelBand * 0.62, cellSize * 0.72) * scale).clamp(
+        5.0,
+        36.0,
+      ),
+      fontFamily: 'Alimama FangYuanTi VF',
+      fontFamilyFallback: const ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'],
+      fontWeight: FontWeight.w800,
+      height: 1,
+    );
+
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, bandSize), bandPaint);
+    canvas.drawRect(Rect.fromLTWH(0, 0, bandSize, size.height), bandPaint);
+
+    final boardOrigin = childOffset + Offset(labelBand, labelBand);
+    _drawHorizontalLabels(canvas, size, boardOrigin, bandSize, textStyle);
+    _drawVerticalLabels(canvas, size, boardOrigin, bandSize, textStyle);
+  }
+
+  void _drawHorizontalLabels(
+    Canvas canvas,
+    Size size,
+    Offset boardOrigin,
+    double bandSize,
+    TextStyle textStyle,
+  ) {
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(bandSize, 0, size.width - bandSize, bandSize),
+    );
+    for (var x = 0; x < boardWidth; x++) {
+      final start = _toViewport(
+        Offset(boardOrigin.dx + x * cellSize, boardOrigin.dy),
+      );
+      final end = _toViewport(
+        Offset(boardOrigin.dx + (x + 1) * cellSize, boardOrigin.dy),
+      );
+      if (end.dx < bandSize || start.dx > size.width) continue;
+
+      final rect = Rect.fromCenter(
+        center: Offset((start.dx + end.dx) / 2, bandSize / 2),
+        width: (end.dx - start.dx).abs(),
+        height: bandSize,
+      );
+      _drawCenteredText(canvas, '${x + 1}', rect, textStyle);
+    }
+    canvas.restore();
+  }
+
+  void _drawVerticalLabels(
+    Canvas canvas,
+    Size size,
+    Offset boardOrigin,
+    double bandSize,
+    TextStyle textStyle,
+  ) {
+    canvas.save();
+    canvas.clipRect(
+      Rect.fromLTWH(0, bandSize, bandSize, size.height - bandSize),
+    );
+    for (var y = 0; y < boardHeight; y++) {
+      final start = _toViewport(
+        Offset(boardOrigin.dx, boardOrigin.dy + y * cellSize),
+      );
+      final end = _toViewport(
+        Offset(boardOrigin.dx, boardOrigin.dy + (y + 1) * cellSize),
+      );
+      if (end.dy < bandSize || start.dy > size.height) continue;
+
+      final rect = Rect.fromCenter(
+        center: Offset(bandSize / 2, (start.dy + end.dy) / 2),
+        width: bandSize,
+        height: (end.dy - start.dy).abs(),
+      );
+      _drawCenteredText(canvas, '${y + 1}', rect, textStyle);
+    }
+    canvas.restore();
+  }
+
+  Offset _toViewport(Offset point) =>
+      MatrixUtils.transformPoint(transform, point);
+
+  void _drawCenteredText(
+    Canvas canvas,
+    String text,
+    Rect rect,
+    TextStyle style,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: rect.width);
+
+    painter.paint(
+      canvas,
+      Offset(
+        rect.left + (rect.width - painter.width) / 2,
+        rect.top + (rect.height - painter.height) / 2,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PinnedBoardRulerPainter oldDelegate) => true;
 }
 
 int _rgbKey(int r, int g, int b) => (r << 16) | (g << 8) | b;
@@ -561,6 +746,7 @@ class _PixelBounds {
 class BeadModeUsageStrip extends StatelessWidget {
   final Map<String, int> usage;
   final List<PaletteEntry> entries;
+  final bool compact;
   final String? selectedRef;
   final ValueChanged<String?>? onSelected;
 
@@ -568,6 +754,7 @@ class BeadModeUsageStrip extends StatelessWidget {
     super.key,
     required this.usage,
     required this.entries,
+    this.compact = false,
     this.selectedRef,
     this.onSelected,
   });
@@ -577,43 +764,62 @@ class BeadModeUsageStrip extends StatelessWidget {
     final sortedUsage = usage.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    return SizedBox(
-      height: 118,
+    final strip = SizedBox(
+      width: compact ? double.infinity : null,
+      height: compact ? 106 : 118,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+        padding: compact
+            ? const EdgeInsets.all(20)
+            : const EdgeInsets.fromLTRB(20, 8, 20, 14),
         scrollDirection: Axis.horizontal,
-        itemCount: sortedUsage.length + 1,
+        itemCount: compact ? sortedUsage.length : sortedUsage.length + 1,
         separatorBuilder: (context, index) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
-          if (index == 0) {
-            return _UsageTile(
+          final _UsageTile tile;
+          if (!compact && index == 0) {
+            tile = _UsageTile(
               count: usage.values.fold(0, (sum, count) => sum + count),
               label: '全部',
               color: const Color(0xFF2D2D2D),
+              compact: compact,
               selected: selectedRef == null,
               onTap: onSelected == null ? null : () => onSelected!(null),
             );
+          } else {
+            final item = sortedUsage[compact ? index : index - 1];
+            final entry = _findEntry(item.key);
+            final color = entry == null
+                ? Colors.grey
+                : Color.fromARGB(
+                    255,
+                    entry.color.rInt,
+                    entry.color.gInt,
+                    entry.color.bInt,
+                  );
+            tile = _UsageTile(
+              count: item.value,
+              label: item.key,
+              color: color,
+              compact: compact,
+              selected: selectedRef == item.key,
+              onTap: onSelected == null
+                  ? null
+                  : () => onSelected!(
+                      compact && selectedRef == item.key ? null : item.key,
+                    ),
+            );
           }
 
-          final item = sortedUsage[index - 1];
-          final entry = _findEntry(item.key);
-          final color = entry == null
-              ? Colors.grey
-              : Color.fromARGB(
-                  255,
-                  entry.color.rInt,
-                  entry.color.gInt,
-                  entry.color.bInt,
-                );
-          return _UsageTile(
-            count: item.value,
-            label: item.key,
-            color: color,
-            selected: selectedRef == item.key,
-            onTap: onSelected == null ? null : () => onSelected!(item.key),
-          );
+          return compact ? Center(child: tile) : tile;
         },
       ),
+    );
+
+    if (!compact) return strip;
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: ColoredBox(color: Colors.white, child: strip),
     );
   }
 
@@ -629,6 +835,7 @@ class _UsageTile extends StatelessWidget {
   final int count;
   final String label;
   final Color color;
+  final bool compact;
   final bool selected;
   final VoidCallback? onTap;
 
@@ -636,6 +843,7 @@ class _UsageTile extends StatelessWidget {
     required this.count,
     required this.label,
     required this.color,
+    required this.compact,
     this.selected = false,
     this.onTap,
   });
@@ -645,6 +853,9 @@ class _UsageTile extends StatelessWidget {
     final textColor = color.computeLuminance() > 0.55
         ? const Color(0xFF263241)
         : Colors.white;
+    final cardPadding = compact
+        ? EdgeInsets.all(selected ? 2 : 4)
+        : const EdgeInsets.all(8);
 
     return Material(
       color: Colors.transparent,
@@ -652,58 +863,133 @@ class _UsageTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Container(
-          width: 78,
-          padding: const EdgeInsets.all(8),
+          key: ValueKey('bead-color-tile-$label'),
+          width: compact ? 49 : 78,
+          padding: cardPadding,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? const Color(0xFFFF5C6C) : Colors.transparent,
-              width: 2,
+              color: selected
+                  ? Colors.black
+                  : compact
+                  ? const Color(0x1F000000)
+                  : Colors.transparent,
+              width: selected
+                  ? 2
+                  : compact
+                  ? 0.5
+                  : 1,
             ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 14,
-                offset: Offset(0, 6),
-              ),
-            ],
+            boxShadow: compact
+                ? null
+                : const [
+                    BoxShadow(
+                      color: Color(0x14000000),
+                      blurRadius: 14,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
           ),
           child: Column(
             children: [
-              Expanded(
-                child: Container(
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(9),
-                    border: Border.all(color: const Color(0x14000000)),
-                  ),
-                  child: Text(
-                    '$count',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: textColor,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
+              compact
+                  ? SizedBox(
+                      key: ValueKey('bead-color-swatch-$label'),
+                      width: 40,
+                      height: 40,
+                      child: _ColorLabel(
+                        label: label,
+                        color: color,
+                        textColor: textColor,
+                        compact: true,
+                      ),
+                    )
+                  : Expanded(
+                      child: _ColorLabel(
+                        label: '$count',
+                        color: color,
+                        textColor: textColor,
+                        compact: false,
+                      ),
                     ),
+              SizedBox(height: compact ? 4 : 7),
+              SizedBox(
+                width: compact ? 36 : null,
+                child: Text(
+                  compact ? '$count' : label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: compact ? Colors.black : const Color(0xFF667085),
+                    fontSize:
+                        compact &&
+                            label.length > 3 &&
+                            count.toString().length >= 5
+                        ? 11
+                        : compact
+                        ? 12
+                        : 14,
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontFamilyFallback: const [
+                      'PingFang SC',
+                      'Heiti SC',
+                      'Microsoft YaHei',
+                    ],
+                    fontWeight: compact ? FontWeight.w500 : FontWeight.w700,
+                    height: compact ? 13 / 12 : null,
                   ),
-                ),
-              ),
-              const SizedBox(height: 7),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF667085),
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ColorLabel extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Color textColor;
+  final bool compact;
+
+  const _ColorLabel({
+    required this.label,
+    required this.color,
+    required this.textColor,
+    required this.compact,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(compact ? 8 : 9),
+        border: Border.all(
+          color: compact ? const Color(0x4C878787) : const Color(0x14000000),
+          width: compact ? 0.5 : 1,
+        ),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: textColor,
+          fontSize: compact ? 14 : 20,
+          fontFamily: 'Alimama FangYuanTi VF',
+          fontFamilyFallback: const [
+            'PingFang SC',
+            'Heiti SC',
+            'Microsoft YaHei',
+          ],
+          fontWeight: compact ? FontWeight.w600 : FontWeight.w700,
+          height: compact ? 16 / 14 : 1,
         ),
       ),
     );

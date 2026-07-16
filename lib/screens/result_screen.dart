@@ -10,6 +10,7 @@ import '../models/pattern_chart.dart';
 import '../rendering/pattern_chart_painter.dart';
 import '../services/pattern_export_service.dart';
 import 'bead_mode_screen.dart';
+import 'pattern_editor_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
@@ -36,7 +37,7 @@ class ResultScreen extends StatefulWidget {
 
 class _ResultScreenState extends State<ResultScreen> {
   late final PatternExportService _exportService = widget.exportService;
-  late final GeneratedPattern _pattern = widget.pattern;
+  late GeneratedPattern _pattern = widget.pattern;
   bool _exporting = false;
 
   @override
@@ -56,7 +57,17 @@ class _ResultScreenState extends State<ResultScreen> {
     );
   }
 
-  Future<void> _export() async {
+  Future<void> _openEditor() async {
+    final editedPattern = await Navigator.push<GeneratedPattern>(
+      context,
+      MaterialPageRoute(builder: (_) => PatternEditorScreen(pattern: _pattern)),
+    );
+    if (!mounted || editedPattern == null) return;
+
+    setState(() => _pattern = editedPattern);
+  }
+
+  Future<void> _saveImage() async {
     if (_exporting) return;
 
     setState(() => _exporting = true);
@@ -112,13 +123,9 @@ class _ResultScreenState extends State<ResultScreen> {
         backgroundColor: _pageBackground,
         body: Column(
           children: [
-            _DrawingHeader(pattern: _pattern, onExport: _export),
+            _DrawingHeader(pattern: _pattern, onSaveImage: _saveImage),
             Expanded(child: _MaterialSummary(pattern: _pattern)),
-            _BottomActionBar(
-              exporting: _exporting,
-              onStart: _openBeadMode,
-              onExport: _export,
-            ),
+            _BottomActionBar(onStart: _openBeadMode, onEdit: _openEditor),
           ],
         ),
       ),
@@ -128,9 +135,9 @@ class _ResultScreenState extends State<ResultScreen> {
 
 class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
-  final VoidCallback onExport;
+  final VoidCallback onSaveImage;
 
-  const _DrawingHeader({required this.pattern, required this.onExport});
+  const _DrawingHeader({required this.pattern, required this.onSaveImage});
 
   @override
   Widget build(BuildContext context) {
@@ -142,7 +149,7 @@ class _DrawingHeader extends StatelessWidget {
           bottom: false,
           child: Column(
             children: [
-              _ResultNavigationBar(onExport: onExport),
+              _ResultNavigationBar(onSaveImage: onSaveImage),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final chartAreaSize = constraints.maxWidth;
@@ -165,14 +172,14 @@ class _DrawingHeader extends StatelessWidget {
 }
 
 class _ResultNavigationBar extends StatelessWidget {
-  final VoidCallback onExport;
+  final VoidCallback onSaveImage;
 
-  const _ResultNavigationBar({required this.onExport});
+  const _ResultNavigationBar({required this.onSaveImage});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 40,
+      height: 44,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 30),
         child: Row(
@@ -182,7 +189,7 @@ class _ResultNavigationBar extends StatelessWidget {
               onTap: () => Navigator.pop(context),
               child: const SizedBox(
                 width: 24,
-                height: 40,
+                height: 44,
                 child: Icon(Icons.chevron_left, color: Colors.black, size: 30),
               ),
             ),
@@ -200,11 +207,12 @@ class _ResultNavigationBar extends StatelessWidget {
               ),
             ),
             GestureDetector(
+              key: const ValueKey('result-save-image-button'),
               behavior: HitTestBehavior.opaque,
-              onTap: onExport,
+              onTap: onSaveImage,
               child: const SizedBox(
                 width: 24,
-                height: 40,
+                height: 44,
                 child: Center(child: _PixelPrinterIcon()),
               ),
             ),
@@ -476,7 +484,7 @@ class _MaterialUsageTile extends StatelessWidget {
                   height: 16 / 14,
                   fontFamily: _roundFontFamily,
                   fontFamilyFallback: _fontFallbacks,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -511,15 +519,10 @@ class _MaterialUsageTile extends StatelessWidget {
 }
 
 class _BottomActionBar extends StatelessWidget {
-  final bool exporting;
   final VoidCallback onStart;
-  final VoidCallback onExport;
+  final VoidCallback onEdit;
 
-  const _BottomActionBar({
-    required this.exporting,
-    required this.onStart,
-    required this.onExport,
-  });
+  const _BottomActionBar({required this.onStart, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -546,8 +549,8 @@ class _BottomActionBar extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _ResultActionButton(
-                  label: exporting ? '保存中...' : '保存相册',
-                  onTap: exporting ? null : onExport,
+                  label: '编辑',
+                  onTap: onEdit,
                   filled: true,
                 ),
               ),

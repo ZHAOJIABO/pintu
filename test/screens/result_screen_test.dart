@@ -33,10 +33,48 @@ void main() {
       expect(find.text('R1'), findsOneWidget);
       expect(find.text('H7'), findsOneWidget);
       expect(find.text('立即开拼'), findsOneWidget);
-      expect(find.text('保存相册'), findsOneWidget);
+      expect(find.text('编辑'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('bead color references use SemiBold-Round text', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    final colorRef = tester.widget<Text>(find.text('R1'));
+
+    expect(colorRef.style?.fontWeight, FontWeight.w600);
+  });
+
+  testWidgets('drawing navigation bar and actions are 44pt tall', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    final navigationBars = find.byWidgetPredicate(
+      (widget) => widget is SizedBox && widget.height == 44,
+    );
+
+    expect(navigationBars, findsNWidgets(3));
+  });
 
   testWidgets('drawing chart keeps 20pt margins inside image area', (
     tester,
@@ -106,7 +144,9 @@ void main() {
     expect(imageSize.width, greaterThanOrEqualTo(1200));
   });
 
-  testWidgets('save album action shows success toast', (tester) async {
+  testWidgets('printer action saves image and shows success toast', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(() {
@@ -126,11 +166,29 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('保存相册'));
+    await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
     await tester.pump();
 
     expect(saved, isTrue);
     expect(find.text('图纸已保存'), findsOneWidget);
+  });
+
+  testWidgets('edit action opens the pattern editor', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    await tester.tap(find.text('编辑'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('图纸编辑'), findsOneWidget);
   });
 
   testWidgets('generated result shows gallery hint dialog', (tester) async {
@@ -172,9 +230,10 @@ void main() {
     await tester.tap(find.text('立即开拼'));
     await tester.pumpAndSettle();
 
-    expect(find.text('拼豆模式'), findsOneWidget);
+    expect(find.byKey(const ValueKey('bead-mode-edit-button')), findsOneWidget);
     expect(find.byType(BeadBoardPreview), findsOneWidget);
-    expect(find.text('全部'), findsOneWidget);
+    expect(find.text('全部'), findsNothing);
+    expect(find.text('H7'), findsOneWidget);
 
     final boardPainter = tester
         .widgetList<CustomPaint>(find.byType(CustomPaint))
@@ -217,7 +276,7 @@ void main() {
       'R1',
     );
 
-    await tester.tap(find.text('全部'));
+    await tester.tap(find.text('R1'));
     await tester.pump();
 
     boardPainter = tester
