@@ -196,7 +196,7 @@ GET /api/v1/templates/{templateId}
 }
 ```
 
-列表接口 `GET /api/v1/templates` 至少应为每个可展示项提供 `templateId` 和 `thumbnailUrl` 或 `previewUrl`。详情中的 `template.width`、`template.height`、`template.colorCount` 应与 `patternData` 重新计算出的结果一致。
+列表接口 `GET /api/v1/templates` 至少应为每个可展示项提供 `templateId` 和 `thumbnailUrl` 或 `previewUrl`。图库图片统一为 358×358px PNG：只含 `PatternData` 对应的彩色像素块和白色背景，不含最终图纸的色号、坐标、网格、标题或图例。详情中的 `template.width`、`template.height`、`template.colorCount` 应与 `patternData` 重新计算出的结果一致。
 
 ### 7.2 保存客户端生成的图纸
 

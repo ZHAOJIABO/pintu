@@ -1,4 +1,5 @@
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart' show rootBundle;
+
 import '../models/color.dart';
 import '../models/palette.dart';
 
@@ -6,114 +7,85 @@ class PaletteDefinition {
   final String id;
   final String prefix;
   final String displayName;
-  final bool perlerTransform;
 
-  const PaletteDefinition(
-    this.id,
-    this.prefix,
-    this.displayName, {
-    this.perlerTransform = false,
-  });
+  const PaletteDefinition(this.id, this.prefix, this.displayName);
 }
 
-const _paletteDefinitions = [
-  PaletteDefinition('hama', 'H', 'Hama Midi'),
-  PaletteDefinition('hama_mini', 'H', 'Hama Mini'),
-  PaletteDefinition('hama_maxi', 'H', 'Hama Maxi'),
-  PaletteDefinition('nabbi', 'N', 'Nabbi'),
-  PaletteDefinition('mard', 'M', 'Mard'),
-  PaletteDefinition('artkal_a', 'A', 'Artkal A-2.6MM'),
-  PaletteDefinition('artkal_c', 'C', 'Artkal C-2.6MM'),
-  PaletteDefinition('artkal_m', 'M', 'Artkal M-2.6MM'),
-  PaletteDefinition('artkal_r', 'R', 'Artkal R-5MM'),
-  PaletteDefinition('artkal_s', 'S', 'Artkal S-5MM'),
-  PaletteDefinition('perler', 'P', 'Perler', perlerTransform: true),
-  PaletteDefinition('perler_mini', 'P', 'Perler Mini', perlerTransform: true),
-  PaletteDefinition('perler_caps', 'P', 'Perler Caps', perlerTransform: true),
-  PaletteDefinition('yant', 'Y', 'Yant'),
-  PaletteDefinition('diamondDotz', 'D', 'Diamond Dotz'),
-];
-
-final Palette _bwPalette = Palette(
-  name: 'B&W',
-  entries: [
-    PaletteEntry(
-      name: 'White',
-      ref: 'BW1',
-      symbol: 'W',
-      color: BeadColor.fromInt(255, 255, 255, 255),
-      prefix: 'BW',
-    ),
-    PaletteEntry(
-      name: 'Black',
-      ref: 'BW2',
-      symbol: 'B',
-      color: BeadColor.fromInt(0, 0, 0, 255),
-      prefix: 'BW',
-    ),
-  ],
-);
+const _mard221Definition = PaletteDefinition('mard221', 'M', 'Mard 221');
+const _mard221AssetPath = 'assets/palettes/mard221.csv';
 
 class PaletteService {
-  final Map<String, Palette> _cache = {};
+  Palette? _mard221Cache;
 
-  List<PaletteDefinition> get availablePalettes => _paletteDefinitions;
+  List<PaletteDefinition> get availablePalettes => const [_mard221Definition];
 
   Future<List<Palette>> loadAll() async {
-    final futures = _paletteDefinitions.map((def) => _loadPalette(def));
-    final results = await Future.wait(futures);
-    return results.whereType<Palette>().toList();
+    return [await _loadMard221()];
   }
 
-  Future<Palette> loadByName(String id) async {
-    final def = _paletteDefinitions.firstWhere((d) => d.id == id);
-    return await _loadPalette(def) ?? _bwPalette;
-  }
+  /// Only Mard 221 is supported. The unused value keeps legacy drafts usable.
+  Future<Palette> loadByName(String _) => _loadMard221();
 
-  Future<Palette?> _loadPalette(PaletteDefinition def) async {
-    if (_cache.containsKey(def.id)) return _cache[def.id]!;
+  Future<Palette> _loadMard221() async {
+    final cachedPalette = _mard221Cache;
+    if (cachedPalette != null) return cachedPalette;
 
-    try {
-      final url = 'https://beadcolors.eremes.xyz/gen/v3/${def.id}.csv';
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode != 200) return null;
+    final csv = await rootBundle.loadString(_mard221AssetPath);
+    final entries = <PaletteEntry>[];
+    final lines = csv.split(RegExp(r'\r?\n'));
 
-      final lines = response.body.split('\n');
-      final entries = <PaletteEntry>[];
+    for (var lineNumber = 0; lineNumber < lines.length; lineNumber++) {
+      final line = lines[lineNumber].trim();
+      if (line.isEmpty) continue;
 
-      for (final line in lines) {
-        final cells = line.split(',');
-        if (cells.length < 6) continue;
-
-        String ref = cells[0];
-        if (def.perlerTransform) {
-          final numPart = int.tryParse(ref.substring(ref.length - 3)) ?? 0;
-          ref = 'P${numPart.toString().padLeft(2, '0')}';
-        }
-
-        entries.add(
-          PaletteEntry(
-            ref: ref,
-            name: cells[1],
-            symbol: cells[2],
-            color: BeadColor.fromInt(
-              int.parse(cells[3]),
-              int.parse(cells[4]),
-              int.parse(cells[5]),
-              255,
-            ),
-            prefix: def.prefix,
-          ),
+      final cells = line.split(',').map((cell) => cell.trim()).toList();
+      if (cells.length != 6) {
+        throw FormatException(
+          'Mard 221 palette row ${lineNumber + 1} must have six columns.',
         );
       }
 
-      final palette = Palette(name: def.displayName, entries: entries);
-      _cache[def.id] = palette;
-      return palette;
-    } catch (_) {
-      return null;
-    }
-  }
+      final red = int.tryParse(cells[3]);
+      final green = int.tryParse(cells[4]);
+      final blue = int.tryParse(cells[5]);
+      if (red == null || green == null || blue == null) {
+        throw FormatException(
+          'Mard 221 palette row ${lineNumber + 1} contains an invalid RGB value.',
+        );
+      }
+      if (red < 0 ||
+          red > 255 ||
+          green < 0 ||
+          green > 255 ||
+          blue < 0 ||
+          blue > 255) {
+        throw FormatException(
+          'Mard 221 palette row ${lineNumber + 1} has an out-of-range RGB value.',
+        );
+      }
 
-  Palette get fallbackPalette => _bwPalette;
+      entries.add(
+        PaletteEntry(
+          ref: cells[0],
+          name: cells[1],
+          symbol: cells[2],
+          color: BeadColor.fromInt(red, green, blue, 255),
+          prefix: _mard221Definition.prefix,
+        ),
+      );
+    }
+
+    if (entries.length != 221) {
+      throw FormatException(
+        'Mard 221 palette must contain 221 colors, found ${entries.length}.',
+      );
+    }
+
+    final palette = Palette(
+      name: _mard221Definition.displayName,
+      entries: entries,
+    );
+    _mard221Cache = palette;
+    return palette;
+  }
 }

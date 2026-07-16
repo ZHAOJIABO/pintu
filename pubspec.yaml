@@ -28,6 +28,7 @@ flutter:
   assets:
     - assets/figma_home/
     - assets/figma_style/
+    - assets/palettes/mard221.csv
   fonts:
     - family: Z Labs RoundPix 12px M CN
       fonts:

@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -59,6 +57,23 @@ class ApiClient {
   }) {
     return _sendJson(
       'POST',
+      path,
+      query: query,
+      body: body,
+      includeAuth: includeAuth,
+      retryUnauthorized: retryUnauthorized,
+    );
+  }
+
+  Future<JsonMap> put(
+    String path, {
+    Object? body,
+    Map<String, Object?> query = const {},
+    bool includeAuth = true,
+    bool retryUnauthorized = true,
+  }) {
+    return _sendJson(
+      'PUT',
       path,
       query: query,
       body: body,
