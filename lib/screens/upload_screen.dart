@@ -9,6 +9,7 @@ import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import 'crop_screen.dart';
+import 'my_screen.dart';
 import 'result_screen.dart';
 
 const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
@@ -226,6 +227,13 @@ class _UploadScreenState extends State<UploadScreen> {
                         scale: metrics.scale,
                         child: _BottomNavigation(
                           height: metrics.bottomNavDesignHeight,
+                          onMyTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const MyScreen(),
+                              ),
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -1735,8 +1743,9 @@ class _GalleryFade extends StatelessWidget {
 
 class _BottomNavigation extends StatelessWidget {
   final double height;
+  final VoidCallback? onMyTap;
 
-  const _BottomNavigation({this.height = _bottomNavDesignHeight});
+  const _BottomNavigation({this.height = _bottomNavDesignHeight, this.onMyTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1768,7 +1777,16 @@ class _BottomNavigation extends StatelessWidget {
           Positioned(
             right: 83,
             top: labelTop,
-            child: const _NavLabel(label: '我的', selected: false),
+            child: GestureDetector(
+              key: const ValueKey('home-my-nav-item'),
+              behavior: HitTestBehavior.opaque,
+              onTap: onMyTap,
+              child: const SizedBox(
+                width: 48,
+                height: 28,
+                child: Center(child: _NavLabel(label: '我的', selected: false)),
+              ),
+            ),
           ),
         ],
       ),

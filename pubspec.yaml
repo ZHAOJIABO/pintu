@@ -28,6 +28,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/figma_home/
+    - assets/figma_my/
     - assets/figma_style/
     - assets/pin_icon/
     - assets/palettes/mard221.csv
