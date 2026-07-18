@@ -10,6 +10,7 @@ class BeadBoardPreview extends StatefulWidget {
   static const double colorRefMinEffectiveCellSize = 20;
 
   final Uint8List pixels;
+  final Uint8List? layoutPixels;
   final int width;
   final int height;
   final int boardWidth;
@@ -19,10 +20,15 @@ class BeadBoardPreview extends StatefulWidget {
   final bool showRulers;
   final bool mirrorHorizontally;
   final bool interactionLocked;
+  final int revision;
+  final void Function(int x, int y)? onCellStart;
+  final void Function(int x, int y)? onCellChanged;
+  final VoidCallback? onCellEnd;
 
   const BeadBoardPreview({
     super.key,
     required this.pixels,
+    this.layoutPixels,
     required this.width,
     required this.height,
     this.boardWidth = defaultBoardSize,
@@ -32,6 +38,10 @@ class BeadBoardPreview extends StatefulWidget {
     this.showRulers = true,
     this.mirrorHorizontally = false,
     this.interactionLocked = false,
+    this.revision = 0,
+    this.onCellStart,
+    this.onCellChanged,
+    this.onCellEnd,
   });
 
   @override
@@ -40,7 +50,11 @@ class BeadBoardPreview extends StatefulWidget {
 
 class _BeadBoardPreviewState extends State<BeadBoardPreview> {
   late final TransformationController _transformationController;
+  final Set<int> _activePointerIds = <int>{};
   double _scale = 1;
+  int? _editingPointerId;
+  _BoardCell? _pendingEditCell;
+  bool _strokeStarted = false;
 
   @override
   void initState() {
@@ -87,6 +101,7 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
         );
         final showColorRefs =
             cellSize * _scale >= BeadBoardPreview.colorRefMinEffectiveCellSize;
+        final canEdit = widget.onCellStart != null;
 
         final childOffset = Offset(
           (maxWidth - boardSize.width) / 2,
@@ -101,24 +116,46 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
                 boundaryMargin: const EdgeInsets.all(96),
                 minScale: 0.8,
                 maxScale: 18,
-                panEnabled: !widget.interactionLocked,
+                panEnabled: !widget.interactionLocked && !canEdit,
                 scaleEnabled: !widget.interactionLocked,
                 child: Center(
-                  child: CustomPaint(
-                    size: boardSize,
-                    painter: BeadBoardPainter(
-                      pixels: widget.pixels,
-                      patternWidth: widget.width,
-                      patternHeight: widget.height,
-                      boardWidth: widget.boardWidth,
-                      boardHeight: widget.boardHeight,
-                      cellSize: cellSize,
-                      labelBand: labelBand,
-                      colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
-                      showColorRefs: showColorRefs,
-                      selectedRef: widget.selectedRef,
-                      showRulers: false,
-                      mirrorHorizontally: widget.mirrorHorizontally,
+                  child: Listener(
+                    key: const ValueKey('pattern-editor-canvas'),
+                    behavior: HitTestBehavior.opaque,
+                    onPointerDown: canEdit
+                        ? (event) => _handlePointerDown(
+                            event,
+                            cellSize: cellSize,
+                            labelBand: labelBand,
+                          )
+                        : null,
+                    onPointerMove: canEdit
+                        ? (event) => _handlePointerMove(
+                            event,
+                            cellSize: cellSize,
+                            labelBand: labelBand,
+                          )
+                        : null,
+                    onPointerUp: canEdit ? _handlePointerEnd : null,
+                    onPointerCancel: canEdit ? _handlePointerEnd : null,
+                    child: CustomPaint(
+                      size: boardSize,
+                      painter: BeadBoardPainter(
+                        pixels: widget.pixels,
+                        layoutPixels: widget.layoutPixels,
+                        patternWidth: widget.width,
+                        patternHeight: widget.height,
+                        boardWidth: widget.boardWidth,
+                        boardHeight: widget.boardHeight,
+                        cellSize: cellSize,
+                        labelBand: labelBand,
+                        colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
+                        showColorRefs: showColorRefs,
+                        selectedRef: widget.selectedRef,
+                        showRulers: false,
+                        mirrorHorizontally: widget.mirrorHorizontally,
+                        revision: widget.revision,
+                      ),
                     ),
                   ),
                 ),
@@ -156,10 +193,176 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
             entry.ref,
     };
   }
+
+  _BoardCell? _cellAt(
+    Offset localPosition, {
+    required double cellSize,
+    required double labelBand,
+  }) {
+    final boardX = ((localPosition.dx - labelBand) / cellSize).floor();
+    final boardY = ((localPosition.dy - labelBand) / cellSize).floor();
+    if (boardX < 0 ||
+        boardX >= widget.boardWidth ||
+        boardY < 0 ||
+        boardY >= widget.boardHeight) {
+      return null;
+    }
+
+    final bounds = _findActiveBounds(
+      pixels: widget.layoutPixels ?? widget.pixels,
+      width: widget.width,
+      height: widget.height,
+    );
+    final activeLeft = bounds?.left ?? 0;
+    final activeTop = bounds?.top ?? 0;
+    final activeRight = bounds?.right ?? widget.width - 1;
+    final activeBottom = bounds?.bottom ?? widget.height - 1;
+    final activeWidth = activeRight - activeLeft + 1;
+    final activeHeight = activeBottom - activeTop + 1;
+    final originX = (widget.boardWidth - activeWidth) ~/ 2 - activeLeft;
+    final originY = (widget.boardHeight - activeHeight) ~/ 2 - activeTop;
+    var patternX = boardX - originX;
+    final patternY = boardY - originY;
+
+    if (widget.mirrorHorizontally) {
+      patternX = activeLeft + activeRight - patternX;
+    }
+    if (patternX < 0 ||
+        patternX >= widget.width ||
+        patternY < 0 ||
+        patternY >= widget.height) {
+      return null;
+    }
+    return _BoardCell(patternX, patternY);
+  }
+
+  void _handlePointerDown(
+    PointerDownEvent event, {
+    required double cellSize,
+    required double labelBand,
+  }) {
+    _activePointerIds.add(event.pointer);
+    if (_activePointerIds.length != 1) {
+      _cancelEditingStroke();
+      return;
+    }
+    _editingPointerId = event.pointer;
+    _pendingEditCell = _cellAt(
+      event.localPosition,
+      cellSize: cellSize,
+      labelBand: labelBand,
+    );
+  }
+
+  void _handlePointerMove(
+    PointerEvent event, {
+    required double cellSize,
+    required double labelBand,
+  }) {
+    if (_activePointerIds.length != 1 || event.pointer != _editingPointerId) {
+      return;
+    }
+    final cell = _cellAt(
+      event.localPosition,
+      cellSize: cellSize,
+      labelBand: labelBand,
+    );
+    if (cell == null) return;
+
+    if (!_strokeStarted) {
+      final startCell = _pendingEditCell ?? cell;
+      widget.onCellStart!(startCell.x, startCell.y);
+      _pendingEditCell = null;
+      _strokeStarted = true;
+    }
+    widget.onCellChanged?.call(cell.x, cell.y);
+  }
+
+  void _handlePointerEnd(PointerEvent event) {
+    _activePointerIds.remove(event.pointer);
+    if (event.pointer != _editingPointerId) return;
+
+    if (_strokeStarted) {
+      widget.onCellEnd?.call();
+    } else {
+      final cell = _pendingEditCell;
+      if (cell != null) {
+        widget.onCellStart!(cell.x, cell.y);
+        widget.onCellEnd?.call();
+      }
+    }
+    _clearEditingStroke();
+  }
+
+  void _cancelEditingStroke() {
+    if (_strokeStarted) widget.onCellEnd?.call();
+    _clearEditingStroke();
+  }
+
+  void _clearEditingStroke() {
+    _editingPointerId = null;
+    _pendingEditCell = null;
+    _strokeStarted = false;
+  }
+}
+
+class _BoardCell {
+  final int x;
+  final int y;
+
+  const _BoardCell(this.x, this.y);
+}
+
+_PixelBounds? _findActiveBounds({
+  required Uint8List pixels,
+  required int width,
+  required int height,
+}) {
+  var minX = width;
+  var minY = height;
+  var maxX = -1;
+  var maxY = -1;
+
+  for (var y = 0; y < height; y++) {
+    for (var x = 0; x < width; x++) {
+      final alpha = pixels[(y * width + x) * 4 + 3];
+      if (alpha == 0) continue;
+      minX = math.min(minX, x);
+      minY = math.min(minY, y);
+      maxX = math.max(maxX, x);
+      maxY = math.max(maxY, y);
+    }
+  }
+
+  if (maxX < 0 || maxY < 0) return null;
+  return _PixelBounds(minX, minY, maxX, maxY);
 }
 
 class BeadBoardPainter extends CustomPainter {
+  /// Returns the cropped pattern's translation in board-cell units.
+  ///
+  /// Centering is intentionally rounded to a whole cell. Grid lines are
+  /// anchored to board cells, so a fractional translation would make them
+  /// run through the middle of rendered beads.
+  @visibleForTesting
+  static Offset centeredPatternCellOffset({
+    required int boardWidth,
+    required int boardHeight,
+    required int activeLeft,
+    required int activeTop,
+    required int activeRight,
+    required int activeBottom,
+  }) {
+    final activeWidth = activeRight - activeLeft + 1;
+    final activeHeight = activeBottom - activeTop + 1;
+    return Offset(
+      ((boardWidth - activeWidth) ~/ 2 - activeLeft).toDouble(),
+      ((boardHeight - activeHeight) ~/ 2 - activeTop).toDouble(),
+    );
+  }
+
   final Uint8List pixels;
+  final Uint8List? layoutPixels;
   final int patternWidth;
   final int patternHeight;
   final int boardWidth;
@@ -171,9 +374,11 @@ class BeadBoardPainter extends CustomPainter {
   final String? selectedRef;
   final bool showRulers;
   final bool mirrorHorizontally;
+  final int revision;
 
   const BeadBoardPainter({
     required this.pixels,
+    this.layoutPixels,
     required this.patternWidth,
     required this.patternHeight,
     required this.boardWidth,
@@ -185,6 +390,7 @@ class BeadBoardPainter extends CustomPainter {
     this.selectedRef,
     this.showRulers = true,
     this.mirrorHorizontally = false,
+    this.revision = 0,
   });
 
   @override
@@ -198,10 +404,18 @@ class BeadBoardPainter extends CustomPainter {
 
     if (showRulers) _drawNumberBands(canvas, boardRect);
     _drawBoardBackground(canvas, boardRect);
-    _drawPattern(canvas, boardRect);
+    final bounds = _activeBounds();
+    final patternOrigin = bounds == null
+        ? null
+        : _patternOrigin(boardRect, bounds);
+    if (bounds != null) {
+      _drawPattern(canvas, boardRect, bounds, patternOrigin!);
+    }
     _drawFineGrid(canvas, boardRect);
     _drawMajorGrid(canvas, boardRect);
-    _drawPatternDetails(canvas, boardRect);
+    if (bounds != null) {
+      _drawPatternDetails(canvas, boardRect, bounds, patternOrigin!);
+    }
     if (showRulers) _drawNumbers(canvas, boardRect);
   }
 
@@ -254,20 +468,12 @@ class BeadBoardPainter extends CustomPainter {
     }
   }
 
-  void _drawPattern(Canvas canvas, Rect boardRect) {
-    final bounds = _activeBounds();
-    if (bounds == null) return;
-
-    final activeWidth = bounds.right - bounds.left + 1;
-    final activeHeight = bounds.bottom - bounds.top + 1;
-    final xOffset =
-        boardRect.left +
-        (boardWidth - activeWidth) * cellSize / 2 -
-        bounds.left * cellSize;
-    final yOffset =
-        boardRect.top +
-        (boardHeight - activeHeight) * cellSize / 2 -
-        bounds.top * cellSize;
+  void _drawPattern(
+    Canvas canvas,
+    Rect boardRect,
+    _PixelBounds bounds,
+    Offset patternOrigin,
+  ) {
     final beadPaint = Paint()..style = PaintingStyle.fill;
 
     canvas.save();
@@ -300,8 +506,8 @@ class BeadBoardPainter extends CustomPainter {
               )
             : originalColor;
         final beadRect = Rect.fromLTWH(
-          xOffset + _displayX(x, bounds) * cellSize,
-          yOffset + y * cellSize,
+          patternOrigin.dx + _displayX(x, bounds) * cellSize,
+          patternOrigin.dy + y * cellSize,
           cellSize,
           cellSize,
         );
@@ -311,22 +517,13 @@ class BeadBoardPainter extends CustomPainter {
     canvas.restore();
   }
 
-  void _drawPatternDetails(Canvas canvas, Rect boardRect) {
+  void _drawPatternDetails(
+    Canvas canvas,
+    Rect boardRect,
+    _PixelBounds bounds,
+    Offset patternOrigin,
+  ) {
     if (!showColorRefs && selectedRef == null) return;
-
-    final bounds = _activeBounds();
-    if (bounds == null) return;
-
-    final activeWidth = bounds.right - bounds.left + 1;
-    final activeHeight = bounds.bottom - bounds.top + 1;
-    final xOffset =
-        boardRect.left +
-        (boardWidth - activeWidth) * cellSize / 2 -
-        bounds.left * cellSize;
-    final yOffset =
-        boardRect.top +
-        (boardHeight - activeHeight) * cellSize / 2 -
-        bounds.top * cellSize;
 
     canvas.save();
     canvas.clipRect(boardRect);
@@ -358,8 +555,8 @@ class BeadBoardPainter extends CustomPainter {
                 pixels[offset + 2],
               );
         final beadRect = Rect.fromLTWH(
-          xOffset + _displayX(x, bounds) * cellSize,
-          yOffset + y * cellSize,
+          patternOrigin.dx + _displayX(x, bounds) * cellSize,
+          patternOrigin.dy + y * cellSize,
           cellSize,
           cellSize,
         );
@@ -547,30 +744,47 @@ class BeadBoardPainter extends CustomPainter {
     return bounds.left + bounds.right - x;
   }
 
+  Offset _patternOrigin(Rect boardRect, _PixelBounds bounds) {
+    final cellOffset = centeredPatternCellOffset(
+      boardWidth: boardWidth,
+      boardHeight: boardHeight,
+      activeLeft: bounds.left,
+      activeTop: bounds.top,
+      activeRight: bounds.right,
+      activeBottom: bounds.bottom,
+    );
+    return Offset(
+      boardRect.left + cellOffset.dx * cellSize,
+      boardRect.top + cellOffset.dy * cellSize,
+    );
+  }
+
   _PixelBounds? _activeBounds() {
-    var minX = patternWidth;
-    var minY = patternHeight;
-    var maxX = -1;
-    var maxY = -1;
+    return _findActiveBounds(
+      pixels: layoutPixels ?? pixels,
+      width: patternWidth,
+      height: patternHeight,
+    );
+  }
 
-    for (var y = 0; y < patternHeight; y++) {
-      for (var x = 0; x < patternWidth; x++) {
-        final alpha = pixels[(y * patternWidth + x) * 4 + 3];
-        if (alpha == 0) continue;
-        minX = math.min(minX, x);
-        minY = math.min(minY, y);
-        maxX = math.max(maxX, x);
-        maxY = math.max(maxY, y);
-      }
-    }
-
-    if (maxX < 0 || maxY < 0) return null;
-    return _PixelBounds(minX, minY, maxX, maxY);
+  @visibleForTesting
+  Offset? get patternCellOffset {
+    final bounds = _activeBounds();
+    if (bounds == null) return null;
+    return centeredPatternCellOffset(
+      boardWidth: boardWidth,
+      boardHeight: boardHeight,
+      activeLeft: bounds.left,
+      activeTop: bounds.top,
+      activeRight: bounds.right,
+      activeBottom: bounds.bottom,
+    );
   }
 
   @override
   bool shouldRepaint(covariant BeadBoardPainter oldDelegate) {
     return oldDelegate.pixels != pixels ||
+        oldDelegate.layoutPixels != layoutPixels ||
         oldDelegate.patternWidth != patternWidth ||
         oldDelegate.patternHeight != patternHeight ||
         oldDelegate.boardWidth != boardWidth ||
@@ -581,7 +795,71 @@ class BeadBoardPainter extends CustomPainter {
         oldDelegate.showColorRefs != showColorRefs ||
         oldDelegate.selectedRef != selectedRef ||
         oldDelegate.showRulers != showRulers ||
-        oldDelegate.mirrorHorizontally != mirrorHorizontally;
+        oldDelegate.mirrorHorizontally != mirrorHorizontally ||
+        oldDelegate.revision != revision;
+  }
+}
+
+/// The visible ruler bands for a transformed bead board.
+///
+/// Each band follows the board while there is room to show it directly above
+/// or to the left of the grid. Once that edge reaches the viewport, the band
+/// sticks to the matching viewport edge instead.
+@immutable
+class BoardRulerPlacement {
+  final Rect horizontalRuler;
+  final Rect verticalRuler;
+
+  const BoardRulerPlacement({
+    required this.horizontalRuler,
+    required this.verticalRuler,
+  });
+
+  factory BoardRulerPlacement.resolve({
+    required Matrix4 transform,
+    required int boardWidth,
+    required int boardHeight,
+    required double cellSize,
+    required double labelBand,
+    required Offset childOffset,
+    double? rulerBandSize,
+  }) {
+    final boardTopLeft = MatrixUtils.transformPoint(transform, childOffset);
+    final gridTopLeft = MatrixUtils.transformPoint(
+      transform,
+      childOffset + Offset(labelBand, labelBand),
+    );
+    final gridBottomRight = MatrixUtils.transformPoint(
+      transform,
+      childOffset +
+          Offset(
+            labelBand + boardWidth * cellSize,
+            labelBand + boardHeight * cellSize,
+          ),
+    );
+    final scale = transform.getMaxScaleOnAxis();
+    final bandSize = rulerBandSize ?? labelBand * scale;
+    final topPinned = boardTopLeft.dy <= 0;
+    final leftPinned = boardTopLeft.dx <= 0;
+    final horizontalLeft = leftPinned ? 0.0 : gridTopLeft.dx;
+    final horizontalTop = topPinned ? 0.0 : boardTopLeft.dy;
+    final verticalLeft = leftPinned ? 0.0 : boardTopLeft.dx;
+    final verticalTop = topPinned ? 0.0 : gridTopLeft.dy;
+
+    return BoardRulerPlacement(
+      horizontalRuler: Rect.fromLTRB(
+        horizontalLeft,
+        horizontalTop,
+        math.max(horizontalLeft, gridBottomRight.dx),
+        horizontalTop + bandSize,
+      ),
+      verticalRuler: Rect.fromLTRB(
+        verticalLeft,
+        verticalTop,
+        verticalLeft + bandSize,
+        math.max(verticalTop, gridBottomRight.dy),
+      ),
+    );
   }
 }
 
@@ -605,9 +883,17 @@ class _PinnedBoardRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final scale = transform.getMaxScaleOnAxis();
-    final bandSize = (labelBand * scale).clamp(
-      5.0,
-      math.min(size.width, size.height) * 0.2,
+    final bandSize = (labelBand * scale)
+        .clamp(5.0, math.min(size.width, size.height) * 0.2)
+        .toDouble();
+    final placement = BoardRulerPlacement.resolve(
+      transform: transform,
+      boardWidth: boardWidth,
+      boardHeight: boardHeight,
+      cellSize: cellSize,
+      labelBand: labelBand,
+      childOffset: childOffset,
+      rulerBandSize: bandSize,
     );
     final bandPaint = Paint()..color = const Color(0x99000000);
     final textStyle = TextStyle(
@@ -622,25 +908,35 @@ class _PinnedBoardRulerPainter extends CustomPainter {
       height: 1,
     );
 
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, bandSize), bandPaint);
-    canvas.drawRect(Rect.fromLTWH(0, 0, bandSize, size.height), bandPaint);
+    canvas.drawRect(placement.horizontalRuler, bandPaint);
+    canvas.drawRect(placement.verticalRuler, bandPaint);
 
     final boardOrigin = childOffset + Offset(labelBand, labelBand);
-    _drawHorizontalLabels(canvas, size, boardOrigin, bandSize, textStyle);
-    _drawVerticalLabels(canvas, size, boardOrigin, bandSize, textStyle);
+    _drawHorizontalLabels(
+      canvas,
+      size,
+      boardOrigin,
+      placement.horizontalRuler,
+      textStyle,
+    );
+    _drawVerticalLabels(
+      canvas,
+      size,
+      boardOrigin,
+      placement.verticalRuler,
+      textStyle,
+    );
   }
 
   void _drawHorizontalLabels(
     Canvas canvas,
     Size size,
     Offset boardOrigin,
-    double bandSize,
+    Rect rulerRect,
     TextStyle textStyle,
   ) {
     canvas.save();
-    canvas.clipRect(
-      Rect.fromLTWH(bandSize, 0, size.width - bandSize, bandSize),
-    );
+    canvas.clipRect(rulerRect.intersect(Offset.zero & size));
     for (var x = 0; x < boardWidth; x++) {
       final start = _toViewport(
         Offset(boardOrigin.dx + x * cellSize, boardOrigin.dy),
@@ -648,12 +944,15 @@ class _PinnedBoardRulerPainter extends CustomPainter {
       final end = _toViewport(
         Offset(boardOrigin.dx + (x + 1) * cellSize, boardOrigin.dy),
       );
-      if (end.dx < bandSize || start.dx > size.width) continue;
+      if (end.dx < rulerRect.left || start.dx > rulerRect.right) continue;
 
       final rect = Rect.fromCenter(
-        center: Offset((start.dx + end.dx) / 2, bandSize / 2),
+        center: Offset(
+          (start.dx + end.dx) / 2,
+          rulerRect.top + rulerRect.height / 2,
+        ),
         width: (end.dx - start.dx).abs(),
-        height: bandSize,
+        height: rulerRect.height,
       );
       _drawCenteredText(canvas, '${x + 1}', rect, textStyle);
     }
@@ -664,13 +963,11 @@ class _PinnedBoardRulerPainter extends CustomPainter {
     Canvas canvas,
     Size size,
     Offset boardOrigin,
-    double bandSize,
+    Rect rulerRect,
     TextStyle textStyle,
   ) {
     canvas.save();
-    canvas.clipRect(
-      Rect.fromLTWH(0, bandSize, bandSize, size.height - bandSize),
-    );
+    canvas.clipRect(rulerRect.intersect(Offset.zero & size));
     for (var y = 0; y < boardHeight; y++) {
       final start = _toViewport(
         Offset(boardOrigin.dx, boardOrigin.dy + y * cellSize),
@@ -678,11 +975,14 @@ class _PinnedBoardRulerPainter extends CustomPainter {
       final end = _toViewport(
         Offset(boardOrigin.dx, boardOrigin.dy + (y + 1) * cellSize),
       );
-      if (end.dy < bandSize || start.dy > size.height) continue;
+      if (end.dy < rulerRect.top || start.dy > rulerRect.bottom) continue;
 
       final rect = Rect.fromCenter(
-        center: Offset(bandSize / 2, (start.dy + end.dy) / 2),
-        width: bandSize,
+        center: Offset(
+          rulerRect.left + rulerRect.width / 2,
+          (start.dy + end.dy) / 2,
+        ),
+        width: rulerRect.width,
         height: (end.dy - start.dy).abs(),
       );
       _drawCenteredText(canvas, '${y + 1}', rect, textStyle);

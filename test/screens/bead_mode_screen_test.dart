@@ -11,6 +11,83 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('cropped pattern placement stays on whole board cells', () {
+    expect(
+      BeadBoardPainter.centeredPatternCellOffset(
+        boardWidth: 50,
+        boardHeight: 50,
+        activeLeft: 2,
+        activeTop: 7,
+        activeRight: 46,
+        activeBottom: 49,
+      ),
+      const Offset(0, -4),
+    );
+  });
+
+  test(
+    'rulers follow the board until each matching viewport edge is reached',
+    () {
+      const childOffset = Offset(30, 200);
+
+      final floating = BoardRulerPlacement.resolve(
+        transform: Matrix4.identity(),
+        boardWidth: 50,
+        boardHeight: 50,
+        cellSize: 5,
+        labelBand: 10,
+        childOffset: childOffset,
+      );
+
+      expect(floating.horizontalRuler, const Rect.fromLTWH(40, 200, 250, 10));
+      expect(floating.verticalRuler, const Rect.fromLTWH(30, 210, 10, 250));
+
+      final pinned = BoardRulerPlacement.resolve(
+        transform: Matrix4.identity()..setTranslationRaw(-30, -200, 0),
+        boardWidth: 50,
+        boardHeight: 50,
+        cellSize: 5,
+        labelBand: 10,
+        childOffset: childOffset,
+      );
+
+      expect(pinned.horizontalRuler.top, 0);
+      expect(pinned.horizontalRuler.left, 0);
+      expect(pinned.verticalRuler.left, 0);
+      expect(pinned.verticalRuler.top, 0);
+    },
+  );
+
+  test('rulers pin horizontally and vertically independently', () {
+    const childOffset = Offset(30, 200);
+
+    final leftPinned = BoardRulerPlacement.resolve(
+      transform: Matrix4.identity()..setTranslationRaw(-30, 0, 0),
+      boardWidth: 50,
+      boardHeight: 50,
+      cellSize: 5,
+      labelBand: 10,
+      childOffset: childOffset,
+    );
+    expect(leftPinned.horizontalRuler.left, 0);
+    expect(leftPinned.horizontalRuler.top, 200);
+    expect(leftPinned.verticalRuler.left, 0);
+    expect(leftPinned.verticalRuler.top, 210);
+
+    final topPinned = BoardRulerPlacement.resolve(
+      transform: Matrix4.identity()..setTranslationRaw(0, -200, 0),
+      boardWidth: 50,
+      boardHeight: 50,
+      cellSize: 5,
+      labelBand: 10,
+      childOffset: childOffset,
+    );
+    expect(topPinned.horizontalRuler.left, 40);
+    expect(topPinned.horizontalRuler.top, 0);
+    expect(topPinned.verticalRuler.left, 30);
+    expect(topPinned.verticalRuler.top, 0);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('bead mode fits Figma layout on $viewport', (tester) async {
       _setViewport(tester, viewport);
@@ -260,7 +337,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bead-mode-edit-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('图纸编辑'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
   });
 }
 

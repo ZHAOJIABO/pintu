@@ -188,7 +188,7 @@ void main() {
     await tester.tap(find.text('编辑'));
     await tester.pumpAndSettle();
 
-    expect(find.text('图纸编辑'), findsOneWidget);
+    expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
   });
 
   testWidgets('generated result shows gallery hint dialog', (tester) async {
