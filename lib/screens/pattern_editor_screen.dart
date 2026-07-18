@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../algorithms/matching.dart';
 import '../models/color.dart';
 import '../models/editable_pattern.dart';
 import '../models/generated_pattern.dart';
@@ -176,6 +177,92 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     });
   }
 
+  void _replacePaletteCell(int x, int y) {
+    final source = _editService.pick(
+      pixels: _pixels,
+      width: widget.pattern.width,
+      x: x,
+      y: y,
+    );
+    if (source.aInt == 0) return;
+    _showColorReplacement(
+      source: source,
+      sourceRef: _colorRefFor(source),
+      cell: math.Point<int>(x, y),
+    );
+  }
+
+  Future<void> _showColorReplacement({
+    required BeadColor source,
+    required String sourceRef,
+    math.Point<int>? cell,
+  }) async {
+    final replacementEntries =
+        widget.pattern.paletteEntries
+            .where((entry) => entry.color != source)
+            .toList()
+          ..sort((left, right) => _compareColorCodes(left.ref, right.ref));
+    final colorMatcher = CIE2000Matching();
+    final closestEntries = List<PaletteEntry>.from(replacementEntries)
+      ..sort((left, right) {
+        final byDistance = colorMatcher
+            .delta(left.color, source)
+            .compareTo(colorMatcher.delta(right.color, source));
+        return byDistance != 0
+            ? byDistance
+            : _compareColorCodes(left.ref, right.ref);
+      });
+    final replacement = await showModalBottomSheet<BeadColor>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => _ColorReplacementSheet(
+        source: source,
+        sourceRef: sourceRef,
+        nearbyEntries: closestEntries.take(8).toList(growable: false),
+        allEntries: replacementEntries,
+      ),
+    );
+    if (!mounted || replacement == null) return;
+
+    if (cell == null) {
+      final colorReplacement = _editService.replaceColorCompact(
+        pixels: _pixels,
+        from: source,
+        to: replacement,
+      );
+      if (colorReplacement == null) return;
+      setState(() {
+        _historyService.recordColorReplacement(colorReplacement);
+        _revision++;
+      });
+      return;
+    }
+
+    final changes = _editService.paint(
+      pixels: _pixels,
+      width: widget.pattern.width,
+      height: widget.pattern.height,
+      x: cell.x,
+      y: cell.y,
+      brushSize: 1,
+      color: replacement,
+    );
+    if (changes.isEmpty) return;
+
+    setState(() {
+      _historyService.record(changes);
+      _revision++;
+    });
+  }
+
+  String _colorRefFor(BeadColor color) {
+    for (final entry in widget.pattern.paletteEntries) {
+      if (entry.color == color) return entry.ref;
+    }
+    return color.toHex().replaceFirst('#', '').toUpperCase();
+  }
+
   void _selectTool(EditorTool tool) {
     setState(() => _tool = _tool == tool ? null : tool);
   }
@@ -205,15 +292,12 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     Navigator.pop(context, edited);
   }
 
-  String get _selectedColorRef {
-    for (final entry in widget.pattern.paletteEntries) {
-      if (entry.color == _selectedColor) return entry.ref;
-    }
-    return _selectedColor.toHex().replaceFirst('#', '').toUpperCase();
-  }
+  String get _selectedColorRef => _colorRefFor(_selectedColor);
 
   @override
   Widget build(BuildContext context) {
+    final isPalettePanel = _panel == _EditorPanel.palette;
+    final canPaint = !isPalettePanel && _tool != null;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark.copyWith(
         statusBarColor: Colors.transparent,
@@ -241,9 +325,13 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                   revision: _revision,
                   paletteEntries: widget.pattern.paletteEntries,
                   showRulers: false,
-                  onCellStart: _tool == null ? null : _startStroke,
-                  onCellChanged: _tool == null ? null : _continueStroke,
-                  onCellEnd: _tool == null ? null : _finishStroke,
+                  onCellStart: isPalettePanel
+                      ? _replacePaletteCell
+                      : canPaint
+                      ? _startStroke
+                      : null,
+                  onCellChanged: canPaint ? _continueStroke : null,
+                  onCellEnd: canPaint ? _finishStroke : null,
                 ),
               ),
               _panel == _EditorPanel.brush
@@ -259,9 +347,15 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                       onRedo: _redo,
                     )
                   : _PaletteToolbar(
-                      entries: widget.pattern.paletteEntries,
-                      selectedColor: _selectedColor,
-                      onColorSelected: _selectPaletteColor,
+                      entries: _usedPaletteEntries(),
+                      canUndo: _historyService.canUndo,
+                      canRedo: _historyService.canRedo,
+                      onColorSelected: (item) => _showColorReplacement(
+                        source: item.entry.color,
+                        sourceRef: item.entry.ref,
+                      ),
+                      onUndo: _undo,
+                      onRedo: _redo,
                     ),
             ],
           ),
@@ -452,7 +546,6 @@ class _EditorToolbar extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _EditorToolButton(
                   label: '画笔',
@@ -461,6 +554,7 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.brush,
                   onPressed: () => onToolSelected(EditorTool.brush),
                 ),
+                const Spacer(),
                 _EditorToolButton(
                   label: '取色器',
                   asset: 'assets/pin_icon/editor_picker_unselected.svg',
@@ -468,6 +562,7 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.picker,
                   onPressed: () => onToolSelected(EditorTool.picker),
                 ),
+                const Spacer(),
                 _EditorToolButton(
                   label: '橡皮擦',
                   asset: 'assets/pin_icon/editor_eraser.svg',
@@ -475,20 +570,14 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.eraser,
                   onPressed: () => onToolSelected(EditorTool.eraser),
                 ),
+                const Spacer(),
                 const _DashedDivider(),
-                _EditorToolButton(
-                  label: '上一步',
-                  asset: 'assets/pin_icon/editor_undo_black.svg',
-                  preserveAssetColor: true,
-                  enabled: canUndo,
-                  onPressed: onUndo,
-                ),
-                _EditorToolButton(
-                  label: '下一步',
-                  asset: 'assets/pin_icon/editor_redo_black.svg',
-                  preserveAssetColor: true,
-                  enabled: canRedo,
-                  onPressed: onRedo,
+                const SizedBox(width: 14),
+                _HistoryControls(
+                  canUndo: canUndo,
+                  canRedo: canRedo,
+                  onUndo: onUndo,
+                  onRedo: onRedo,
                 ),
               ],
             ),
@@ -500,46 +589,110 @@ class _EditorToolbar extends StatelessWidget {
 }
 
 class _PaletteToolbar extends StatelessWidget {
-  final List<PaletteEntry> entries;
-  final BeadColor selectedColor;
-  final ValueChanged<BeadColor> onColorSelected;
+  final List<_UsedPaletteEntry> entries;
+  final bool canUndo;
+  final bool canRedo;
+  final ValueChanged<_UsedPaletteEntry> onColorSelected;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
 
   const _PaletteToolbar({
     required this.entries,
-    required this.selectedColor,
+    required this.canUndo,
+    required this.canRedo,
     required this.onColorSelected,
+    required this.onUndo,
+    required this.onRedo,
   });
 
   @override
   Widget build(BuildContext context) {
-    final colors = entries.isEmpty
-        ? <PaletteEntry>[
-            PaletteEntry(
-              name: '当前颜色',
-              ref: '当前',
-              symbol: '',
-              color: selectedColor,
-              prefix: '',
-            ),
-          ]
-        : entries;
-
     return _EditorBottomSheet(
       child: SizedBox(
-        height: 64,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: colors.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
-          itemBuilder: (context, index) {
-            final entry = colors[index];
-            return _PaletteColorTile(
-              entry: entry,
-              selected: entry.color == selectedColor,
-              onPressed: () => onColorSelected(entry.color),
-            );
-          },
+        height: 66,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                clipBehavior: Clip.none,
+                itemCount: entries.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final item = entries[index];
+                  return Transform.translate(
+                    offset: const Offset(0, -4),
+                    child: _PaletteUsageTile(
+                      item: item,
+                      onPressed: () => onColorSelected(item),
+                    ),
+                  );
+                },
+              ),
+            ),
+            _HistoryControls(
+              canUndo: canUndo,
+              canRedo: canRedo,
+              onUndo: onUndo,
+              onRedo: onRedo,
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _HistoryControls extends StatelessWidget {
+  final bool canUndo;
+  final bool canRedo;
+  final VoidCallback onUndo;
+  final VoidCallback onRedo;
+
+  const _HistoryControls({
+    required this.canUndo,
+    required this.canRedo,
+    required this.onUndo,
+    required this.onRedo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: const ValueKey('editor-history-controls'),
+      width: 97.6,
+      height: 51,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Positioned(
+            left: -15,
+            top: -4,
+            width: 112.6,
+            height: 66,
+            child: IgnorePointer(child: ColoredBox(color: Colors.white)),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _EditorToolButton(
+                label: '上一步',
+                asset: 'assets/pin_icon/editor_undo_black.svg',
+                preserveAssetColor: true,
+                enabled: canUndo,
+                onPressed: onUndo,
+              ),
+              _EditorToolButton(
+                label: '下一步',
+                asset: 'assets/pin_icon/editor_redo_black.svg',
+                preserveAssetColor: true,
+                enabled: canRedo,
+                onPressed: onRedo,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -588,6 +741,7 @@ class _CurrentColorTile extends StatelessWidget {
           borderRadius: const BorderRadius.all(Radius.circular(10)),
           child: Container(
             width: 48,
+            height: 66,
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               border: Border.all(
@@ -727,75 +881,184 @@ class _EditorToolButton extends StatelessWidget {
   }
 }
 
-class _PaletteColorTile extends StatelessWidget {
-  final PaletteEntry entry;
-  final bool selected;
+class _PaletteUsageTile extends StatelessWidget {
+  final _UsedPaletteEntry item;
   final VoidCallback onPressed;
 
-  const _PaletteColorTile({
-    required this.entry,
-    required this.selected,
-    required this.onPressed,
+  const _PaletteUsageTile({required this.item, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = item.entry;
+    final color = entry.color;
+    return Semantics(
+      button: true,
+      label: '替换 ${entry.ref}，共 ${item.count} 颗',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        child: InkWell(
+          key: ValueKey('editor-palette-usage-option-${entry.ref}'),
+          onTap: onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          child: Container(
+            width: 48,
+            height: 66,
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Colors.black.withValues(alpha: 0.12),
+                width: 0.5,
+              ),
+              borderRadius: const BorderRadius.all(Radius.circular(10)),
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Color.fromARGB(
+                      color.aInt,
+                      color.rInt,
+                      color.gInt,
+                      color.bInt,
+                    ),
+                    border: Border.all(
+                      color: const Color(0x4D878787),
+                      width: 0.5,
+                    ),
+                    borderRadius: const BorderRadius.all(Radius.circular(8)),
+                  ),
+                  child: Text(
+                    entry.ref,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: _foregroundColor(color),
+                      fontFamily: 'Alimama FangYuanTi VF',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${item.count}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontSize: 11,
+                    height: 1,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ColorReplacementSheet extends StatelessWidget {
+  final BeadColor source;
+  final String sourceRef;
+  final List<PaletteEntry> nearbyEntries;
+  final List<PaletteEntry> allEntries;
+
+  const _ColorReplacementSheet({
+    required this.source,
+    required this.sourceRef,
+    required this.nearbyEntries,
+    required this.allEntries,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = entry.color;
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: entry.ref,
-      child: GestureDetector(
-        onTap: onPressed,
-        child: Container(
-          width: 48,
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: selected
-                  ? Colors.black
-                  : Colors.black.withValues(alpha: 0.12),
-              width: selected ? 1.5 : 0.5,
-            ),
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-          ),
+    final mediaQuery = MediaQuery.of(context);
+    final height = math.min(
+      480.0,
+      mediaQuery.size.height - mediaQuery.padding.top,
+    );
+    return Container(
+      key: const ValueKey('editor-color-replacement-sheet'),
+      width: double.infinity,
+      height: height,
+      padding: EdgeInsets.fromLTRB(16, 20, 16, 20 + mediaQuery.padding.bottom),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 350),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 40,
-                height: 40,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Color.fromARGB(
-                    color.aInt,
-                    color.rInt,
-                    color.gInt,
-                    color.bInt,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '颜色替换',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontFamily: 'Alimama FangYuanTi VF',
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                  borderRadius: const BorderRadius.all(Radius.circular(8)),
-                ),
-                child: Text(
-                  entry.ref,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _foregroundColor(color),
-                    fontFamily: 'Alimama FangYuanTi VF',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                  Semantics(
+                    button: true,
+                    label: '关闭颜色替换',
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: IconButton(
+                        key: const ValueKey('editor-color-replacement-close'),
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close_rounded, size: 24),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 24,
+                          height: 24,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                entry.ref,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontFamily: 'Alimama FangYuanTi VF',
-                  fontSize: 11,
-                  height: 1,
+              const SizedBox(height: 20),
+              _DashedReplacementCard(source: source, sourceRef: sourceRef),
+              const SizedBox(height: 20),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const _ReplacementColorSectionTitle('相近颜色'),
+                      const SizedBox(height: 12),
+                      _ReplacementColorGrid(
+                        entries: nearbyEntries,
+                        sectionKey: 'nearby',
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: _PaletteSectionDivider(),
+                      ),
+                      const _ReplacementColorSectionTitle('所有颜色'),
+                      const SizedBox(height: 12),
+                      _ReplacementColorGrid(
+                        entries: allEntries,
+                        sectionKey: 'all',
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -804,6 +1067,260 @@ class _PaletteColorTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DashedReplacementCard extends StatelessWidget {
+  final BeadColor source;
+  final String sourceRef;
+
+  const _DashedReplacementCard({required this.source, required this.sourceRef});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _DashedRoundedBorderPainter(),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _ReplacementColorPreview(color: source, label: sourceRef),
+            const Icon(
+              Icons.arrow_forward_rounded,
+              size: 32,
+              color: Color(0xFFE5E5E5),
+            ),
+            const _ReplacementColorPreview(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementColorPreview extends StatelessWidget {
+  final BeadColor? color;
+  final String? label;
+
+  const _ReplacementColorPreview({this.color, this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final previewColor = color == null
+        ? Colors.white
+        : Color.fromARGB(color!.aInt, color!.rInt, color!.gInt, color!.bInt);
+    return Container(
+      width: 72,
+      height: 72,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: previewColor,
+        border: Border.all(
+          color: color == null
+              ? const Color(0xFFE5E5E5)
+              : const Color(0x4D878787),
+          width: color == null ? 1.5 : 0.5,
+        ),
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+      ),
+      child: color == null
+          ? const CustomPaint(painter: _TransparentPreviewPainter())
+          : Text(
+              label!,
+              style: TextStyle(
+                color: _foregroundColor(color!),
+                fontFamily: 'Alimama FangYuanTi VF',
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+    );
+  }
+}
+
+class _ReplacementColorOption extends StatelessWidget {
+  final PaletteEntry entry;
+  final String sectionKey;
+  final VoidCallback onPressed;
+
+  const _ReplacementColorOption({
+    required this.entry,
+    required this.sectionKey,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = entry.color;
+    return Semantics(
+      button: true,
+      label: '替换为 ${entry.ref}',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        child: InkWell(
+          key: ValueKey(
+            'editor-color-replacement-$sectionKey-option-${entry.ref}',
+          ),
+          onTap: onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(12)),
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Color.fromARGB(
+                color.aInt,
+                color.rInt,
+                color.gInt,
+                color.bInt,
+              ),
+              borderRadius: const BorderRadius.all(Radius.circular(12)),
+            ),
+            child: Text(
+              entry.ref,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: _foregroundColor(color),
+                fontFamily: 'Alimama FangYuanTi VF',
+                fontSize: 14,
+                height: 16 / 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReplacementColorGrid extends StatelessWidget {
+  final List<PaletteEntry> entries;
+  final String sectionKey;
+
+  const _ReplacementColorGrid({
+    required this.entries,
+    required this.sectionKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 16,
+      children: [
+        for (final entry in entries)
+          _ReplacementColorOption(
+            entry: entry,
+            sectionKey: sectionKey,
+            onPressed: () => Navigator.pop(context, entry.color),
+          ),
+      ],
+    );
+  }
+}
+
+class _ReplacementColorSectionTitle extends StatelessWidget {
+  final String title;
+
+  const _ReplacementColorSectionTitle(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        color: Color(0x99000000),
+        fontFamily: 'Alimama FangYuanTi VF',
+        fontSize: 14,
+        height: 16 / 14,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+class _PaletteSectionDivider extends StatelessWidget {
+  const _PaletteSectionDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: double.infinity,
+      height: 1,
+      child: CustomPaint(painter: _PaletteSectionDividerPainter()),
+    );
+  }
+}
+
+class _TransparentPreviewPainter extends CustomPainter {
+  const _TransparentPreviewPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const cellSize = 12.0;
+    final light = Paint()..color = const Color(0xFFF5F5F5);
+    final dark = Paint()..color = const Color(0xFFE5E5E5);
+    for (double y = 0; y < size.height; y += cellSize) {
+      for (double x = 0; x < size.width; x += cellSize) {
+        final isDark = ((x / cellSize).floor() + (y / cellSize).floor()).isOdd;
+        canvas.drawRect(
+          Rect.fromLTWH(x, y, cellSize, cellSize),
+          isDark ? dark : light,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _PaletteSectionDividerPainter extends CustomPainter {
+  const _PaletteSectionDividerPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFDEE2ED)
+      ..strokeWidth = 1;
+    for (double x = 0; x < size.width; x += 4) {
+      canvas.drawLine(Offset(x, 0.5), Offset(x + 2, 0.5), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _DashedRoundedBorderPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          const Offset(1, 1) & Size(size.width - 2, size.height - 2),
+          const Radius.circular(19),
+        ),
+      );
+    final paint = Paint()
+      ..color = const Color(0x1A000000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    for (final metric in path.computeMetrics()) {
+      for (double start = 0; start < metric.length; start += 11) {
+        canvas.drawPath(
+          metric.extractPath(start, math.min(start + 7, metric.length)),
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _CurrentColorPickerSheet extends StatelessWidget {

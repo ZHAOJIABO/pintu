@@ -98,4 +98,127 @@ void main() {
     expect(color.bInt, 6);
     expect(color.aInt, 255);
   });
+
+  test('replaceColor returns changes for every matching bead', () {
+    final red = BeadColor.fromInt(255, 0, 0, 255);
+    final blue = BeadColor.fromInt(0, 0, 255, 255);
+    final pixels = Uint8List.fromList([
+      255,
+      0,
+      0,
+      255,
+      0,
+      255,
+      0,
+      255,
+      255,
+      0,
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+
+    final changes = PatternEditService().replaceColor(
+      pixels: pixels,
+      width: 2,
+      height: 2,
+      from: red,
+      to: blue,
+    );
+
+    expect(changes, hasLength(2));
+    expect(pixels, [
+      0,
+      0,
+      255,
+      255,
+      0,
+      255,
+      0,
+      255,
+      0,
+      0,
+      255,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+  });
+
+  test('compact replacement stores changed indexes for atomic history', () {
+    final red = BeadColor.fromInt(255, 0, 0, 255);
+    final blue = BeadColor.fromInt(0, 0, 255, 255);
+    final pixels = Uint8List.fromList([
+      255,
+      0,
+      0,
+      255,
+      0,
+      255,
+      0,
+      255,
+      255,
+      0,
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    final history = EditorHistoryService();
+
+    final replacement = PatternEditService().replaceColorCompact(
+      pixels: pixels,
+      from: red,
+      to: blue,
+    );
+
+    expect(replacement, isNotNull);
+    expect(replacement!.cellIndexes, [0, 2]);
+    history.recordColorReplacement(replacement);
+    history.undo(pixels, 2);
+    expect(pixels, [
+      255,
+      0,
+      0,
+      255,
+      0,
+      255,
+      0,
+      255,
+      255,
+      0,
+      0,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+    history.redo(pixels, 2);
+    expect(pixels, [
+      0,
+      0,
+      255,
+      255,
+      0,
+      255,
+      0,
+      255,
+      0,
+      0,
+      255,
+      255,
+      0,
+      0,
+      0,
+      0,
+    ]);
+  });
 }

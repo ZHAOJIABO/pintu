@@ -102,6 +102,62 @@ void main() {
     expect(tester.widget<InteractiveViewer>(viewer).scaleEnabled, isTrue);
   });
 
+  testWidgets('palette undo and redo align with the brush toolbar', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+    );
+
+    final historyControls = find.byKey(
+      const ValueKey('editor-history-controls'),
+    );
+    final brushHistoryControls = tester.getRect(historyControls);
+
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+
+    expect(tester.getRect(historyControls), brushHistoryControls);
+    final historyMask = find.descendant(
+      of: historyControls,
+      matching: find.byType(ColoredBox),
+    );
+    expect(tester.widget<ColoredBox>(historyMask).color, Colors.white);
+    final historyMaskRect = tester.getRect(historyMask);
+    expect(historyMaskRect.left, brushHistoryControls.left - 15);
+    expect(historyMaskRect.top, brushHistoryControls.top - 4);
+    expect(historyMaskRect.height, 66);
+  });
+
+  testWidgets('palette colour tiles match the brush current-colour tile', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+    );
+
+    final currentColorTile = find.byKey(
+      const ValueKey('editor-current-color-button'),
+    );
+    final brushTileRect = tester.getRect(currentColorTile);
+
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+
+    expect(
+      tester.widget<ListView>(find.byType(ListView)).clipBehavior,
+      Clip.none,
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey('editor-palette-usage-option-A2')),
+      ),
+      brushTileRect,
+    );
+  });
+
   testWidgets(
     'current colour defaults to the most-used and picker sorts used codes',
     (tester) async {
@@ -148,6 +204,122 @@ void main() {
       );
     },
   );
+
+  testWidgets('palette replaces all beads of a selected colour in one step', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+    );
+
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+
+    final a2 = find.byKey(const ValueKey('editor-palette-usage-option-A2'));
+    expect(a2, findsOneWidget);
+    expect(find.descendant(of: a2, matching: find.text('3')), findsOneWidget);
+
+    await tester.tap(a2);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('editor-color-replacement-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('相近颜色'), findsOneWidget);
+    expect(find.text('所有颜色'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('editor-color-replacement-all-option-B1')),
+    );
+    await tester.pumpAndSettle();
+
+    final blue = [33, 150, 243, 255];
+    expect(_editorPainter(tester).pixels.sublist(0, 12), [
+      ...blue,
+      ...blue,
+      ...blue,
+    ]);
+
+    await tester.tap(find.text('上一步'));
+    await tester.pump();
+    final green = [76, 175, 80, 255];
+    expect(_editorPainter(tester).pixels.sublist(0, 12), [
+      ...green,
+      ...green,
+      ...green,
+    ]);
+
+    await tester.tap(find.text('下一步'));
+    await tester.pump();
+    expect(_editorPainter(tester).pixels.sublist(0, 12), [
+      ...blue,
+      ...blue,
+      ...blue,
+    ]);
+  });
+
+  testWidgets('palette replaces only the tapped bead on the board', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+    );
+
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 23.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('editor-color-replacement-all-option-D6')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_editorPainter(tester).pixels.sublist(0, 4), [244, 67, 54, 255]);
+    expect(_editorPainter(tester).pixels.sublist(4, 8), [76, 175, 80, 255]);
+  });
+
+  for (final viewport in const [Size(375, 667), Size(430, 932)]) {
+    testWidgets('palette replacement sheet fits $viewport', (tester) async {
+      _setViewport(tester, viewport);
+      await tester.pumpWidget(
+        MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+      );
+
+      await tester.tap(find.text('色板'));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('editor-palette-usage-option-A2')),
+      );
+      await tester.pumpAndSettle();
+
+      final sheet = find.byKey(
+        const ValueKey('editor-color-replacement-sheet'),
+      );
+      expect(sheet, findsOneWidget);
+      expect(tester.getSize(sheet).height, 480);
+      expect(find.text('相近颜色'), findsOneWidget);
+      expect(find.text('所有颜色'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('editor-color-replacement-nearby-option-D6')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('editor-color-replacement-all-option-D6')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   test('editing pixels does not recenter the board layout', () {
     final layoutPixels = Uint8List.fromList([
