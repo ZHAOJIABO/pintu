@@ -40,7 +40,7 @@ void main() {
 
           expect(find.text('照片转图纸'), findsAtLeastNWidgets(1));
           expect(find.text('上传照片'), findsOneWidget);
-          expect(find.text('兔子的图库'), findsOneWidget);
+          expect(find.text('全部'), findsOneWidget);
           expect(find.text('制作'), findsAtLeastNWidgets(1));
           expect(find.text('我的'), findsAtLeastNWidgets(1));
         });

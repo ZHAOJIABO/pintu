@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/draft_project.dart';
@@ -1461,10 +1462,15 @@ class _GalleryTitle extends StatelessWidget {
           const Spacer(),
           GestureDetector(
             onTap: onFilter,
-            child: const SizedBox(
-              width: 16,
-              height: 16,
-              child: CustomPaint(painter: _FilterIconPainter()),
+            child: Transform.translate(
+              offset: const Offset(0, 1),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: SvgPicture.asset(
+                  'assets/figma_home/gallery_filter_grid.svg',
+                ),
+              ),
             ),
           ),
         ],
@@ -1486,13 +1492,13 @@ class _GalleryTitleLabel extends StatelessWidget {
         SizedBox(width: 18, height: 18, child: _GalleryRabbitIcon()),
         SizedBox(width: 4),
         Text(
-          '兔子的图库',
+          '全部',
           style: TextStyle(
             color: Colors.black,
             fontFamily: _roundFontFamily,
             fontFamilyFallback: _fontFallbacks,
             fontSize: 16,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.bold,
           ),
         ),
       ],
@@ -1505,40 +1511,14 @@ class _GalleryRabbitIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Transform.translate(
-      offset: const Offset(0, 1),
-      child: Image.asset(
-        'assets/figma_home/gallery_title_icon.png',
-        width: 18,
-        height: 18,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
+    return Center(
+      child: SizedBox(
+        width: 16,
+        height: 16,
+        child: SvgPicture.asset('assets/figma_home/gallery_title_rabbit.svg'),
       ),
     );
   }
-}
-
-class _FilterIconPainter extends CustomPainter {
-  const _FilterIconPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = false;
-
-    canvas.save();
-    canvas.scale(size.width / 16, size.height / 16);
-    canvas.clipRect(const Rect.fromLTWH(0, 0, 16, 16));
-    canvas.drawRect(const Rect.fromLTWH(1.9, 3.25, 12.2, 1.45), paint);
-    canvas.drawRect(const Rect.fromLTWH(3.65, 7.35, 8.7, 1.45), paint);
-    canvas.drawRect(const Rect.fromLTWH(5.35, 11.45, 5.3, 1.45), paint);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _GalleryGrid extends StatelessWidget {

@@ -8,6 +8,6 @@ void main() {
     expect(find.text('上传照片'), findsOneWidget);
     expect(find.text('转换风格'), findsOneWidget);
     expect(find.text('转为插画'), findsNothing);
-    expect(find.text('兔子的图库'), findsOneWidget);
+    expect(find.text('全部'), findsOneWidget);
   });
 }
