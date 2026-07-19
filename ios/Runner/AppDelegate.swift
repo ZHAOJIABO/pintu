@@ -1,6 +1,7 @@
 import Flutter
 import Photos
 import UIKit
+import Vision
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -9,11 +10,11 @@ import UIKit
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     if let controller = window?.rootViewController as? FlutterViewController {
-      let channel = FlutterMethodChannel(
+      let photoLibraryChannel = FlutterMethodChannel(
         name: "bobobeads/photo_library",
         binaryMessenger: controller.binaryMessenger
       )
-      channel.setMethodCallHandler { call, result in
+      photoLibraryChannel.setMethodCallHandler { call, result in
         guard call.method == "savePng" else {
           result(FlutterMethodNotImplemented)
           return
@@ -30,10 +31,118 @@ import UIKit
 
         self.savePngToPhotoLibrary(typedData.data, result: result)
       }
+
+      let backgroundRemovalChannel = FlutterMethodChannel(
+        name: "bobobeads/background_removal",
+        binaryMessenger: controller.binaryMessenger
+      )
+      backgroundRemovalChannel.setMethodCallHandler { call, result in
+        guard call.method == "removeBackground" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+
+        guard let typedData = call.arguments as? FlutterStandardTypedData else {
+          result(FlutterError(
+            code: "invalid_args",
+            message: "Image bytes are required.",
+            details: nil
+          ))
+          return
+        }
+
+        self.removeBackground(typedData.data, result: result)
+      }
     }
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func removeBackground(_ data: Data, result: @escaping FlutterResult) {
+    guard #available(iOS 17.0, *) else {
+      NSLog("[BackgroundRemoval] unsupported iOS version.")
+      result(FlutterError(
+        code: "unsupported",
+        message: "Background removal requires iOS 17 or later.",
+        details: nil
+      ))
+      return
+    }
+
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        NSLog("[BackgroundRemoval] Vision request started (\(data.count) bytes).")
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(data: data, options: [:])
+        try handler.perform([request])
+
+        guard let observation = request.results?.first,
+              !observation.allInstances.isEmpty else {
+          NSLog("[BackgroundRemoval] Vision found no foreground subject.")
+          self.finishBackgroundRemoval(
+            result,
+            error: FlutterError(
+              code: "no_subject",
+              message: "No foreground subject was found.",
+              details: nil
+            )
+          )
+          return
+        }
+
+        NSLog(
+          "[BackgroundRemoval] Vision found \(observation.allInstances.count) foreground instance(s)."
+        )
+        let maskedBuffer = try observation.generateMaskedImage(
+          ofInstances: observation.allInstances,
+          from: handler,
+          croppedToInstancesExtent: false
+        )
+        let image = CIImage(cvPixelBuffer: maskedBuffer)
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(image, from: image.extent),
+              let pngData = UIImage(cgImage: cgImage).pngData() else {
+          NSLog("[BackgroundRemoval] failed to encode the masked PNG.")
+          self.finishBackgroundRemoval(
+            result,
+            error: FlutterError(
+              code: "encoding_failed",
+              message: "Unable to encode the foreground image.",
+              details: nil
+            )
+          )
+          return
+        }
+
+        NSLog("[BackgroundRemoval] masked PNG produced (\(pngData.count) bytes).")
+        self.finishBackgroundRemoval(result, data: pngData)
+      } catch {
+        NSLog("[BackgroundRemoval] Vision request failed: %@", error.localizedDescription)
+        self.finishBackgroundRemoval(
+          result,
+          error: FlutterError(
+            code: "removal_failed",
+            message: error.localizedDescription,
+            details: nil
+          )
+        )
+      }
+    }
+  }
+
+  private func finishBackgroundRemoval(
+    _ result: @escaping FlutterResult,
+    data: Data? = nil,
+    error: FlutterError? = nil
+  ) {
+    DispatchQueue.main.async {
+      if let error {
+        result(error)
+      } else {
+        result(FlutterStandardTypedData(bytes: data!))
+      }
+    }
   }
 
   private func savePngToPhotoLibrary(_ data: Data, result: @escaping FlutterResult) {

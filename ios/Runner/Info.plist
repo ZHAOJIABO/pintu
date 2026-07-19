@@ -28,10 +28,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>We need access to your camera to take photos for bead pattern conversion.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>We need access to your photo library to select images for bead pattern conversion.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>需要访问相册来保存生成的拼豆图纸。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>We need access to your photo library to select images for bead pattern conversion.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

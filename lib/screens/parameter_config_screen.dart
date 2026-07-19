@@ -96,7 +96,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late String? _brandId = widget.draft.paletteBrandId;
   late ColorLimit _limit = widget.draft.colorLimit;
   late bool _smoothing = widget.draft.smoothingEnabled;
-  bool _removeBackground = true;
+  late bool _removeBackground = widget.draft.removeBackground;
   bool _denoise = false;
   int _saturation = 100;
   bool _generating = false;
@@ -172,6 +172,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       paletteBrandId: brandId,
       colorLimit: _limit,
       smoothingEnabled: _smoothing,
+      removeBackground: _removeBackground,
     );
 
     setState(() => _generating = true);

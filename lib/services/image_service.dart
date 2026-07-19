@@ -20,7 +20,16 @@ class ImageService {
     int targetHeight, {
     bool fit = true,
     bool center = true,
+    int? alphaThreshold,
   }) async {
+    if (alphaThreshold != null &&
+        (alphaThreshold < 1 || alphaThreshold > 255)) {
+      throw ArgumentError.value(
+        alphaThreshold,
+        'alphaThreshold',
+        'must be between 1 and 255',
+      );
+    }
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) throw Exception('Failed to decode image');
 
@@ -82,10 +91,16 @@ class ImageService {
       for (int x = 0; x < targetWidth; x++) {
         final pixel = canvas.getPixel(x, y);
         final offset = (y * targetWidth + x) * 4;
-        pixels[offset] = pixel.r.toInt();
-        pixels[offset + 1] = pixel.g.toInt();
-        pixels[offset + 2] = pixel.b.toInt();
-        pixels[offset + 3] = pixel.a.toInt();
+        final alpha = pixel.a.toInt();
+        final isTransparent = alphaThreshold != null && alpha < alphaThreshold;
+        pixels[offset] = isTransparent ? 0 : pixel.r.toInt();
+        pixels[offset + 1] = isTransparent ? 0 : pixel.g.toInt();
+        pixels[offset + 2] = isTransparent ? 0 : pixel.b.toInt();
+        pixels[offset + 3] = alphaThreshold == null
+            ? alpha
+            : isTransparent
+            ? 0
+            : 255;
       }
     }
 

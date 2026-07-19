@@ -5,7 +5,8 @@ import 'screens/upload_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const BobobeadsApp(enableBackend: true));
+  //本地运行时不上传 OSS
+  runApp(const BobobeadsApp(enableBackend: false));
 }
 
 class BobobeadsApp extends StatefulWidget {
