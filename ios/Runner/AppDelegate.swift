@@ -37,6 +37,15 @@ import Vision
         binaryMessenger: controller.binaryMessenger
       )
       backgroundRemovalChannel.setMethodCallHandler { call, result in
+        if call.method == "isSimulator" {
+          #if targetEnvironment(simulator)
+          result(true)
+          #else
+          result(false)
+          #endif
+          return
+        }
+
         guard call.method == "removeBackground" else {
           result(FlutterMethodNotImplemented)
           return

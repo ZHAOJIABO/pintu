@@ -22,6 +22,15 @@ class PlatformBackgroundRemovalService implements BackgroundRemovalService {
     }
 
     try {
+      final isSimulator =
+          await _channel.invokeMethod<bool>('isSimulator') ?? false;
+      if (isSimulator) {
+        debugPrint(
+          '[BackgroundRemoval] skipped: iOS Simulator does not support Vision cutout.',
+        );
+        return imageBytes;
+      }
+
       debugPrint('[BackgroundRemoval] invoking iOS Vision cutout.');
       final result = await _channel.invokeMethod<Uint8List>(
         'removeBackground',

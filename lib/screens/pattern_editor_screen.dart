@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../algorithms/matching.dart';
 import '../models/color.dart';
@@ -15,13 +18,67 @@ import '../widgets/bead_board_preview.dart';
 
 const _editorBackground = Color(0xFFEEF0F6);
 const _editorToolSurface = Color(0xFFDEE2ED);
+const _brushGuideCompletedPreferenceKey = 'brush_mode_guide_completed';
 
 enum _EditorPanel { brush, palette }
 
+enum _BrushGuideTarget { currentColor, brush, picker, eraser }
+
+class _BrushGuideStep {
+  final _BrushGuideTarget target;
+  final String text;
+  final String? iconAsset;
+  final double underlineLeft;
+  final double underlineWidth;
+
+  const _BrushGuideStep({
+    required this.target,
+    required this.text,
+    required this.underlineLeft,
+    required this.underlineWidth,
+    this.iconAsset,
+  });
+}
+
+const _brushGuideSteps = <_BrushGuideStep>[
+  _BrushGuideStep(
+    target: _BrushGuideTarget.currentColor,
+    text: '色值是当前的画笔颜色',
+    underlineLeft: 90,
+    underlineWidth: 107,
+  ),
+  _BrushGuideStep(
+    target: _BrushGuideTarget.brush,
+    text: '画笔改变图纸中方块的颜色',
+    iconAsset: 'assets/pin_icon/editor_brush_unselected.svg',
+    underlineLeft: 72,
+    underlineWidth: 32,
+  ),
+  _BrushGuideStep(
+    target: _BrushGuideTarget.picker,
+    text: '取色器吸取图纸中方块的颜色',
+    iconAsset: 'assets/pin_icon/editor_picker_unselected.svg',
+    underlineLeft: 105,
+    underlineWidth: 32,
+  ),
+  _BrushGuideStep(
+    target: _BrushGuideTarget.eraser,
+    text: '橡皮擦去掉图纸中方块的颜色',
+    iconAsset: 'assets/pin_icon/editor_eraser.svg',
+    underlineLeft: 106,
+    underlineWidth: 32,
+  ),
+];
+
 class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
+  final bool showBrushGuide;
 
-  const PatternEditorScreen({super.key, required this.pattern});
+  const PatternEditorScreen({
+    super.key,
+    required this.pattern,
+    this.showBrushGuide = true,
+  });
 
   @override
   State<PatternEditorScreen> createState() => _PatternEditorScreenState();
@@ -37,6 +94,76 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   List<CellChange> _activeStroke = <CellChange>[];
   math.Point<int>? _lastEditedCell;
   int _revision = 0;
+  Timer? _brushGuideStartTimer;
+  Timer? _brushGuideTimer;
+  Timer? _brushGuideCompletionTimer;
+  late bool _showBrushGuide;
+  bool _showBrushGuideCompletion = false;
+  int _brushGuideStep = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _showBrushGuide = false;
+    if (widget.showBrushGuide) unawaited(_showBrushGuideIfNeeded());
+  }
+
+  Future<void> _showBrushGuideIfNeeded() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (!mounted ||
+          preferences.getBool(_brushGuideCompletedPreferenceKey) == true) {
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+    }
+
+    _startBrushGuide();
+  }
+
+  void _startBrushGuide() {
+    if (!mounted) return;
+    setState(() {
+      _showBrushGuide = true;
+      _showBrushGuideCompletion = false;
+      _brushGuideStep = -1;
+    });
+    _brushGuideStartTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || !_showBrushGuide) return;
+
+      setState(() => _brushGuideStep = 0);
+      _brushGuideTimer = Timer.periodic(const Duration(milliseconds: 850), (
+        timer,
+      ) {
+        if (!mounted || _brushGuideStep == _brushGuideSteps.length - 1) {
+          timer.cancel();
+          return;
+        }
+        final nextStep = _brushGuideStep + 1;
+        setState(() => _brushGuideStep = nextStep);
+        if (nextStep == _brushGuideSteps.length - 1) {
+          timer.cancel();
+          _brushGuideCompletionTimer = Timer(
+            const Duration(milliseconds: 320),
+            () {
+              if (mounted && _showBrushGuide) {
+                setState(() => _showBrushGuideCompletion = true);
+              }
+            },
+          );
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _brushGuideStartTimer?.cancel();
+    _brushGuideTimer?.cancel();
+    _brushGuideCompletionTimer?.cancel();
+    super.dispose();
+  }
 
   BeadColor _initialColor() {
     final colors = _usedPaletteEntries();
@@ -294,6 +421,23 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
 
   String get _selectedColorRef => _colorRefFor(_selectedColor);
 
+  void _dismissBrushGuide() {
+    _brushGuideStartTimer?.cancel();
+    _brushGuideTimer?.cancel();
+    _brushGuideCompletionTimer?.cancel();
+    setState(() => _showBrushGuide = false);
+    unawaited(_markBrushGuideCompleted());
+  }
+
+  Future<void> _markBrushGuideCompleted() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool(_brushGuideCompletedPreferenceKey, true);
+    } catch (_) {
+      // The guide remains usable when local persistence is temporarily unavailable.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isPalettePanel = _panel == _EditorPanel.palette;
@@ -306,59 +450,74 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
       child: Scaffold(
         key: const ValueKey('pattern-editor-screen'),
         backgroundColor: _editorBackground,
-        body: SafeArea(
-          bottom: false,
-          child: Column(
-            children: [
-              _EditorNavigationBar(
-                panel: _panel,
-                onBack: () => Navigator.maybePop(context),
-                onPanelChanged: (panel) => setState(() => _panel = panel),
-                onSave: _confirm,
+        body: Stack(
+          children: [
+            SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  _EditorNavigationBar(
+                    panel: _panel,
+                    onBack: () => Navigator.maybePop(context),
+                    onPanelChanged: (panel) => setState(() => _panel = panel),
+                    onSave: _confirm,
+                  ),
+                  Expanded(
+                    child: BeadBoardPreview(
+                      pixels: _pixels,
+                      layoutPixels: widget.pattern.pixels,
+                      width: widget.pattern.width,
+                      height: widget.pattern.height,
+                      revision: _revision,
+                      paletteEntries: widget.pattern.paletteEntries,
+                      showRulers: false,
+                      onCellStart: isPalettePanel
+                          ? _replacePaletteCell
+                          : canPaint
+                          ? _startStroke
+                          : null,
+                      onCellChanged: canPaint ? _continueStroke : null,
+                      onCellEnd: canPaint ? _finishStroke : null,
+                    ),
+                  ),
+                  _panel == _EditorPanel.brush
+                      ? _EditorToolbar(
+                          selectedColor: _selectedColor,
+                          selectedColorRef: _selectedColorRef,
+                          activeTool: _tool,
+                          canUndo: _historyService.canUndo,
+                          canRedo: _historyService.canRedo,
+                          onToolSelected: _selectTool,
+                          onCurrentColorPressed: _showCurrentColorPicker,
+                          onUndo: _undo,
+                          onRedo: _redo,
+                        )
+                      : _PaletteToolbar(
+                          entries: _usedPaletteEntries(),
+                          canUndo: _historyService.canUndo,
+                          canRedo: _historyService.canRedo,
+                          onColorSelected: (item) => _showColorReplacement(
+                            source: item.entry.color,
+                            sourceRef: item.entry.ref,
+                          ),
+                          onUndo: _undo,
+                          onRedo: _redo,
+                        ),
+                ],
               ),
-              Expanded(
-                child: BeadBoardPreview(
-                  pixels: _pixels,
-                  layoutPixels: widget.pattern.pixels,
-                  width: widget.pattern.width,
-                  height: widget.pattern.height,
-                  revision: _revision,
-                  paletteEntries: widget.pattern.paletteEntries,
-                  showRulers: false,
-                  onCellStart: isPalettePanel
-                      ? _replacePaletteCell
-                      : canPaint
-                      ? _startStroke
-                      : null,
-                  onCellChanged: canPaint ? _continueStroke : null,
-                  onCellEnd: canPaint ? _finishStroke : null,
+            ),
+            if (_showBrushGuide)
+              Positioned.fill(
+                child: _BrushModeGuide(
+                  currentStep: _brushGuideStep,
+                  showCompletion: _showBrushGuideCompletion,
+                  panel: _panel,
+                  selectedColor: _selectedColor,
+                  selectedColorRef: _selectedColorRef,
+                  onSkip: _dismissBrushGuide,
                 ),
               ),
-              _panel == _EditorPanel.brush
-                  ? _EditorToolbar(
-                      selectedColor: _selectedColor,
-                      selectedColorRef: _selectedColorRef,
-                      activeTool: _tool,
-                      canUndo: _historyService.canUndo,
-                      canRedo: _historyService.canRedo,
-                      onToolSelected: _selectTool,
-                      onCurrentColorPressed: _showCurrentColorPicker,
-                      onUndo: _undo,
-                      onRedo: _redo,
-                    )
-                  : _PaletteToolbar(
-                      entries: _usedPaletteEntries(),
-                      canUndo: _historyService.canUndo,
-                      canRedo: _historyService.canRedo,
-                      onColorSelected: (item) => _showColorReplacement(
-                        source: item.entry.color,
-                        sourceRef: item.entry.ref,
-                      ),
-                      onUndo: _undo,
-                      onRedo: _redo,
-                    ),
-            ],
-          ),
+          ],
         ),
       ),
     );
@@ -504,6 +663,654 @@ class _SegmentButton extends StatelessWidget {
   }
 }
 
+class _BrushModeGuide extends StatelessWidget {
+  final int currentStep;
+  final bool showCompletion;
+  final _EditorPanel panel;
+  final BeadColor selectedColor;
+  final String selectedColorRef;
+  final VoidCallback onSkip;
+
+  const _BrushModeGuide({
+    required this.currentStep,
+    required this.showCompletion,
+    required this.panel,
+    required this.selectedColor,
+    required this.selectedColorRef,
+    required this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final guideTarget = currentStep < 0
+        ? null
+        : _brushGuideSteps[currentStep].target;
+    final topInset = MediaQuery.paddingOf(context).top;
+
+    return SizedBox.expand(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                child: const ColoredBox(
+                  key: ValueKey('brush-mode-guide-scrim'),
+                  color: Color(0x80000000),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: topInset + 6,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: KeyedSubtree(
+                key: const ValueKey('brush-mode-guide-panel-tabs'),
+                child: Center(
+                  child: _EditorSegmentedControl(
+                    value: panel,
+                    onChanged: (_) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: const Alignment(0, -0.1),
+            child: Transform.translate(
+              offset: const Offset(0, -36),
+              child: _BrushModeGuideCard(
+                currentStep: currentStep,
+                selectedColor: selectedColor,
+                selectedColorRef: selectedColorRef,
+              ),
+            ),
+          ),
+          Align(
+            alignment: const Alignment(0, -0.1),
+            child: Transform.translate(
+              offset: const Offset(0, 187),
+              child: IgnorePointer(
+                ignoring: !showCompletion,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  offset: showCompletion ? Offset.zero : const Offset(0, 0.12),
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    opacity: showCompletion ? 1 : 0,
+                    child: _BrushModeGuideCompletionButton(onPressed: onSkip),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: _EditorToolbar(
+                selectedColor: selectedColor,
+                selectedColorRef: selectedColorRef,
+                activeTool: null,
+                canUndo: false,
+                canRedo: false,
+                onToolSelected: (_) {},
+                onCurrentColorPressed: () {},
+                onUndo: () {},
+                onRedo: () {},
+                guideTarget: guideTarget,
+                isBrushGuide: true,
+              ),
+            ),
+          ),
+          Positioned(
+            top: topInset + 12,
+            right: 12,
+            child: Semantics(
+              button: true,
+              label: '跳过画笔模式引导',
+              child: TextButton(
+                key: const ValueKey('brush-mode-guide-skip'),
+                onPressed: onSkip,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(44, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  textStyle: const TextStyle(
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                child: const Text('跳过'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrushModeGuideCompletionButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _BrushModeGuideCompletionButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 260,
+      height: 52,
+      child: Material(
+        color: Colors.black,
+        borderRadius: const BorderRadius.all(Radius.circular(44)),
+        child: InkWell(
+          key: const ValueKey('brush-mode-guide-completion'),
+          onTap: onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(44)),
+          child: const Center(
+            child: Text(
+              '我知道啦！',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontFamily: 'Alimama FangYuanTi VF',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BrushModeGuideCard extends StatelessWidget {
+  final int currentStep;
+  final BeadColor selectedColor;
+  final String selectedColorRef;
+
+  const _BrushModeGuideCard({
+    required this.currentStep,
+    required this.selectedColor,
+    required this.selectedColorRef,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final availableWidth = MediaQuery.sizeOf(context).width - 48;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: math.min(330, availableWidth)),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            key: const ValueKey('brush-mode-guide-card'),
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.all(Radius.circular(22)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '可以修改“单个色块”的颜色',
+                  style: TextStyle(
+                    color: Color(0x99000000),
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontSize: 14,
+                    height: 17 / 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                for (var index = 0; index < _brushGuideSteps.length; index++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      bottom: index == _brushGuideSteps.length - 1 ? 0 : 24,
+                    ),
+                    child: _BrushModeGuideStepRow(
+                      key: ValueKey('brush-mode-guide-step-$index'),
+                      step: _brushGuideSteps[index],
+                      color: selectedColor,
+                      colorRef: selectedColorRef,
+                      visible: currentStep >= index,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const Positioned(left: -2, top: -38, child: _BrushModeGuideTitle()),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrushModeGuideTitle extends StatelessWidget {
+  const _BrushModeGuideTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('brush-mode-guide-title'),
+      width: 150,
+      height: 48,
+      clipBehavior: Clip.antiAlias,
+      decoration: const BoxDecoration(),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Positioned(
+            left: 49.8,
+            top: 14.93,
+            child: _BrushModeGuideTitleLabel(),
+          ),
+          Transform.translate(
+            offset: const Offset(3, 3),
+            child: Transform.scale(
+              scale: 0.86,
+              alignment: Alignment.center,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    const Positioned(
+                      left: 13.8,
+                      top: 11.93,
+                      child: _BrushModeGuideTitleIcon(),
+                    ),
+                    for (final pixel in _brushModeGuideTitlePixels)
+                      Positioned(
+                        left: pixel.left,
+                        top: pixel.top,
+                        child: SizedBox(
+                          width: pixel.width,
+                          height: pixel.height,
+                          child: const ColoredBox(color: Colors.black),
+                        ),
+                      ),
+                    Positioned(
+                      left: 1.21,
+                      top: 8.44,
+                      child: SvgPicture.asset(
+                        'assets/pin_icon/editor_brush_mode_spark_long.svg',
+                        width: 14.15,
+                        height: 13.58,
+                      ),
+                    ),
+                    Positioned(
+                      left: 16.46,
+                      top: 4.79,
+                      child: Transform.rotate(
+                        angle: 34.17 * math.pi / 180,
+                        child: SvgPicture.asset(
+                          'assets/pin_icon/editor_brush_mode_spark_short.svg',
+                          width: 10.71,
+                          height: 10.53,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrushModeGuideTitlePixel {
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  const _BrushModeGuideTitlePixel(this.left, this.top, this.width, this.height);
+}
+
+const _brushModeGuideTitlePixels = <_BrushModeGuideTitlePixel>[
+  _BrushModeGuideTitlePixel(41.91, 14.23, 2.59, 0.37),
+  _BrushModeGuideTitlePixel(36.30, 13.22, 2.59, 1.19),
+  _BrushModeGuideTitlePixel(20.90, 24.18, 4.54, 3.57),
+  _BrushModeGuideTitlePixel(26.28, 27.87, 2.34, 1.66),
+  _BrushModeGuideTitlePixel(25.82, 26.21, 2.34, 1.66),
+  _BrushModeGuideTitlePixel(30.15, 30.62, 2.34, 1.66),
+  _BrushModeGuideTitlePixel(27.48, 28.96, 2.39, 1.66),
+  _BrushModeGuideTitlePixel(28.62, 30.21, 2.63, 1.66),
+  _BrushModeGuideTitlePixel(29.87, 31.87, 3.76, 1.66),
+  _BrushModeGuideTitlePixel(33.63, 32.96, 1.77, 5.93),
+  _BrushModeGuideTitlePixel(11.13, 36.39, 4.81, 4.93),
+  _BrushModeGuideTitlePixel(20.77, 42.51, 4.81, 3.05),
+  _BrushModeGuideTitlePixel(33.00, 11.23, 8.91, 3.00),
+  _BrushModeGuideTitlePixel(40.55, 26.71, 6.59, 5.63),
+];
+
+class _BrushModeGuideTitleLabel extends StatelessWidget {
+  const _BrushModeGuideTitleLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    const fillStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 22,
+      fontFamily: 'Z Labs RoundPix 12px M CN',
+      fontWeight: FontWeight.w400,
+    );
+    final outlineStyle = fillStyle.copyWith(
+      foreground: Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 10
+        ..strokeJoin = StrokeJoin.round
+        ..isAntiAlias = false,
+    );
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Text('画笔模式', style: outlineStyle),
+        const Text('画笔模式', style: fillStyle),
+      ],
+    );
+  }
+}
+
+class _BrushModeGuideTitleIcon extends StatelessWidget {
+  const _BrushModeGuideTitleIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    const shadowOffsets = <Offset>[
+      Offset(4, 4),
+      Offset(4, -3),
+      Offset(-5, -3),
+      Offset(4, -4),
+      Offset(-4, 4),
+    ];
+
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final offset in shadowOffsets)
+            Positioned(
+              left: offset.dx,
+              top: offset.dy,
+              child: Image.asset(
+                'assets/pin_icon/editor_brush_mode_title.png',
+                width: 32,
+                height: 32,
+                color: Colors.black,
+                colorBlendMode: BlendMode.srcIn,
+              ),
+            ),
+          Image.asset(
+            'assets/pin_icon/editor_brush_mode_title.png',
+            width: 32,
+            height: 32,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BrushModeGuideStepRow extends StatelessWidget {
+  final _BrushGuideStep step;
+  final BeadColor color;
+  final String colorRef;
+  final bool visible;
+
+  const _BrushModeGuideStepRow({
+    super.key,
+    required this.step,
+    required this.color,
+    required this.colorRef,
+    required this.visible,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final underlineColor = Color.fromARGB(
+      color.aInt,
+      color.rInt,
+      color.gInt,
+      color.bInt,
+    );
+    return AnimatedSlide(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      offset: visible ? Offset.zero : const Offset(-0.16, 0),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        opacity: visible ? 1 : 0,
+        child: SizedBox(
+          height: 32,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _BrushModeGuideStepIcon(
+                    iconAsset: step.iconAsset,
+                    color: color,
+                    colorRef: colorRef,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    step.text,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontFamily: 'Alimama FangYuanTi VF',
+                      fontSize: 16,
+                      height: 19 / 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                left: step.underlineLeft,
+                bottom: 0,
+                child: _GuideUnderline(
+                  key: ValueKey(
+                    'brush-mode-guide-underline-${step.target.name}',
+                  ),
+                  width: step.underlineWidth,
+                  color: underlineColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GuideUnderline extends StatelessWidget {
+  final double width;
+  final Color color;
+
+  const _GuideUnderline({super.key, required this.width, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final isLong = width > 32;
+    return CustomPaint(
+      size: Size(width, 4),
+      painter: _GuideUnderlinePainter(color: color, isLong: isLong),
+    );
+  }
+}
+
+class _GuideUnderlinePainter extends CustomPainter {
+  final Color color;
+  final bool isLong;
+
+  const _GuideUnderlinePainter({required this.color, required this.isLong});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sourceWidth = isLong ? 108.0 : 33.0;
+    canvas.save();
+    canvas.scale(size.width / sourceWidth, size.height / 4);
+
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.butt
+      ..strokeJoin = StrokeJoin.miter
+      ..isAntiAlias = true;
+    for (final offset in isLong ? const [0.0, 25.0, 50.0, 75.0] : const [0.0]) {
+      _drawWave(canvas, paint, offset);
+    }
+    canvas.restore();
+  }
+
+  void _drawWave(Canvas canvas, Paint paint, double offset) {
+    final path = Path()
+      ..moveTo(offset + 0.447266, 2.37573)
+      ..lineTo(offset + 2.4269, 1.38592)
+      ..cubicTo(
+        offset + 3.66511,
+        0.766809,
+        offset + 5.14684,
+        0.900417,
+        offset + 6.25434,
+        1.73104,
+      )
+      ..lineTo(offset + 6.44727, 1.87573)
+      ..cubicTo(
+        offset + 7.63245,
+        2.76462,
+        offset + 9.26208,
+        2.76462,
+        offset + 10.4473,
+        1.87573,
+      )
+      ..cubicTo(
+        offset + 11.6325,
+        0.986843,
+        offset + 13.2621,
+        0.986843,
+        offset + 14.4473,
+        1.87573,
+      )
+      ..cubicTo(
+        offset + 15.6325,
+        2.76462,
+        offset + 17.2621,
+        2.76462,
+        offset + 18.4473,
+        1.87573,
+      )
+      ..cubicTo(
+        offset + 19.6325,
+        0.986843,
+        offset + 21.2621,
+        0.986843,
+        offset + 22.4473,
+        1.87573,
+      )
+      ..cubicTo(
+        offset + 23.6325,
+        2.76462,
+        offset + 25.2621,
+        2.76462,
+        offset + 26.4473,
+        1.87573,
+      )
+      ..lineTo(offset + 26.6402, 1.73104)
+      ..cubicTo(
+        offset + 27.7477,
+        0.900417,
+        offset + 29.2294,
+        0.766809,
+        offset + 30.4676,
+        1.38592,
+      )
+      ..lineTo(offset + 32.4473, 2.37573);
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GuideUnderlinePainter oldDelegate) {
+    return color != oldDelegate.color || isLong != oldDelegate.isLong;
+  }
+}
+
+class _BrushModeGuideStepIcon extends StatelessWidget {
+  final String? iconAsset;
+  final BeadColor color;
+  final String colorRef;
+
+  const _BrushModeGuideStepIcon({
+    required this.iconAsset,
+    required this.color,
+    required this.colorRef,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (iconAsset == null) {
+      return Container(
+        width: 32,
+        height: 32,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Color.fromARGB(color.aInt, color.rInt, color.gInt, color.bInt),
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: Text(
+          colorRef,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: _foregroundColor(color),
+            fontFamily: 'Alimama FangYuanTi VF',
+            fontSize: 12,
+            height: 16 / 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 32,
+      height: 32,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: _editorToolSurface,
+        borderRadius: BorderRadius.all(Radius.circular(99)),
+      ),
+      child: SvgPicture.asset(iconAsset!, width: 16, height: 16),
+    );
+  }
+}
+
 class _EditorToolbar extends StatelessWidget {
   final BeadColor selectedColor;
   final String selectedColorRef;
@@ -514,6 +1321,8 @@ class _EditorToolbar extends StatelessWidget {
   final VoidCallback onCurrentColorPressed;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
+  final _BrushGuideTarget? guideTarget;
+  final bool isBrushGuide;
 
   const _EditorToolbar({
     required this.selectedColor,
@@ -525,14 +1334,52 @@ class _EditorToolbar extends StatelessWidget {
     required this.onCurrentColorPressed,
     required this.onUndo,
     required this.onRedo,
+    this.guideTarget,
+    this.isBrushGuide = false,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return _EditorBottomSheet(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  Widget _guideHighlight(
+    _BrushGuideTarget target,
+    Widget child, {
+    _BrushGuideTarget? highlightedTarget,
+    required bool isGuideHighlightLayer,
+  }) {
+    if (!isGuideHighlightLayer) return child;
+
+    final isActiveTarget = highlightedTarget == target;
+    final highlightedChild = isActiveTarget
+        ? KeyedSubtree(
+            key: ValueKey('brush-mode-guide-toolbar-target-${target.name}'),
+            child: child,
+          )
+        : child;
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      scale: isActiveTarget ? 1 : 0.92,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        opacity: isActiveTarget ? 1 : 0,
+        child: highlightedChild,
+      ),
+    );
+  }
+
+  Widget _buildToolbarRow({
+    _BrushGuideTarget? highlightedTarget,
+    bool isGuideHighlightLayer = false,
+  }) {
+    Widget passive(Widget child) {
+      if (!isGuideHighlightLayer) return child;
+      return Opacity(opacity: 0, child: child);
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _guideHighlight(
+          _BrushGuideTarget.currentColor,
           Transform.translate(
             offset: const Offset(0, -4),
             child: _CurrentColorTile(
@@ -541,12 +1388,17 @@ class _EditorToolbar extends StatelessWidget {
               onPressed: onCurrentColorPressed,
             ),
           ),
-          const SizedBox(width: 12),
-          const _DashedDivider(),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Row(
-              children: [
+          highlightedTarget: highlightedTarget,
+          isGuideHighlightLayer: isGuideHighlightLayer,
+        ),
+        passive(const SizedBox(width: 12)),
+        passive(const _DashedDivider()),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Row(
+            children: [
+              _guideHighlight(
+                _BrushGuideTarget.brush,
                 _EditorToolButton(
                   label: '画笔',
                   asset: 'assets/pin_icon/editor_brush_unselected.svg',
@@ -554,7 +1406,12 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.brush,
                   onPressed: () => onToolSelected(EditorTool.brush),
                 ),
-                const Spacer(),
+                highlightedTarget: highlightedTarget,
+                isGuideHighlightLayer: isGuideHighlightLayer,
+              ),
+              const Spacer(),
+              _guideHighlight(
+                _BrushGuideTarget.picker,
                 _EditorToolButton(
                   label: '取色器',
                   asset: 'assets/pin_icon/editor_picker_unselected.svg',
@@ -562,7 +1419,12 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.picker,
                   onPressed: () => onToolSelected(EditorTool.picker),
                 ),
-                const Spacer(),
+                highlightedTarget: highlightedTarget,
+                isGuideHighlightLayer: isGuideHighlightLayer,
+              ),
+              const Spacer(),
+              _guideHighlight(
+                _BrushGuideTarget.eraser,
                 _EditorToolButton(
                   label: '橡皮擦',
                   asset: 'assets/pin_icon/editor_eraser.svg',
@@ -570,16 +1432,55 @@ class _EditorToolbar extends StatelessWidget {
                   selected: activeTool == EditorTool.eraser,
                   onPressed: () => onToolSelected(EditorTool.eraser),
                 ),
-                const Spacer(),
-                const _DashedDivider(),
-                const SizedBox(width: 14),
+                highlightedTarget: highlightedTarget,
+                isGuideHighlightLayer: isGuideHighlightLayer,
+              ),
+              const Spacer(),
+              passive(const _DashedDivider()),
+              passive(const SizedBox(width: 14)),
+              passive(
                 _HistoryControls(
                   canUndo: canUndo,
                   canRedo: canRedo,
                   onUndo: onUndo,
                   onRedo: onRedo,
                 ),
-              ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final toolbar = _EditorBottomSheet(child: _buildToolbarRow());
+    if (!isBrushGuide) return toolbar;
+
+    return ClipRRect(
+      key: const ValueKey('brush-mode-guide-toolbar-clip'),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: Stack(
+        children: [
+          toolbar,
+          const Positioned.fill(
+            child: IgnorePointer(
+              child: ColoredBox(
+                key: ValueKey('brush-mode-guide-toolbar-mask'),
+                color: Color(0x99000000),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, 20),
+                child: _buildToolbarRow(
+                  highlightedTarget: guideTarget,
+                  isGuideHighlightLayer: true,
+                ),
+              ),
             ),
           ),
         ],

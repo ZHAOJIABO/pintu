@@ -8,8 +8,11 @@ import 'package:bobobeads/screens/pattern_editor_screen.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('pattern editor fits the Figma layout on $viewport', (
       tester,
@@ -17,7 +20,9 @@ void main() {
       _setViewport(tester, viewport);
 
       await tester.pumpWidget(
-        MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+        MaterialApp(
+          home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+        ),
       );
 
       expect(
@@ -33,11 +38,153 @@ void main() {
     });
   }
 
-  testWidgets('canvas painting can be undone', (tester) async {
+  testWidgets(
+    'brush guide reveals each instruction and toolbar target in order',
+    (tester) async {
+      _setViewport(tester, const Size(390, 844));
+
+      await tester.pumpWidget(
+        MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+      );
+      await tester.pump();
+
+      expect(
+        tester.getSize(find.byKey(const ValueKey('brush-mode-guide-card'))),
+        const Size(330, 297),
+      );
+      expect(
+        tester.getSize(find.byKey(const ValueKey('brush-mode-guide-title'))),
+        const Size(150, 48),
+      );
+      expect(_guideStepOpacity(tester, 0), 0);
+      expect(
+        find.byKey(const ValueKey('brush-mode-guide-underline-currentColor')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('brush-mode-guide-panel-tabs')),
+        findsOneWidget,
+      );
+      final guideScrim = find.byKey(const ValueKey('brush-mode-guide-scrim'));
+      expect(
+        tester.widget<ColoredBox>(guideScrim).color,
+        const Color(0x80000000),
+      );
+      expect(
+        find.byKey(const ValueKey('brush-mode-guide-toolbar-clip')),
+        findsOneWidget,
+      );
+      final toolbarMask = find.byKey(
+        const ValueKey('brush-mode-guide-toolbar-mask'),
+      );
+      expect(tester.getSize(toolbarMask), const Size(390, 106));
+      expect(
+        tester.widget<ColoredBox>(toolbarMask).color,
+        const Color(0x99000000),
+      );
+      expect(
+        find.byKey(
+          const ValueKey('brush-mode-guide-toolbar-target-currentColor'),
+        ),
+        findsNothing,
+      );
+
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(
+        find.byKey(const ValueKey('brush-mode-guide-skip')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey('brush-mode-guide-toolbar-target-currentColor'),
+        ),
+        findsOneWidget,
+      );
+      expect(_guideStepOpacity(tester, 0), 1);
+      expect(_guideStepOpacity(tester, 1), 0);
+
+      await tester.pump(const Duration(milliseconds: 850));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(_guideStepOpacity(tester, 1), 1);
+      expect(
+        find.byKey(const ValueKey('brush-mode-guide-toolbar-target-brush')),
+        findsOneWidget,
+      );
+
+      for (final (index, target) in <(int, String)>[
+        (2, 'picker'),
+        (3, 'eraser'),
+      ]) {
+        await tester.pump(const Duration(milliseconds: 850));
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(_guideStepOpacity(tester, index), 1);
+        expect(
+          find.byKey(ValueKey('brush-mode-guide-toolbar-target-$target')),
+          findsOneWidget,
+        );
+      }
+
+      expect(
+        tester.getSize(
+          find.byKey(const ValueKey('brush-mode-guide-completion')),
+        ),
+        const Size(260, 52),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('brush-mode-guide-completion')),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('brush-mode-guide-skip')), findsNothing);
+      expect(find.text('画笔'), findsNWidgets(2));
+    },
+  );
+
+  testWidgets('does not show the brush guide after completion', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'brush_mode_guide_completed': true,
+    });
     _setViewport(tester, const Size(390, 844));
 
     await tester.pumpWidget(
       MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('brush-mode-guide-skip')), findsNothing);
+  });
+
+  for (final viewport in const [Size(375, 667), Size(430, 932)]) {
+    testWidgets('brush guide fits $viewport after all steps appear', (
+      tester,
+    ) async {
+      _setViewport(tester, viewport);
+
+      await tester.pumpWidget(
+        MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+      );
+      await tester.pump();
+      for (var step = 0; step < 3; step++) {
+        await tester.pump(const Duration(milliseconds: 850));
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      expect(_guideStepOpacity(tester, 3), 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('canvas painting can be undone', (tester) async {
+    _setViewport(tester, const Size(390, 844));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+      ),
     );
 
     final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
@@ -63,7 +210,9 @@ void main() {
     _setViewport(tester, const Size(390, 844));
 
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+      MaterialApp(
+        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -89,7 +238,9 @@ void main() {
     _setViewport(tester, const Size(390, 844));
 
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+      MaterialApp(
+        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+      ),
     );
 
     final viewer = find.byType(InteractiveViewer);
@@ -107,7 +258,12 @@ void main() {
   ) async {
     _setViewport(tester, const Size(390, 844));
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _colorPickerPattern(),
+          showBrushGuide: false,
+        ),
+      ),
     );
 
     final historyControls = find.byKey(
@@ -135,7 +291,12 @@ void main() {
   ) async {
     _setViewport(tester, const Size(390, 844));
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _colorPickerPattern(),
+          showBrushGuide: false,
+        ),
+      ),
     );
 
     final currentColorTile = find.byKey(
@@ -164,7 +325,12 @@ void main() {
       _setViewport(tester, const Size(390, 844));
 
       await tester.pumpWidget(
-        MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+        MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _colorPickerPattern(),
+            showBrushGuide: false,
+          ),
+        ),
       );
 
       final currentColor = find.byKey(
@@ -210,7 +376,12 @@ void main() {
   ) async {
     _setViewport(tester, const Size(390, 844));
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _colorPickerPattern(),
+          showBrushGuide: false,
+        ),
+      ),
     );
 
     await tester.tap(find.text('色板'));
@@ -264,7 +435,12 @@ void main() {
   ) async {
     _setViewport(tester, const Size(390, 844));
     await tester.pumpWidget(
-      MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _colorPickerPattern(),
+          showBrushGuide: false,
+        ),
+      ),
     );
 
     await tester.tap(find.text('色板'));
@@ -292,7 +468,12 @@ void main() {
     testWidgets('palette replacement sheet fits $viewport', (tester) async {
       _setViewport(tester, viewport);
       await tester.pumpWidget(
-        MaterialApp(home: PatternEditorScreen(pattern: _colorPickerPattern())),
+        MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _colorPickerPattern(),
+            showBrushGuide: false,
+          ),
+        ),
       );
 
       await tester.tap(find.text('色板'));
@@ -397,6 +578,14 @@ BeadBoardPainter _editorPainter(WidgetTester tester) {
       .map((widget) => widget.painter)
       .whereType<BeadBoardPainter>()
       .single;
+}
+
+double _guideStepOpacity(WidgetTester tester, int index) {
+  final opacity = find.descendant(
+    of: find.byKey(ValueKey('brush-mode-guide-step-$index')),
+    matching: find.byType(AnimatedOpacity),
+  );
+  return tester.widget<AnimatedOpacity>(opacity).opacity;
 }
 
 GeneratedPattern _pattern() {
