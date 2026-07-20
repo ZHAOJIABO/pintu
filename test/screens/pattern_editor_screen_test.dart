@@ -21,7 +21,11 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+          home: PatternEditorScreen(
+            pattern: _pattern(),
+            showBrushGuide: false,
+            showPaletteGuide: false,
+          ),
         ),
       );
 
@@ -158,6 +162,91 @@ void main() {
     expect(find.byKey(const ValueKey('brush-mode-guide-skip')), findsNothing);
   });
 
+  testWidgets(
+    'palette guide reveals replacement steps on first palette entry',
+    (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'brush_mode_guide_completed': true,
+      });
+      _setViewport(tester, const Size(390, 844));
+
+      await tester.pumpWidget(
+        MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('色板'));
+      await tester.pump();
+
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('palette-mode-guide-card')))
+            .width,
+        330,
+      );
+      expect(
+        find.byKey(const ValueKey('palette-mode-guide-panel-tabs')),
+        findsOneWidget,
+      );
+      final paletteToolbarMask = find.byKey(
+        const ValueKey('palette-mode-guide-toolbar-mask'),
+      );
+      expect(tester.getSize(paletteToolbarMask), const Size(390, 106));
+      expect(
+        tester.widget<ColoredBox>(paletteToolbarMask).color,
+        const Color(0x99000000),
+      );
+      expect(_paletteGuideStepOpacity(tester, 0), 0);
+      expect(_paletteGuideStepOpacity(tester, 1), 0);
+
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(_paletteGuideStepOpacity(tester, 0), 1);
+      expect(_paletteGuideStepOpacity(tester, 1), 0);
+
+      await tester.pump(const Duration(milliseconds: 850));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(_paletteGuideStepOpacity(tester, 1), 1);
+      expect(_paletteGuideStepOpacity(tester, 2), 0);
+
+      await tester.pump(const Duration(milliseconds: 850));
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(_paletteGuideStepOpacity(tester, 2), 1);
+      expect(
+        find.byKey(const ValueKey('palette-mode-guide-completion')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('palette-mode-guide-completion')),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('palette-mode-guide-skip')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('does not show the palette guide after completion', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'brush_mode_guide_completed': true,
+      'palette_mode_guide_completed': true,
+    });
+    _setViewport(tester, const Size(390, 844));
+
+    await tester.pumpWidget(
+      MaterialApp(home: PatternEditorScreen(pattern: _pattern())),
+    );
+    await tester.pump();
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('palette-mode-guide-skip')), findsNothing);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('brush guide fits $viewport after all steps appear', (
       tester,
@@ -183,7 +272,11 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+        home: PatternEditorScreen(
+          pattern: _pattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+        ),
       ),
     );
 
@@ -211,7 +304,11 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+        home: PatternEditorScreen(
+          pattern: _pattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -239,7 +336,11 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        home: PatternEditorScreen(pattern: _pattern(), showBrushGuide: false),
+        home: PatternEditorScreen(
+          pattern: _pattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+        ),
       ),
     );
 
@@ -262,6 +363,7 @@ void main() {
         home: PatternEditorScreen(
           pattern: _colorPickerPattern(),
           showBrushGuide: false,
+          showPaletteGuide: false,
         ),
       ),
     );
@@ -295,6 +397,7 @@ void main() {
         home: PatternEditorScreen(
           pattern: _colorPickerPattern(),
           showBrushGuide: false,
+          showPaletteGuide: false,
         ),
       ),
     );
@@ -329,6 +432,7 @@ void main() {
           home: PatternEditorScreen(
             pattern: _colorPickerPattern(),
             showBrushGuide: false,
+            showPaletteGuide: false,
           ),
         ),
       );
@@ -380,6 +484,7 @@ void main() {
         home: PatternEditorScreen(
           pattern: _colorPickerPattern(),
           showBrushGuide: false,
+          showPaletteGuide: false,
         ),
       ),
     );
@@ -439,6 +544,7 @@ void main() {
         home: PatternEditorScreen(
           pattern: _colorPickerPattern(),
           showBrushGuide: false,
+          showPaletteGuide: false,
         ),
       ),
     );
@@ -472,6 +578,7 @@ void main() {
           home: PatternEditorScreen(
             pattern: _colorPickerPattern(),
             showBrushGuide: false,
+            showPaletteGuide: false,
           ),
         ),
       );
@@ -583,6 +690,14 @@ BeadBoardPainter _editorPainter(WidgetTester tester) {
 double _guideStepOpacity(WidgetTester tester, int index) {
   final opacity = find.descendant(
     of: find.byKey(ValueKey('brush-mode-guide-step-$index')),
+    matching: find.byType(AnimatedOpacity),
+  );
+  return tester.widget<AnimatedOpacity>(opacity).opacity;
+}
+
+double _paletteGuideStepOpacity(WidgetTester tester, int index) {
+  final opacity = find.descendant(
+    of: find.byKey(ValueKey('palette-mode-guide-step-$index')),
     matching: find.byType(AnimatedOpacity),
   );
   return tester.widget<AnimatedOpacity>(opacity).opacity;

@@ -19,6 +19,8 @@ import '../widgets/bead_board_preview.dart';
 const _editorBackground = Color(0xFFEEF0F6);
 const _editorToolSurface = Color(0xFFDEE2ED);
 const _brushGuideCompletedPreferenceKey = 'brush_mode_guide_completed';
+const _paletteGuideCompletedPreferenceKey = 'palette_mode_guide_completed';
+const _paletteGuideStepCount = 3;
 
 enum _EditorPanel { brush, palette }
 
@@ -73,11 +75,13 @@ const _brushGuideSteps = <_BrushGuideStep>[
 class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final bool showBrushGuide;
+  final bool showPaletteGuide;
 
   const PatternEditorScreen({
     super.key,
     required this.pattern,
     this.showBrushGuide = true,
+    this.showPaletteGuide = true,
   });
 
   @override
@@ -100,6 +104,12 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   late bool _showBrushGuide;
   bool _showBrushGuideCompletion = false;
   int _brushGuideStep = -1;
+  Timer? _paletteGuideStartTimer;
+  Timer? _paletteGuideTimer;
+  Timer? _paletteGuideCompletionTimer;
+  bool _showPaletteGuide = false;
+  bool _showPaletteGuideCompletion = false;
+  int _paletteGuideStep = -1;
 
   @override
   void initState() {
@@ -162,6 +172,9 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     _brushGuideStartTimer?.cancel();
     _brushGuideTimer?.cancel();
     _brushGuideCompletionTimer?.cancel();
+    _paletteGuideStartTimer?.cancel();
+    _paletteGuideTimer?.cancel();
+    _paletteGuideCompletionTimer?.cancel();
     super.dispose();
   }
 
@@ -438,6 +451,89 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     }
   }
 
+  void _onPanelChanged(_EditorPanel panel) {
+    if (_panel == panel) return;
+    setState(() => _panel = panel);
+
+    if (panel == _EditorPanel.palette &&
+        widget.showPaletteGuide &&
+        !_showBrushGuide) {
+      unawaited(_showPaletteGuideIfNeeded());
+    }
+  }
+
+  Future<void> _showPaletteGuideIfNeeded() async {
+    if (_showPaletteGuide || _panel != _EditorPanel.palette) return;
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      if (!mounted ||
+          _panel != _EditorPanel.palette ||
+          _showPaletteGuide ||
+          preferences.getBool(_paletteGuideCompletedPreferenceKey) == true) {
+        return;
+      }
+    } catch (_) {
+      if (!mounted || _panel != _EditorPanel.palette || _showPaletteGuide) {
+        return;
+      }
+    }
+
+    _startPaletteGuide();
+  }
+
+  void _startPaletteGuide() {
+    if (!mounted || _showPaletteGuide) return;
+    setState(() {
+      _showPaletteGuide = true;
+      _showPaletteGuideCompletion = false;
+      _paletteGuideStep = -1;
+    });
+    _paletteGuideStartTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || !_showPaletteGuide) return;
+
+      setState(() => _paletteGuideStep = 0);
+      _paletteGuideTimer = Timer.periodic(const Duration(milliseconds: 850), (
+        timer,
+      ) {
+        if (!mounted || _paletteGuideStep == _paletteGuideStepCount - 1) {
+          timer.cancel();
+          return;
+        }
+        final nextStep = _paletteGuideStep + 1;
+        setState(() => _paletteGuideStep = nextStep);
+        if (nextStep == _paletteGuideStepCount - 1) {
+          timer.cancel();
+          _paletteGuideCompletionTimer = Timer(
+            const Duration(milliseconds: 320),
+            () {
+              if (mounted && _showPaletteGuide) {
+                setState(() => _showPaletteGuideCompletion = true);
+              }
+            },
+          );
+        }
+      });
+    });
+  }
+
+  void _dismissPaletteGuide() {
+    _paletteGuideStartTimer?.cancel();
+    _paletteGuideTimer?.cancel();
+    _paletteGuideCompletionTimer?.cancel();
+    setState(() => _showPaletteGuide = false);
+    unawaited(_markPaletteGuideCompleted());
+  }
+
+  Future<void> _markPaletteGuideCompleted() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool(_paletteGuideCompletedPreferenceKey, true);
+    } catch (_) {
+      // The guide remains usable when local persistence is temporarily unavailable.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isPalettePanel = _panel == _EditorPanel.palette;
@@ -459,7 +555,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                   _EditorNavigationBar(
                     panel: _panel,
                     onBack: () => Navigator.maybePop(context),
-                    onPanelChanged: (panel) => setState(() => _panel = panel),
+                    onPanelChanged: _onPanelChanged,
                     onSave: _confirm,
                   ),
                   Expanded(
@@ -515,6 +611,15 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                   selectedColor: _selectedColor,
                   selectedColorRef: _selectedColorRef,
                   onSkip: _dismissBrushGuide,
+                ),
+              ),
+            if (_showPaletteGuide)
+              Positioned.fill(
+                child: _PaletteModeGuide(
+                  currentStep: _paletteGuideStep,
+                  showCompletion: _showPaletteGuideCompletion,
+                  entries: _usedPaletteEntries(),
+                  onSkip: _dismissPaletteGuide,
                 ),
               ),
           ],
@@ -799,10 +904,627 @@ class _BrushModeGuide extends StatelessWidget {
   }
 }
 
+class _PaletteModeGuide extends StatelessWidget {
+  final int currentStep;
+  final bool showCompletion;
+  final List<_UsedPaletteEntry> entries;
+  final VoidCallback onSkip;
+
+  const _PaletteModeGuide({
+    required this.currentStep,
+    required this.showCompletion,
+    required this.entries,
+    required this.onSkip,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
+    return SizedBox.expand(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {},
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 40, sigmaY: 40),
+                child: const ColoredBox(
+                  key: ValueKey('palette-mode-guide-scrim'),
+                  color: Color(0x80000000),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: topInset + 6,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: KeyedSubtree(
+                key: const ValueKey('palette-mode-guide-panel-tabs'),
+                child: const Center(
+                  child: _EditorSegmentedControl(
+                    value: _EditorPanel.palette,
+                    onChanged: _ignorePanelChange,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PaletteModeGuideCard(currentStep: currentStep),
+                const SizedBox(height: 24),
+                SizedBox(
+                  height: 52,
+                  child: IgnorePointer(
+                    ignoring: !showCompletion,
+                    child: AnimatedSlide(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      offset: showCompletion
+                          ? Offset.zero
+                          : const Offset(0, 0.12),
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                        opacity: showCompletion ? 1 : 0,
+                        child: _BrushModeGuideCompletionButton(
+                          buttonKey: const ValueKey(
+                            'palette-mode-guide-completion',
+                          ),
+                          onPressed: onSkip,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: ClipRRect(
+                key: const ValueKey('palette-mode-guide-toolbar'),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(20),
+                ),
+                child: Stack(
+                  children: [
+                    _PaletteToolbar(
+                      entries: entries,
+                      canUndo: false,
+                      canRedo: false,
+                      onColorSelected: (_) {},
+                      onUndo: () {},
+                      onRedo: () {},
+                    ),
+                    const Positioned.fill(
+                      child: ColoredBox(
+                        key: ValueKey('palette-mode-guide-toolbar-mask'),
+                        color: Color(0x99000000),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: topInset + 12,
+            right: 12,
+            child: Semantics(
+              button: true,
+              label: '跳过色板模式引导',
+              child: TextButton(
+                key: const ValueKey('palette-mode-guide-skip'),
+                onPressed: onSkip,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(44, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  textStyle: const TextStyle(
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                child: const Text('跳过'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+void _ignorePanelChange(_EditorPanel _) {}
+
+class _PaletteModeGuideCard extends StatelessWidget {
+  final int currentStep;
+
+  const _PaletteModeGuideCard({required this.currentStep});
+
+  @override
+  Widget build(BuildContext context) {
+    final availableWidth = MediaQuery.sizeOf(context).width - 48;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: math.min(330, availableWidth)),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            key: const ValueKey('palette-mode-guide-card'),
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.all(Radius.circular(22)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '可以修改“单个色块”的颜色',
+                  style: TextStyle(
+                    color: Color(0x99000000),
+                    fontFamily: 'Alimama FangYuanTi VF',
+                    fontSize: 14,
+                    height: 17 / 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                _PaletteModeGuideStep(
+                  key: const ValueKey('palette-mode-guide-step-0'),
+                  visible: currentStep >= 0,
+                  child: const _PaletteGuideChooseAnyColorStep(),
+                ),
+                const SizedBox(height: 24),
+                _PaletteModeGuideStep(
+                  key: const ValueKey('palette-mode-guide-step-1'),
+                  visible: currentStep >= 1,
+                  child: const _PaletteGuideChooseReplacementStep(),
+                ),
+                const SizedBox(height: 24),
+                _PaletteModeGuideStep(
+                  key: const ValueKey('palette-mode-guide-step-2'),
+                  visible: currentStep >= 2,
+                  child: const _PaletteGuideReplacementResultStep(),
+                ),
+              ],
+            ),
+          ),
+          const Positioned(left: -2, top: -38, child: _PaletteModeGuideTitle()),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaletteModeGuideTitle extends StatelessWidget {
+  const _PaletteModeGuideTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    const fillStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 22,
+      fontFamily: 'Z Labs RoundPix 12px M CN',
+      fontWeight: FontWeight.w400,
+    );
+    final outlineStyle = fillStyle.copyWith(
+      foreground: Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 10
+        ..strokeJoin = StrokeJoin.round
+        ..isAntiAlias = false,
+    );
+    return Container(
+      key: const ValueKey('palette-mode-guide-title'),
+      width: 150,
+      height: 48,
+      clipBehavior: Clip.antiAlias,
+      decoration: const BoxDecoration(),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Positioned(
+            left: 1.21,
+            top: 8.44,
+            child: _PaletteModeGuideSpark(
+              asset: 'assets/pin_icon/editor_palette_mode_ray_long.svg',
+              width: 14.15,
+              height: 13.58,
+            ),
+          ),
+          const Positioned(
+            left: 16.46,
+            top: 4.79,
+            child: _PaletteModeGuideSpark(
+              asset: 'assets/pin_icon/editor_palette_mode_ray_short.svg',
+              width: 10.71,
+              height: 10.53,
+            ),
+          ),
+          const Positioned(
+            left: 18.8,
+            top: 18.93,
+            child: _PaletteModeGuideTitleIcon(),
+          ),
+          Positioned(
+            left: 49.8,
+            top: 14.93,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Text('色板模式', style: outlineStyle),
+                const Text('色板模式', style: fillStyle),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaletteModeGuideTitleIcon extends StatelessWidget {
+  const _PaletteModeGuideTitleIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    const shadowOffsets = <Offset>[
+      Offset(3, 3),
+      Offset(3, -2),
+      Offset(-4, -2),
+      Offset(3, -3),
+      Offset(-3, 3),
+    ];
+    return SizedBox(
+      width: 26,
+      height: 26,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          for (final offset in shadowOffsets)
+            Positioned(
+              left: offset.dx,
+              top: offset.dy,
+              child: Image.asset(
+                'assets/pin_icon/editor_palette_mode_title.png',
+                width: 26,
+                height: 26,
+                color: Colors.black,
+                colorBlendMode: BlendMode.srcIn,
+                filterQuality: FilterQuality.none,
+              ),
+            ),
+          Image.asset(
+            'assets/pin_icon/editor_palette_mode_title.png',
+            width: 26,
+            height: 26,
+            filterQuality: FilterQuality.none,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaletteModeGuideSpark extends StatelessWidget {
+  final String asset;
+  final double width;
+  final double height;
+
+  const _PaletteModeGuideSpark({
+    required this.asset,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(asset, width: width, height: height);
+  }
+}
+
+class _PaletteModeGuideStep extends StatelessWidget {
+  final bool visible;
+  final Widget child;
+
+  const _PaletteModeGuideStep({
+    super.key,
+    required this.visible,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSlide(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+      offset: visible ? Offset.zero : const Offset(-0.16, 0),
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        opacity: visible ? 1 : 0,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _PaletteGuideChooseAnyColorStep extends StatelessWidget {
+  const _PaletteGuideChooseAnyColorStep();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _PaletteGuideStepContent(
+      label: 'Step.1  选择任一颜色',
+      child: _PaletteGuidePreview(
+        sourceCode: 'E05',
+        sourceColor: Color(0xFFDE5EA0),
+        targetCode: '',
+        targetColor: null,
+      ),
+    );
+  }
+}
+
+class _PaletteGuideChooseReplacementStep extends StatelessWidget {
+  const _PaletteGuideChooseReplacementStep();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _PaletteGuideStepContent(
+      label: 'Step.2  选择要替换的颜色',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _PaletteGuideColorTile(code: 'F24', color: Color(0xFFADE0F9)),
+          SizedBox(width: 4),
+          _PaletteGuideColorTile(code: 'B14', color: Color(0xFFB9E663)),
+          SizedBox(width: 4),
+          _PaletteGuideColorTile(
+            code: 'A20',
+            color: Color(0xFFF8D778),
+            selected: true,
+          ),
+          SizedBox(width: 4),
+          _PaletteGuideColorTile(code: 'E03', color: Color(0xFFF4BAE4)),
+          SizedBox(width: 4),
+          _PaletteGuideColorTile(code: 'B12', color: Color(0xFF346E44)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaletteGuideReplacementResultStep extends StatelessWidget {
+  const _PaletteGuideReplacementResultStep();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _PaletteGuideStepContent(
+      label: 'Step.3  成功替换为其他颜色',
+      child: _PaletteGuidePreview(
+        sourceCode: 'E05',
+        sourceColor: Color(0xFFDE5EA0),
+        targetCode: 'A20',
+        targetColor: Color(0xFFF8D778),
+      ),
+    );
+  }
+}
+
+class _PaletteGuideStepContent extends StatelessWidget {
+  final String label;
+  final Widget child;
+
+  const _PaletteGuideStepContent({required this.label, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.black,
+            fontFamily: 'Alimama FangYuanTi VF',
+            fontSize: 16,
+            height: 19 / 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        child,
+      ],
+    );
+  }
+}
+
+class _PaletteGuidePreview extends StatelessWidget {
+  final String sourceCode;
+  final Color sourceColor;
+  final String targetCode;
+  final Color? targetColor;
+
+  const _PaletteGuidePreview({
+    required this.sourceCode,
+    required this.sourceColor,
+    required this.targetCode,
+    required this.targetColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _PaletteGuidePreviewFrame(
+      child: Row(
+        children: [
+          _PaletteGuideColorTile(code: sourceCode, color: sourceColor),
+          const Spacer(),
+          const Icon(Icons.arrow_forward_rounded, size: 18),
+          const Spacer(),
+          targetColor == null
+              ? const _PaletteGuideCheckerboard()
+              : _PaletteGuideColorTile(code: targetCode, color: targetColor!),
+        ],
+      ),
+    );
+  }
+}
+
+class _PaletteGuidePreviewFrame extends StatelessWidget {
+  final Widget child;
+
+  const _PaletteGuidePreviewFrame({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 200,
+      height: 48,
+      child: CustomPaint(
+        painter: const _PaletteGuideDashedBorderPainter(),
+        child: Padding(padding: const EdgeInsets.all(6), child: child),
+      ),
+    );
+  }
+}
+
+class _PaletteGuideColorTile extends StatelessWidget {
+  final String code;
+  final Color color;
+  final bool selected;
+
+  const _PaletteGuideColorTile({
+    required this.code,
+    required this.color,
+    this.selected = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: color,
+        border: Border.all(
+          color: selected ? Colors.black : const Color(0x1F000000),
+          width: selected ? 2 : 0.5,
+        ),
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+      ),
+      child: Text(
+        code,
+        style: TextStyle(
+          color: color.computeLuminance() > 0.58 ? Colors.black : Colors.white,
+          fontFamily: 'Alimama FangYuanTi VF',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _PaletteGuideCheckerboard extends StatelessWidget {
+  const _PaletteGuideCheckerboard();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 36,
+      height: 36,
+      child: CustomPaint(painter: _PaletteGuideCheckerboardPainter()),
+    );
+  }
+}
+
+class _PaletteGuideDashedBorderPainter extends CustomPainter {
+  const _PaletteGuideDashedBorderPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(10)),
+      );
+    final paint = Paint()
+      ..color = const Color(0x1F000000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (final metric in path.computeMetrics()) {
+      for (var start = 0.0; start < metric.length; start += 5) {
+        canvas.drawPath(metric.extractPath(start, start + 2.5), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaletteGuideDashedBorderPainter oldDelegate) =>
+      false;
+}
+
+class _PaletteGuideCheckerboardPainter extends CustomPainter {
+  const _PaletteGuideCheckerboardPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final clip = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(8),
+    );
+    canvas.clipRRect(clip);
+    canvas.drawColor(Colors.white, BlendMode.srcOver);
+    final paint = Paint()..color = const Color(0x12000000);
+    const cell = 6.0;
+    for (var row = 0; row < 6; row++) {
+      for (var column = 0; column < 6; column++) {
+        if ((row + column).isEven) {
+          canvas.drawRect(
+            Rect.fromLTWH(column * cell, row * cell, cell, cell),
+            paint,
+          );
+        }
+      }
+    }
+    canvas.drawRRect(
+      clip,
+      Paint()
+        ..color = const Color(0x1F000000)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.5,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaletteGuideCheckerboardPainter oldDelegate) =>
+      false;
+}
+
 class _BrushModeGuideCompletionButton extends StatelessWidget {
   final VoidCallback onPressed;
+  final Key buttonKey;
 
-  const _BrushModeGuideCompletionButton({required this.onPressed});
+  const _BrushModeGuideCompletionButton({
+    required this.onPressed,
+    this.buttonKey = const ValueKey('brush-mode-guide-completion'),
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -813,7 +1535,7 @@ class _BrushModeGuideCompletionButton extends StatelessWidget {
         color: Colors.black,
         borderRadius: const BorderRadius.all(Radius.circular(44)),
         child: InkWell(
-          key: const ValueKey('brush-mode-guide-completion'),
+          key: buttonKey,
           onTap: onPressed,
           borderRadius: const BorderRadius.all(Radius.circular(44)),
           child: const Center(
