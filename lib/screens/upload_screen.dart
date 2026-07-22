@@ -9,6 +9,7 @@ import '../models/draft_project.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
+import '../widgets/blind_box_dialog.dart';
 import 'crop_screen.dart';
 import 'my_screen.dart';
 import 'result_screen.dart';
@@ -62,10 +63,13 @@ class UploadScreen extends StatefulWidget {
 }
 
 class _UploadScreenState extends State<UploadScreen> {
-  static const _blindBoxPatterns = [
-    'assets/figma_home/gallery_pattern_1.png',
-    'assets/figma_home/gallery_pattern_2.png',
-    'assets/figma_home/gallery_pattern_3.png',
+  static const _blindBoxRewards = [
+    BlindBoxReward(
+      patternAsset: 'assets/figma_home/blind_box/rabbit_pattern.jpg',
+      rarity: BlindBoxRarity.superRare,
+      titleIconAsset: 'assets/figma_home/blind_box/union.png',
+      patternBadgeAsset: 'assets/figma_home/blind_box/badge.png',
+    ),
   ];
 
   final ImageService _imageService = ImageService();
@@ -152,17 +156,7 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   void _openBlindBox() {
-    final pattern =
-        _blindBoxPatterns[math.Random().nextInt(_blindBoxPatterns.length)];
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.white,
-      barrierColor: Colors.black.withValues(alpha: 0.24),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => _BlindBoxSheet(pattern: pattern),
-    );
+    showBlindBoxDialog(context, rewards: _blindBoxRewards);
   }
 
   @override
@@ -354,6 +348,7 @@ class _HomeDesignCanvas extends StatelessWidget {
             left: 201,
             top: 360.55,
             child: _FeatureCard(
+              key: const ValueKey('home-blind-box-card'),
               icon: 'assets/figma_home/feature_blind_box_icon.png',
               textImage: 'assets/figma_home/feature_blind_box_text.png',
               onTap: onBlindBox,
@@ -373,78 +368,6 @@ class _HomeDesignCanvas extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BlindBoxSheet extends StatelessWidget {
-  final String pattern;
-
-  const _BlindBoxSheet({required this.pattern});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0E0E0),
-                borderRadius: BorderRadius.circular(100),
-              ),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              '抽中图纸',
-              style: TextStyle(
-                color: Colors.black,
-                fontFamily: _roundFontFamily,
-                fontFamilyFallback: _fontFallbacks,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SizedBox(
-                width: 180,
-                height: 180,
-                child: Image.asset(pattern, fit: BoxFit.cover),
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(22),
-                  ),
-                ),
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  '收下',
-                  style: TextStyle(
-                    fontFamily: _roundFontFamily,
-                    fontFamilyFallback: _fontFallbacks,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1399,6 +1322,7 @@ class _FeatureCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const _FeatureCard({
+    super.key,
     required this.icon,
     required this.textImage,
     required this.onTap,
