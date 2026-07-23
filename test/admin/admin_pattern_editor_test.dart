@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('bead-mode editor replaces a selected color before saving', (
+  testWidgets('web backend uses the client editor and saves palette edits', (
     tester,
   ) async {
     GeneratedPattern? saved;
@@ -38,15 +38,22 @@ void main() {
     await tester.tap(find.text('打开编辑器'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('R'));
+    expect(find.text('画笔'), findsNWidgets(2));
+    expect(find.text('取色器'), findsOneWidget);
+    expect(find.byKey(const ValueKey('brush-mode-guide-scrim')), findsNothing);
+
+    await tester.tap(find.text('色板'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('替换为其他颜色'));
+    await tester.tap(
+      find.byKey(const ValueKey('editor-palette-usage-option-R')),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('B').last);
+    await tester.tap(
+      find.byKey(const ValueKey('editor-color-replacement-all-option-B')),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 种颜色'), findsOneWidget);
-    await tester.tap(find.text('保存编辑'));
+    await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
     expect(saved, isNotNull);
