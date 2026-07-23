@@ -39,6 +39,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('画笔'), findsNWidgets(2));
+    expect(find.text('色板'), findsOneWidget);
     expect(find.text('取色器'), findsOneWidget);
     expect(find.byKey(const ValueKey('brush-mode-guide-scrim')), findsNothing);
 

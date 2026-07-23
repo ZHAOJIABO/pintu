@@ -22,7 +22,10 @@ enum _AdminMenuAction { publish, library, logout }
 
 /// Internal admin portal for publishing official bead templates.
 class BoboBeadsAdminApp extends StatelessWidget {
-  const BoboBeadsAdminApp({super.key});
+  /// Test and preview injection point; production uses [AdminApi] by default.
+  final AdminApi? api;
+
+  const BoboBeadsAdminApp({super.key, this.api});
 
   @override
   Widget build(BuildContext context) {
@@ -55,13 +58,15 @@ class BoboBeadsAdminApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const _AdminPortal(),
+      home: _AdminPortal(api: api),
     );
   }
 }
 
 class _AdminPortal extends StatefulWidget {
-  const _AdminPortal();
+  final AdminApi? api;
+
+  const _AdminPortal({this.api});
 
   @override
   State<_AdminPortal> createState() => _AdminPortalState();
@@ -76,7 +81,7 @@ class _AdminPortalState extends State<_AdminPortal> {
     ColorLimit.unlimited,
   ];
 
-  final _api = AdminApi();
+  late final _api = widget.api ?? AdminApi();
   final _imageService = ImageService();
   final _paletteService = PaletteService();
   final _generator = PatternGenerationService(imageService: ImageService());
@@ -98,6 +103,7 @@ class _AdminPortalState extends State<_AdminPortal> {
   _AdminSection _section = _AdminSection.publish;
   List<AdminTemplate> _templates = const [];
   bool _smoothing = true;
+  bool _removeBackground = true;
   bool _loggingIn = false;
   bool _generating = false;
   bool _publishing = false;
@@ -188,6 +194,7 @@ class _AdminPortalState extends State<_AdminPortal> {
         paletteBrandId: _paletteId,
         colorLimit: _colorLimit,
         smoothingEnabled: _smoothing,
+        removeBackground: _removeBackground,
       );
       final pattern = await _generator.generate(draft: draft, palette: palette);
       if (!mounted) return;
@@ -791,6 +798,19 @@ class _AdminPortalState extends State<_AdminPortal> {
                 }),
         ),
         const SizedBox(height: 4),
+        SwitchListTile.adaptive(
+          key: const ValueKey('admin-remove-background-toggle'),
+          contentPadding: EdgeInsets.zero,
+          value: _removeBackground,
+          onChanged: _isBusy
+              ? null
+              : (value) => setState(() {
+                  _removeBackground = value;
+                  _pattern = null;
+                }),
+          title: const Text('去背景'),
+          subtitle: const Text('生成图纸时移除图片背景，保留主体轮廓'),
+        ),
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           value: _smoothing,
