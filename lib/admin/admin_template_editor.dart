@@ -92,12 +92,15 @@ class _AdminTemplateEditorPageState extends State<AdminTemplateEditorPage> {
     }
   }
 
-  Future<void> _editPattern() async {
+  Future<void> _editPattern([
+    AdminPatternEditingMode initialMode = AdminPatternEditingMode.brush,
+  ]) async {
     final pattern = _pattern;
     if (pattern == null || _saving) return;
     final edited = await Navigator.of(context).push<GeneratedPattern>(
       MaterialPageRoute(
-        builder: (_) => AdminPatternEditorPage(pattern: pattern),
+        builder: (_) =>
+            AdminPatternEditorPage(pattern: pattern, initialMode: initialMode),
       ),
     );
     if (!mounted || edited == null) return;
@@ -197,7 +200,7 @@ class _EditorWorkspace extends StatelessWidget {
   final String? error;
   final ValueChanged<int?> onCategoryChanged;
   final ValueChanged<int> onDifficultyChanged;
-  final VoidCallback onEditPattern;
+  final ValueChanged<AdminPatternEditingMode> onEditPattern;
   final VoidCallback onSave;
 
   const _EditorWorkspace({
@@ -396,7 +399,7 @@ class _TemplateForm extends StatelessWidget {
 class _TemplatePatternPreview extends StatelessWidget {
   final GeneratedPattern pattern;
   final bool saving;
-  final VoidCallback onEditPattern;
+  final ValueChanged<AdminPatternEditingMode> onEditPattern;
 
   const _TemplatePatternPreview({
     required this.pattern,
@@ -406,35 +409,64 @@ class _TemplatePatternPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final editorButtons = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        OutlinedButton.icon(
+          key: const ValueKey('template-open-brush-editor'),
+          onPressed: saving
+              ? null
+              : () => onEditPattern(AdminPatternEditingMode.brush),
+          icon: const Icon(Icons.brush_outlined),
+          label: const Text('画笔模式'),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('template-open-palette-editor'),
+          onPressed: saving
+              ? null
+              : () => onEditPattern(AdminPatternEditingMode.palette),
+          icon: const Icon(Icons.palette_outlined),
+          label: const Text('色板模式'),
+        ),
+      ],
+    );
+
     return _TemplateEditPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final title = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '图纸预览',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${pattern.totalBeads} 颗拼豆 · ${pattern.usage.length} 种颜色',
+                  ),
+                ],
+              );
+              if (constraints.maxWidth < 560) {
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '图纸预览',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${pattern.totalBeads} 颗拼豆 · ${pattern.usage.length} 种颜色',
-                    ),
-                  ],
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: saving ? null : onEditPattern,
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('拼豆模式编辑'),
-              ),
-            ],
+                  children: [title, const SizedBox(height: 12), editorButtons],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: title),
+                  const SizedBox(width: 12),
+                  editorButtons,
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
           Expanded(

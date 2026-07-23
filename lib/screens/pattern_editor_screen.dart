@@ -22,6 +22,12 @@ const _brushGuideCompletedPreferenceKey = 'brush_mode_guide_completed';
 const _paletteGuideCompletedPreferenceKey = 'palette_mode_guide_completed';
 const _paletteGuideStepCount = 3;
 
+/// The editing panel displayed when the pattern editor opens.
+///
+/// This is public so entry points outside the client flow, including the web
+/// backend, can take an operator directly to the intended editing tool.
+enum PatternEditorPanel { brush, palette }
+
 enum _EditorPanel { brush, palette }
 
 enum _BrushGuideTarget { currentColor, brush, picker, eraser }
@@ -76,12 +82,14 @@ class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final bool showBrushGuide;
   final bool showPaletteGuide;
+  final PatternEditorPanel initialPanel;
 
   const PatternEditorScreen({
     super.key,
     required this.pattern,
     this.showBrushGuide = true,
     this.showPaletteGuide = true,
+    this.initialPanel = PatternEditorPanel.brush,
   });
 
   @override
@@ -94,7 +102,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   late final Uint8List _pixels = Uint8List.fromList(widget.pattern.pixels);
   late BeadColor _selectedColor = _initialColor();
   EditorTool? _tool = EditorTool.brush;
-  _EditorPanel _panel = _EditorPanel.brush;
+  late _EditorPanel _panel;
   List<CellChange> _activeStroke = <CellChange>[];
   math.Point<int>? _lastEditedCell;
   int _revision = 0;
@@ -114,6 +122,10 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _panel = switch (widget.initialPanel) {
+      PatternEditorPanel.brush => _EditorPanel.brush,
+      PatternEditorPanel.palette => _EditorPanel.palette,
+    };
     _showBrushGuide = false;
     if (widget.showBrushGuide) unawaited(_showBrushGuideIfNeeded());
   }

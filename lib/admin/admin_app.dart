@@ -255,12 +255,15 @@ class _AdminPortalState extends State<_AdminPortal> {
     }
   }
 
-  Future<void> _editPattern() async {
+  Future<void> _editPattern([
+    AdminPatternEditingMode initialMode = AdminPatternEditingMode.brush,
+  ]) async {
     final pattern = _pattern;
     if (pattern == null || _isBusy) return;
     final edited = await Navigator.of(context).push<GeneratedPattern>(
       MaterialPageRoute(
-        builder: (_) => AdminPatternEditorPage(pattern: pattern),
+        builder: (_) =>
+            AdminPatternEditorPage(pattern: pattern, initialMode: initialMode),
       ),
     );
     if (!mounted || edited == null) return;
@@ -835,11 +838,35 @@ class _AdminPortalState extends State<_AdminPortal> {
           label: Text(_generating ? '正在生成…' : '生成拼豆图纸'),
         ),
         if (_pattern != null) ...[
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: _isBusy ? null : _editPattern,
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('进入拼豆模式编辑'),
+          const SizedBox(height: 14),
+          Text(
+            '图纸编辑',
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                key: const ValueKey('admin-open-brush-editor'),
+                onPressed: _isBusy
+                    ? null
+                    : () => _editPattern(AdminPatternEditingMode.brush),
+                icon: const Icon(Icons.brush_outlined),
+                label: const Text('画笔模式'),
+              ),
+              OutlinedButton.icon(
+                key: const ValueKey('admin-open-palette-editor'),
+                onPressed: _isBusy
+                    ? null
+                    : () => _editPattern(AdminPatternEditingMode.palette),
+                icon: const Icon(Icons.palette_outlined),
+                label: const Text('色板模式'),
+              ),
+            ],
           ),
         ],
         const Padding(

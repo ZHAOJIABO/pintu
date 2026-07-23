@@ -60,6 +60,28 @@ void main() {
     expect(saved, isNotNull);
     expect(saved!.usage, {'B': 4});
   });
+
+  testWidgets('palette entry opens the color replacement panel directly', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminPatternEditorPage(
+          pattern: _pattern(),
+          initialMode: AdminPatternEditingMode.palette,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('画笔'), findsOneWidget);
+    expect(find.text('色板'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('editor-palette-usage-option-R')),
+      findsOneWidget,
+    );
+    expect(find.text('取色器'), findsNothing);
+  });
 }
 
 GeneratedPattern _pattern() {
