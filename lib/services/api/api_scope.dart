@@ -11,6 +11,7 @@ import 'api_session_store.dart';
 
 class BackendServices {
   Future<PagedResult<TemplateItem>>? _homeTemplatesRequest;
+  Future<List<TemplateCategory>>? _templateCategoriesRequest;
 
   final ApiSessionStore store;
   final ApiClient client;
@@ -90,7 +91,7 @@ class BackendServices {
       system.getConfig().then((_) {}),
       system.listBoardSpecs().then((_) {}),
       system.listBeadColors().then((_) {}),
-      templates.listCategories().then((_) {}),
+      loadTemplateCategories().then((_) {}),
     ]);
 
     final firstTemplate = (await homeTemplates).items.firstOrNull;
@@ -110,6 +111,22 @@ class BackendServices {
     } catch (_) {
       if (identical(_homeTemplatesRequest, request)) {
         _homeTemplatesRequest = null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<TemplateCategory>> loadTemplateCategories() async {
+    final existing = _templateCategoriesRequest;
+    if (existing != null) return existing;
+
+    final request = templates.listCategories();
+    _templateCategoriesRequest = request;
+    try {
+      return await request;
+    } catch (_) {
+      if (identical(_templateCategoriesRequest, request)) {
+        _templateCategoriesRequest = null;
       }
       rethrow;
     }

@@ -10,6 +10,7 @@ import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../widgets/blind_box_dialog.dart';
+import '../widgets/home_filter_dialog.dart';
 import 'crop_screen.dart';
 import 'my_screen.dart';
 import 'result_screen.dart';
@@ -149,14 +150,15 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  void _showComingSoon(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   void _openBlindBox() {
     showBlindBoxDialog(context, rewards: _blindBoxRewards);
+  }
+
+  void _openFilterDialog() {
+    showHomeFilterDialog(
+      context,
+      loadCategories: _backendServices?.loadTemplateCategories,
+    );
   }
 
   @override
@@ -203,7 +205,7 @@ class _UploadScreenState extends State<UploadScreen> {
                                     imageSource: DraftImageSource.illustration,
                                   ),
                             onBlindBox: _openBlindBox,
-                            onFilter: () => _showComingSoon('筛选功能即将开放'),
+                            onFilter: _openFilterDialog,
                           ),
                         ),
                       ),
@@ -1385,6 +1387,7 @@ class _GalleryTitle extends StatelessWidget {
           const _GalleryTitleLabel(),
           const Spacer(),
           GestureDetector(
+            key: const ValueKey('home-gallery-filter'),
             onTap: onFilter,
             child: Transform.translate(
               offset: const Offset(0, 1),

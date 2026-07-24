@@ -191,29 +191,50 @@ void main() {
     expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
   });
 
-  testWidgets('generated result shows gallery hint dialog', (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(() {
-      tester.view.resetPhysicalSize();
-      tester.view.resetDevicePixelRatio();
-    });
+  for (final viewport in const [Size(375, 667), Size(430, 932)]) {
+    testWidgets(
+      'generated result shows Figma patterns hint dialog on $viewport',
+      (tester) async {
+        tester.view.physicalSize = viewport;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(() {
+          tester.view.resetPhysicalSize();
+          tester.view.resetDevicePixelRatio();
+        });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ResultScreen(pattern: _pattern(), showGeneratedHint: true),
-      ),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ResultScreen(pattern: _pattern(), showGeneratedHint: true),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('图纸也可以在“我的-图纸”中查看哦～'), findsOneWidget);
+        expect(find.text('我知道啦！'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('patterns-hint-dialog')),
+          findsOneWidget,
+        );
+        expect(
+          tester.getSize(find.byKey(const ValueKey('patterns-hint-dialog'))),
+          const Size(330, 305),
+        );
+        expect(
+          tester.getSize(
+            find.byKey(const ValueKey('patterns-hint-dialog-confirm')),
+          ),
+          const Size(260, 52),
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('patterns-hint-dialog-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('图纸也可以在“我的-图纸”中查看哦～'), findsNothing);
+      },
     );
-    await tester.pumpAndSettle();
-
-    expect(find.text('图纸可以在“我的-图集”中查看哦～'), findsOneWidget);
-    expect(find.text('我知道啦！'), findsOneWidget);
-
-    await tester.tap(find.text('我知道啦！'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('图纸可以在“我的-图集”中查看哦～'), findsNothing);
-  });
+  }
 
   testWidgets('immediate start opens bead mode', (tester) async {
     tester.view.physicalSize = const Size(390, 844);

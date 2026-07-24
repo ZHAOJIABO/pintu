@@ -350,6 +350,117 @@ void main() {
     },
   );
 
+  testWidgets('parameter brand selector keeps its selected menu item visible', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final semantics = tester.ensureSemantics();
+    final image = sampleImagePng();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ParameterConfigScreen(
+          draft: DraftProject(
+            originalImageBytes: image,
+            croppedImageBytes: image,
+            imageSource: DraftImageSource.illustration,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final selector = find.byKey(const ValueKey('parameter-brand-selector'));
+    await tester.drag(find.byType(ListView), const Offset(0, -240));
+    await tester.pumpAndSettle();
+    expect(tester.getCenter(selector).dy, lessThan(700));
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+
+    final unlimitedOption = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('parameter-brand-option-__unlimited__')),
+    );
+    expect((unlimitedOption.decoration as BoxDecoration).color, Colors.black);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(
+      tester.getSemantics(
+        find.byKey(
+          const ValueKey('parameter-brand-option-semantics-__unlimited__'),
+        ),
+      ),
+      containsSemantics(label: '不限', hasSelectedState: true, isSelected: true),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('parameter-brand-option-mard221')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Mard 221'), findsOneWidget);
+
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    final mardOption = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('parameter-brand-option-mard221')),
+    );
+    expect((mardOption.decoration as BoxDecoration).color, Colors.black);
+
+    await tester.tap(
+      find.byKey(const ValueKey('parameter-brand-option-__unlimited__')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: selector, matching: find.text('不限')),
+      findsOneWidget,
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('parameter brand selector preserves legacy brand selections', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final image = sampleImagePng();
+    const legacyBrandId = 'legacy-brand-with-a-long-name';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ParameterConfigScreen(
+          draft: DraftProject(
+            originalImageBytes: image,
+            croppedImageBytes: image,
+            imageSource: DraftImageSource.illustration,
+            paletteBrandId: legacyBrandId,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final selector = find.byKey(const ValueKey('parameter-brand-selector'));
+    await tester.drag(find.byType(ListView), const Offset(0, -240));
+    await tester.pumpAndSettle();
+
+    final selectedLabel = find.descendant(
+      of: selector,
+      matching: find.text(legacyBrandId),
+    );
+    final arrow = find.descendant(
+      of: selector,
+      matching: find.byIcon(Icons.keyboard_arrow_down),
+    );
+    expect(
+      tester.getRect(selectedLabel).right,
+      lessThanOrEqualTo(tester.getRect(arrow).left),
+    );
+
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    final legacyOption = tester.widget<DecoratedBox>(
+      find.byKey(ValueKey('parameter-brand-option-$legacyBrandId')),
+    );
+    expect((legacyOption.decoration as BoxDecoration).color, Colors.black);
+  });
+
   for (final entry in {
     'compact iPhone': const Size(375, 667),
     'large iPhone': const Size(430, 932),

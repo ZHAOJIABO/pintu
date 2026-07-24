@@ -10,9 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
-  testWidgets('gallery thumbnails open template details in the drawing page', (
-    tester,
-  ) async {
+  testWidgets('首页图纸和筛选分类均从 API 加载', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -36,7 +34,22 @@ void main() {
           '/api/v1/system/config' => <String, Object?>{},
           '/api/v1/system/board-specs' => {'specs': const []},
           '/api/v1/system/bead-colors' => {'brands': const []},
-          '/api/v1/templates/categories' => {'categories': const []},
+          '/api/v1/templates/categories' => {
+            'categories': [
+              {
+                'categoryId': 7,
+                'name': '动物',
+                'iconUrl': '',
+                'templateCount': 3,
+              },
+              {
+                'categoryId': 9,
+                'name': '节日',
+                'iconUrl': '',
+                'templateCount': 2,
+              },
+            ],
+          },
           '/api/v1/templates' => {
             'templates': [
               {
@@ -95,6 +108,32 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+
+    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('动物'), findsOneWidget);
+    expect(find.text('节日'), findsOneWidget);
+    expect(
+      requests.where(
+        (request) => request.url.path == '/api/v1/templates/categories',
+      ),
+      hasLength(1),
+    );
+    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
+    await tester.pumpAndSettle();
+    expect(find.text('动物'), findsOneWidget);
+    expect(
+      requests.where(
+        (request) => request.url.path == '/api/v1/templates/categories',
+      ),
+      hasLength(1),
+    );
+    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
+    await tester.pumpAndSettle();
 
     expect(
       find.byKey(const ValueKey('gallery-thumbnail-template-001')),

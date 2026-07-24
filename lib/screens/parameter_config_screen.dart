@@ -261,7 +261,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           denoise: _denoise,
                           saturation: _saturation,
                           canGenerate: _canGenerate,
-                          brandLabel: _brandLabel,
+                          selectedBrandId: _brandId,
                           palettes: _paletteService.availablePalettes,
                           onTemplateSelected: (template) {
                             setState(() {
@@ -334,16 +334,6 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         ),
       ),
     );
-  }
-
-  String get _brandLabel {
-    final brandId = _brandId;
-    if (brandId == null) return '不限';
-
-    for (final definition in _paletteService.availablePalettes) {
-      if (definition.id == brandId) return definition.displayName;
-    }
-    return brandId;
   }
 }
 
@@ -534,7 +524,7 @@ class _ParameterPanel extends StatelessWidget {
   final bool denoise;
   final int saturation;
   final bool canGenerate;
-  final String brandLabel;
+  final String? selectedBrandId;
   final List<PaletteDefinition> palettes;
   final ValueChanged<ProductTemplate> onTemplateSelected;
   final ValueChanged<int> onCustomSizeChanged;
@@ -558,7 +548,7 @@ class _ParameterPanel extends StatelessWidget {
     required this.denoise,
     required this.saturation,
     required this.canGenerate,
-    required this.brandLabel,
+    required this.selectedBrandId,
     required this.palettes,
     required this.onTemplateSelected,
     required this.onCustomSizeChanged,
@@ -601,7 +591,7 @@ class _ParameterPanel extends StatelessWidget {
                     removeBackground: removeBackground,
                     denoise: denoise,
                     saturation: saturation,
-                    brandLabel: brandLabel,
+                    selectedBrandId: selectedBrandId,
                     palettes: palettes,
                     onSmoothingChanged: onSmoothingChanged,
                     onRemoveBackgroundChanged: onRemoveBackgroundChanged,
@@ -862,7 +852,7 @@ class _ParameterRows extends StatelessWidget {
   final bool removeBackground;
   final bool denoise;
   final int saturation;
-  final String brandLabel;
+  final String? selectedBrandId;
   final List<PaletteDefinition> palettes;
   final VoidCallback onSmoothingChanged;
   final VoidCallback onRemoveBackgroundChanged;
@@ -879,7 +869,7 @@ class _ParameterRows extends StatelessWidget {
     required this.removeBackground,
     required this.denoise,
     required this.saturation,
-    required this.brandLabel,
+    required this.selectedBrandId,
     required this.palettes,
     required this.onSmoothingChanged,
     required this.onRemoveBackgroundChanged,
@@ -942,7 +932,7 @@ class _ParameterRows extends StatelessWidget {
           label: '颜色品牌',
           height: 40,
           trailing: _BrandSelector(
-            label: brandLabel,
+            selectedBrandId: selectedBrandId,
             palettes: palettes,
             onSelected: onBrandSelected,
           ),
@@ -1235,35 +1225,122 @@ class _SaturationValueInputState extends State<_SaturationValueInput> {
 }
 
 class _BrandSelector extends StatelessWidget {
-  final String label;
+  final String? selectedBrandId;
   final List<PaletteDefinition> palettes;
   final ValueChanged<String> onSelected;
 
   const _BrandSelector({
-    required this.label,
+    required this.selectedBrandId,
     required this.palettes,
     required this.onSelected,
   });
 
+  bool get _hasLegacySelectedBrand {
+    final brandId = selectedBrandId;
+    return brandId != null &&
+        brandId != _brandUnlimitedValue &&
+        !palettes.any((definition) => definition.id == brandId);
+  }
+
+  String get _selectedLabel {
+    final brandId = selectedBrandId;
+    if (brandId == null) return '不限';
+
+    for (final definition in palettes) {
+      if (definition.id == brandId) return definition.displayName;
+    }
+    return brandId;
+  }
+
+  List<PopupMenuEntry<String>> _buildMenuItems() => [
+    if (_hasLegacySelectedBrand)
+      _menuItem(value: selectedBrandId!, label: _selectedLabel, selected: true),
+    _menuItem(
+      value: _brandUnlimitedValue,
+      label: '不限',
+      selected: selectedBrandId == null,
+    ),
+    for (final definition in palettes)
+      _menuItem(
+        value: definition.id,
+        label: definition.displayName,
+        selected: selectedBrandId == definition.id,
+      ),
+  ];
+
+  PopupMenuItem<String> _menuItem({
+    required String value,
+    required String label,
+    required bool selected,
+  }) {
+    final textColor = selected ? Colors.white : Colors.black;
+
+    return PopupMenuItem<String>(
+      value: value,
+      height: 48,
+      padding: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Semantics(
+          key: ValueKey('parameter-brand-option-semantics-$value'),
+          selected: selected,
+          child: DecoratedBox(
+            key: ValueKey('parameter-brand-option-$value'),
+            decoration: BoxDecoration(
+              color: selected ? Colors.black : _controlBackground,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 14,
+                        fontFamily: _roundFontFamily,
+                        fontFamilyFallback: _fontFallbacks,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  if (selected) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.check, color: textColor, size: 16),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
+      key: const ValueKey('parameter-brand-selector'),
       padding: EdgeInsets.zero,
       tooltip: '',
       position: PopupMenuPosition.under,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      offset: const Offset(0, 8),
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: 0.10),
+      constraints: const BoxConstraints(minWidth: 140, maxWidth: 220),
+      menuPadding: const EdgeInsets.all(4),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: _controlBackground),
+      ),
       onSelected: onSelected,
-      itemBuilder: (context) => [
-        const PopupMenuItem<String>(
-          value: _brandUnlimitedValue,
-          child: Text('不限'),
-        ),
-        for (final definition in palettes)
-          PopupMenuItem<String>(
-            value: definition.id,
-            child: Text(definition.displayName),
-          ),
-      ],
+      itemBuilder: (context) => _buildMenuItems(),
       child: SizedBox(
         width: 124,
         height: 40,
@@ -1274,28 +1351,34 @@ class _BrandSelector extends StatelessWidget {
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
+            child: Stack(
               children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 14,
-                      fontFamily: _roundFontFamily,
-                      fontFamilyFallback: _fontFallbacks,
-                      fontWeight: FontWeight.w500,
+                Align(
+                  alignment: Alignment.center,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      _selectedLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontSize: 14,
+                        fontFamily: _roundFontFamily,
+                        fontFamilyFallback: _fontFallbacks,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.keyboard_arrow_down,
-                  color: Colors.black,
-                  size: 16,
+                const Align(
+                  alignment: Alignment.centerRight,
+                  child: Icon(
+                    Icons.keyboard_arrow_down,
+                    color: Colors.black,
+                    size: 16,
+                  ),
                 ),
               ],
             ),

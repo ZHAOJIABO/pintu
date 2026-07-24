@@ -9,6 +9,7 @@ import '../models/palette.dart';
 import '../models/pattern_chart.dart';
 import '../rendering/pattern_chart_painter.dart';
 import '../services/pattern_export_service.dart';
+import '../widgets/patterns_hint_dialog.dart';
 import 'bead_mode_screen.dart';
 import 'pattern_editor_screen.dart';
 
@@ -96,20 +97,7 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _showGeneratedHintDialog() {
-    return showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          content: const Text('图纸可以在“我的-图集”中查看哦～'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('我知道啦！'),
-            ),
-          ],
-        );
-      },
-    );
+    return showPatternsHintDialog(context);
   }
 
   @override
