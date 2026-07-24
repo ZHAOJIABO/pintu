@@ -9,7 +9,7 @@ void main() {
     const BobobeadsApp(
       enableBackend: bool.fromEnvironment(
         'BOBOBEADS_ENABLE_BACKEND',
-        defaultValue: false,
+        defaultValue: true,
       ),
     ),
   );
