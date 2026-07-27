@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/draft_project.dart';
@@ -11,6 +10,7 @@ import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../widgets/blind_box_dialog.dart';
 import '../widgets/home_filter_dialog.dart';
+import '../widgets/home_pattern_gallery.dart';
 import 'crop_screen.dart';
 import 'my_screen.dart';
 import 'result_screen.dart';
@@ -25,35 +25,51 @@ const _bottomNavDesignHeight = 80.0;
 const _compactBottomNavDesignHeight = 60.0;
 const _compactHeightBreakpoint = 700.0;
 const _homeBackgroundColor = Color(0xFFF0F0F4);
+const _scrollBottomPadding = 12.0;
+const _galleryColumnCount = 3;
+const _homeGalleryTop = 525.0;
+const _homeGalleryTitleAndSpacingHeight = 32.0;
+const _homeGalleryTileSize = 119.33;
+const _homeGalleryTileSpacing = 4.0;
+
+double _homeContentHeightForTemplateCount(int templateCount) {
+  final rowCount =
+      (templateCount + _galleryColumnCount - 1) ~/ _galleryColumnCount;
+  if (rowCount == 0) return _designContentHeight;
+
+  final galleryHeight =
+      rowCount * _homeGalleryTileSize +
+      (rowCount - 1) * _homeGalleryTileSpacing;
+  return math.max(
+    _designContentHeight,
+    _homeGalleryTop + _homeGalleryTitleAndSpacingHeight + galleryHeight + 12,
+  );
+}
 
 class _HomeLayoutMetrics {
   final double pageWidth;
   final double scale;
+  final double designContentHeight;
   final double scaledDesignHeight;
   final double bottomNavDesignHeight;
   final double bottomNavTotalHeight;
-  final double scrollBottomReserve;
 
-  _HomeLayoutMetrics({required BoxConstraints constraints})
-    : pageWidth = math.min(constraints.maxWidth, _designWidth),
-      scale = math.min(constraints.maxWidth, _designWidth) / _designWidth,
-      scaledDesignHeight =
-          _designContentHeight *
-          (math.min(constraints.maxWidth, _designWidth) / _designWidth),
-      bottomNavDesignHeight = constraints.maxHeight <= _compactHeightBreakpoint
-          ? _compactBottomNavDesignHeight
-          : _bottomNavDesignHeight,
-      bottomNavTotalHeight =
-          (constraints.maxHeight <= _compactHeightBreakpoint
-              ? _compactBottomNavDesignHeight
-              : _bottomNavDesignHeight) *
-          (math.min(constraints.maxWidth, _designWidth) / _designWidth),
-      scrollBottomReserve =
-          (constraints.maxHeight <= _compactHeightBreakpoint
-                  ? _compactBottomNavDesignHeight
-                  : _bottomNavDesignHeight) *
-              (math.min(constraints.maxWidth, _designWidth) / _designWidth) +
-          12;
+  _HomeLayoutMetrics({
+    required BoxConstraints constraints,
+    required this.designContentHeight,
+  }) : pageWidth = math.min(constraints.maxWidth, _designWidth),
+       scale = math.min(constraints.maxWidth, _designWidth) / _designWidth,
+       scaledDesignHeight =
+           designContentHeight *
+           (math.min(constraints.maxWidth, _designWidth) / _designWidth),
+       bottomNavDesignHeight = constraints.maxHeight <= _compactHeightBreakpoint
+           ? _compactBottomNavDesignHeight
+           : _bottomNavDesignHeight,
+       bottomNavTotalHeight =
+           (constraints.maxHeight <= _compactHeightBreakpoint
+               ? _compactBottomNavDesignHeight
+               : _bottomNavDesignHeight) *
+           (math.min(constraints.maxWidth, _designWidth) / _designWidth);
 }
 
 class UploadScreen extends StatefulWidget {
@@ -76,7 +92,12 @@ class _UploadScreenState extends State<UploadScreen> {
   final ImageService _imageService = ImageService();
   BackendServices? _backendServices;
   List<TemplateItem> _galleryTemplates = const [];
+  String _galleryCategoryName = '全部';
+  int _galleryRequestVersion = 0;
   bool _picking = false;
+  bool _openingBlindBox = false;
+  bool _showingMyPage = false;
+  bool _hasOpenedMyPage = false;
 
   @override
   void didChangeDependencies() {
@@ -90,10 +111,18 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  Future<void> _loadGalleryTemplates(BackendServices services) async {
+  Future<void> _loadGalleryTemplates(
+    BackendServices services, {
+    int? categoryId,
+  }) async {
+    final requestVersion = ++_galleryRequestVersion;
     try {
-      final result = await services.loadHomeTemplates();
-      if (!mounted || !identical(_backendServices, services)) return;
+      final result = await services.loadHomeTemplates(categoryId: categoryId);
+      if (!mounted ||
+          !identical(_backendServices, services) ||
+          requestVersion != _galleryRequestVersion) {
+        return;
+      }
       setState(() => _galleryTemplates = result.items);
     } catch (_) {
       // Keep the existing local thumbnails when the gallery cannot load.
@@ -110,8 +139,10 @@ class _UploadScreenState extends State<UploadScreen> {
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              ResultScreen(pattern: detail.patternData.toGeneratedPattern()),
+          builder: (_) => ResultScreen(
+            pattern: detail.patternData.toGeneratedPattern(),
+            template: detail.template,
+          ),
         ),
       );
     } catch (_) {
@@ -150,16 +181,68 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  void _openBlindBox() {
-    showBlindBoxDialog(context, rewards: _blindBoxRewards);
+  Future<void> _openBlindBox() async {
+    final services = _backendServices;
+    if (services == null || _openingBlindBox) return;
+
+    setState(() => _openingBlindBox = true);
+    try {
+      final detail = await services.templates.getRandomTemplate();
+      if (!mounted || !identical(_backendServices, services)) return;
+      await showBlindBoxDialog(
+        context,
+        rewards: _blindBoxRewards,
+        template: detail.template,
+        onOpenTemplate: () async {
+          if (!mounted || !identical(_backendServices, services)) return;
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ResultScreen(
+                pattern: detail.patternData.toGeneratedPattern(),
+                template: detail.template,
+              ),
+            ),
+          );
+        },
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('盲盒加载失败，请重试')));
+    } finally {
+      if (mounted) setState(() => _openingBlindBox = false);
+    }
   }
 
-  void _openFilterDialog() {
-    showHomeFilterDialog(
+  Future<void> _openFilterDialog() async {
+    final selection = await showHomeFilterDialog(
       context,
       loadCategories: _backendServices?.loadTemplateCategories,
     );
+    final services = _backendServices;
+    if (selection != null && services != null) {
+      setState(
+        () => _galleryCategoryName = selection.isDefault
+            ? '全部'
+            : selection.category.name,
+      );
+      await _loadGalleryTemplates(
+        services,
+        categoryId: selection.category.categoryId,
+      );
+    }
   }
+
+  void _showMyPage() {
+    setState(() {
+      _hasOpenedMyPage = true;
+      _showingMyPage = true;
+    });
+  }
+
+  void _showHomePage() => setState(() => _showingMyPage = false);
 
   @override
   Widget build(BuildContext context) {
@@ -167,7 +250,12 @@ class _UploadScreenState extends State<UploadScreen> {
       backgroundColor: _homeBackgroundColor,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final metrics = _HomeLayoutMetrics(constraints: constraints);
+          final metrics = _HomeLayoutMetrics(
+            constraints: constraints,
+            designContentHeight: _homeContentHeightForTemplateCount(
+              _galleryTemplates.length,
+            ),
+          );
 
           return Center(
             child: SizedBox(
@@ -177,38 +265,59 @@ class _UploadScreenState extends State<UploadScreen> {
                   const Positioned.fill(
                     child: ColoredBox(color: _homeBackgroundColor),
                   ),
-                  SingleChildScrollView(
-                    physics: const BouncingScrollPhysics(),
-                    child: SizedBox(
-                      width: metrics.pageWidth,
-                      height:
-                          metrics.scaledDesignHeight +
-                          metrics.scrollBottomReserve,
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: _ScaledDesignSurface(
-                          designWidth: _designWidth,
-                          designHeight: _designContentHeight,
-                          scale: metrics.scale,
-                          child: _HomeDesignCanvas(
-                            picking: _picking,
-                            galleryTemplates: _galleryTemplates,
-                            onGalleryTemplateTap: _openTemplateDetail,
-                            onPhotoStart: _picking
-                                ? null
-                                : () => _pickImage(
-                                    imageSource: DraftImageSource.photo,
-                                  ),
-                            onIllustrationStart: _picking
-                                ? null
-                                : () => _pickImage(
-                                    imageSource: DraftImageSource.illustration,
-                                  ),
-                            onBlindBox: _openBlindBox,
-                            onFilter: _openFilterDialog,
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: metrics.bottomNavTotalHeight,
+                    child: IndexedStack(
+                      index: _showingMyPage ? 1 : 0,
+                      sizing: StackFit.expand,
+                      children: [
+                        SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: SizedBox(
+                            width: metrics.pageWidth,
+                            height:
+                                metrics.scaledDesignHeight +
+                                _scrollBottomPadding,
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: _ScaledDesignSurface(
+                                designWidth: _designWidth,
+                                designHeight: metrics.designContentHeight,
+                                scale: metrics.scale,
+                                child: _HomeDesignCanvas(
+                                  designContentHeight:
+                                      metrics.designContentHeight,
+                                  picking: _picking,
+                                  galleryTemplates: _galleryTemplates,
+                                  galleryCategoryName: _galleryCategoryName,
+                                  onGalleryTemplateTap: _openTemplateDetail,
+                                  onPhotoStart: _picking
+                                      ? null
+                                      : () => _pickImage(
+                                          imageSource: DraftImageSource.photo,
+                                        ),
+                                  onIllustrationStart: _picking
+                                      ? null
+                                      : () => _pickImage(
+                                          imageSource:
+                                              DraftImageSource.illustration,
+                                        ),
+                                  onBlindBox: _openingBlindBox
+                                      ? null
+                                      : _openBlindBox,
+                                  onFilter: _openFilterDialog,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                        _hasOpenedMyPage
+                            ? const MyScreenContent()
+                            : const SizedBox.expand(),
+                      ],
                     ),
                   ),
                   Positioned(
@@ -222,16 +331,15 @@ class _UploadScreenState extends State<UploadScreen> {
                         designWidth: _designWidth,
                         designHeight: metrics.bottomNavDesignHeight,
                         scale: metrics.scale,
-                        child: _BottomNavigation(
-                          height: metrics.bottomNavDesignHeight,
-                          onMyTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const MyScreen(),
+                        child: _showingMyPage
+                            ? MyBottomNavigation(
+                                height: metrics.bottomNavDesignHeight,
+                                onMakeTap: _showHomePage,
+                              )
+                            : _BottomNavigation(
+                                height: metrics.bottomNavDesignHeight,
+                                onMyTap: _showMyPage,
                               ),
-                            );
-                          },
-                        ),
                       ),
                     ),
                   ),
@@ -284,8 +392,10 @@ class _ScaledDesignSurface extends StatelessWidget {
 }
 
 class _HomeDesignCanvas extends StatelessWidget {
+  final double designContentHeight;
   final bool picking;
   final List<TemplateItem> galleryTemplates;
+  final String galleryCategoryName;
   final ValueChanged<String>? onGalleryTemplateTap;
   final VoidCallback? onPhotoStart;
   final VoidCallback? onIllustrationStart;
@@ -293,8 +403,10 @@ class _HomeDesignCanvas extends StatelessWidget {
   final VoidCallback? onFilter;
 
   const _HomeDesignCanvas({
+    required this.designContentHeight,
     required this.picking,
     required this.galleryTemplates,
+    required this.galleryCategoryName,
     required this.onGalleryTemplateTap,
     required this.onPhotoStart,
     required this.onIllustrationStart,
@@ -306,7 +418,7 @@ class _HomeDesignCanvas extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: _designWidth,
-      height: _designContentHeight,
+      height: designContentHeight,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
@@ -357,15 +469,12 @@ class _HomeDesignCanvas extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 20,
-            top: 525,
-            child: _GalleryTitle(onFilter: onFilter ?? () {}),
-          ),
-          Positioned(
             left: 12,
-            top: 557,
-            child: _GalleryGrid(
+            top: 525,
+            child: HomePatternGallery(
               templates: galleryTemplates,
+              categoryName: galleryCategoryName,
+              onFilter: onFilter ?? () {},
               onTemplateTap: onGalleryTemplateTap,
             ),
           ),
@@ -1365,283 +1474,6 @@ class _FeatureCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GalleryTitle extends StatelessWidget {
-  final VoidCallback onFilter;
-
-  const _GalleryTitle({required this.onFilter});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 350,
-      height: 20,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const _GalleryTitleLabel(),
-          const Spacer(),
-          GestureDetector(
-            key: const ValueKey('home-gallery-filter'),
-            onTap: onFilter,
-            child: Transform.translate(
-              offset: const Offset(0, 1),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: SvgPicture.asset(
-                  'assets/figma_home/gallery_filter_grid.svg',
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _GalleryTitleLabel extends StatelessWidget {
-  const _GalleryTitleLabel();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        SizedBox(width: 18, height: 18, child: _GalleryRabbitIcon()),
-        SizedBox(width: 4),
-        Text(
-          '全部',
-          style: TextStyle(
-            color: Colors.black,
-            fontFamily: _roundFontFamily,
-            fontFamilyFallback: _fontFallbacks,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GalleryRabbitIcon extends StatelessWidget {
-  const _GalleryRabbitIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SizedBox(
-        width: 16,
-        height: 16,
-        child: SvgPicture.asset('assets/figma_home/gallery_title_rabbit.svg'),
-      ),
-    );
-  }
-}
-
-class _GalleryGrid extends StatelessWidget {
-  final List<TemplateItem> templates;
-  final ValueChanged<String>? onTemplateTap;
-
-  const _GalleryGrid({required this.templates, required this.onTemplateTap});
-
-  static const _fallbackPatterns = [
-    _GalleryPattern(
-      id: 'fallback-1',
-      thumbnailUrl: 'assets/figma_home/gallery_pattern_1.png',
-    ),
-    _GalleryPattern(
-      id: 'fallback-2',
-      thumbnailUrl: 'assets/figma_home/gallery_pattern_2.png',
-    ),
-    _GalleryPattern(
-      id: 'fallback-3',
-      thumbnailUrl: 'assets/figma_home/gallery_pattern_3.png',
-    ),
-  ];
-
-  List<_GalleryPattern> get _patterns {
-    final remotePatterns = templates
-        .map(
-          (template) => _GalleryPattern(
-            id: template.templateId,
-            templateId: template.templateId,
-            thumbnailUrl: template.thumbnailUrl.isNotEmpty
-                ? template.thumbnailUrl
-                : template.previewUrl,
-          ),
-        )
-        .where(
-          (pattern) => pattern.id.isNotEmpty && pattern.thumbnailUrl.isNotEmpty,
-        )
-        .toList();
-    return remotePatterns.isEmpty ? _fallbackPatterns : remotePatterns;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final patterns = _patterns;
-    return SizedBox(
-      width: 366,
-      child: Column(
-        children: [
-          for (var row = 0; row < 5; row++) ...[
-            Row(
-              children: [
-                for (var col = 0; col < 3; col++) ...[
-                  _GalleryTile(
-                    pattern: patterns[(row * 3 + col) % patterns.length],
-                    fallbackThumbnailUrl:
-                        _fallbackPatterns[(row * 3 + col) %
-                                _fallbackPatterns.length]
-                            .thumbnailUrl,
-                    onTap:
-                        patterns[(row * 3 + col) % patterns.length]
-                                .templateId ==
-                            null
-                        ? null
-                        : () => onTemplateTap?.call(
-                            patterns[(row * 3 + col) % patterns.length]
-                                .templateId!,
-                          ),
-                  ),
-                  if (col < 2) const SizedBox(width: 4),
-                ],
-              ],
-            ),
-            if (row < 4) const SizedBox(height: 4),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _GalleryPattern {
-  final String id;
-  final String? templateId;
-  final String thumbnailUrl;
-
-  const _GalleryPattern({
-    required this.id,
-    this.templateId,
-    required this.thumbnailUrl,
-  });
-}
-
-class _GalleryTile extends StatelessWidget {
-  final _GalleryPattern pattern;
-  final String fallbackThumbnailUrl;
-  final VoidCallback? onTap;
-
-  const _GalleryTile({
-    required this.pattern,
-    required this.fallbackThumbnailUrl,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 119.33,
-        height: 119.33,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: DecoratedBox(
-            decoration: const BoxDecoration(color: Colors.white),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: _GalleryThumbnail(
-                    key: ValueKey('gallery-thumbnail-${pattern.id}'),
-                    url: pattern.thumbnailUrl,
-                    fallbackUrl: fallbackThumbnailUrl,
-                  ),
-                ),
-                const Positioned.fill(child: _GalleryFade()),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GalleryThumbnail extends StatelessWidget {
-  final String url;
-  final String fallbackUrl;
-
-  const _GalleryThumbnail({
-    super.key,
-    required this.url,
-    required this.fallbackUrl,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final uri = Uri.tryParse(url);
-    final isNetworkImage =
-        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
-
-    if (!isNetworkImage) {
-      return Image.asset(
-        url,
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        filterQuality: FilterQuality.medium,
-      );
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.asset(
-          fallbackUrl,
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          filterQuality: FilterQuality.medium,
-        ),
-        Image.network(
-          url,
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          filterQuality: FilterQuality.medium,
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return const SizedBox.expand();
-          },
-          errorBuilder: (context, error, stackTrace) {
-            return const SizedBox.expand();
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _GalleryFade extends StatelessWidget {
-  const _GalleryFade();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: RadialGradient(
-          colors: [Color(0x00FFFFFF), Colors.white],
-          radius: 0.78,
         ),
       ),
     );

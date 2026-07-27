@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/generated_pattern.dart';
@@ -12,6 +14,7 @@ import '../rendering/pattern_chart_painter.dart';
 
 class PatternExportService {
   static const double pngCellSize = 20;
+  static const double thumbnailMaxPixelSize = 300;
   static const double _preferredExportPixelRatio = 2;
   static const double _maxExportDimension = 6000;
   static const MethodChannel _photoLibraryChannel = MethodChannel(
@@ -48,7 +51,74 @@ class PatternExportService {
   Future<Uint8List> exportChartPngBytes(GeneratedPattern pattern) async {
     final painter = _buildPagePainter(pattern);
     final size = painter.pageSize;
-    final pixelRatio = _exportPixelRatio(size);
+    return _renderPng(painter, size, pixelRatio: _exportPixelRatio(size));
+  }
+
+  /// Renders only the pattern's color blocks for gallery lists.
+  ///
+  /// The thumbnail intentionally omits chart coordinates, the red border,
+  /// grid lines, titles, and color legend from the printable preview.
+  Future<Uint8List> exportChartThumbnailPngBytes(
+    GeneratedPattern pattern,
+  ) async {
+    if (pattern.width <= 0 || pattern.height <= 0) {
+      throw ArgumentError.value(
+        '${pattern.width}x${pattern.height}',
+        'pattern',
+        '图纸尺寸必须为正数',
+      );
+    }
+    final expectedLength = pattern.width * pattern.height * 4;
+    if (pattern.pixels.length != expectedLength) {
+      throw ArgumentError.value(
+        pattern.pixels.length,
+        'pattern.pixels',
+        '像素数据长度与图纸尺寸不一致',
+      );
+    }
+
+    final longestSide = math.max(pattern.width, pattern.height);
+    final scale = thumbnailMaxPixelSize / longestSide;
+    final imageWidth = math.max(1, (pattern.width * scale).round());
+    final imageHeight = math.max(1, (pattern.height * scale).round());
+    final image = img.Image(
+      width: imageWidth,
+      height: imageHeight,
+      numChannels: 4,
+    )..clear(img.ColorUint8.rgba(255, 255, 255, 255));
+
+    for (var y = 0; y < pattern.height; y++) {
+      for (var x = 0; x < pattern.width; x++) {
+        final offset = (y * pattern.width + x) * 4;
+        final alpha = pattern.pixels[offset + 3];
+        if (alpha == 0) continue;
+
+        final left = x * imageWidth ~/ pattern.width;
+        final right = (x + 1) * imageWidth ~/ pattern.width;
+        final top = y * imageHeight ~/ pattern.height;
+        final bottom = (y + 1) * imageHeight ~/ pattern.height;
+        for (var targetY = top; targetY < bottom; targetY++) {
+          for (var targetX = left; targetX < right; targetX++) {
+            image.setPixelRgba(
+              targetX,
+              targetY,
+              pattern.pixels[offset],
+              pattern.pixels[offset + 1],
+              pattern.pixels[offset + 2],
+              alpha,
+            );
+          }
+        }
+      }
+    }
+    return Uint8List.fromList(img.encodePng(image));
+  }
+
+  Future<Uint8List> _renderPng(
+    CustomPainter painter,
+    ui.Size size, {
+    double pixelRatio = 1,
+  }) async {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
 

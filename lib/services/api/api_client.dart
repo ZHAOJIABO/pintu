@@ -11,7 +11,8 @@ typedef UnauthorizedHandler = Future<bool> Function();
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
     'BOBOBEADS_API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:8080',
+     defaultValue: 'https://appbobo.cn',
+    // defaultValue: 'http://127.0.0.1:8080',
   );
 
   final Uri baseUri;
@@ -35,6 +36,7 @@ class ApiClient {
 
   Future<JsonMap> get(
     String path, {
+    Object? body,
     Map<String, Object?> query = const {},
     bool includeAuth = true,
     bool retryUnauthorized = true,
@@ -43,6 +45,7 @@ class ApiClient {
       'GET',
       path,
       query: query,
+      body: body,
       includeAuth: includeAuth,
       retryUnauthorized: retryUnauthorized,
     );
@@ -178,6 +181,7 @@ class ApiClient {
     final request = http.Request(method, _resolve(path, query));
     request.headers.addAll(await _headers(includeAuth: includeAuth));
     if (body != null) {
+      request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
     }
 

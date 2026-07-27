@@ -140,6 +140,6 @@ void main() {
 
     final navBackgroundBox = tester.getSize(navBackground);
     expect(navBackgroundBox.width, closeTo(390, 0.01));
-    expect(navBackgroundBox.height, closeTo(68, 0.01));
+    expect(navBackgroundBox.height, closeTo(60, 0.01));
   });
 }

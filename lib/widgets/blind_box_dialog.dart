@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../services/api/api_models.dart';
+
 enum BlindBoxRarity {
   superRare('超稀有', Color(0xFFFF7AC7)),
   superCute('超可爱', Color(0xFFFF7AC7)),
@@ -69,6 +71,8 @@ const _badgeEntranceDuration = Duration(milliseconds: 160);
 Future<void> showBlindBoxDialog(
   BuildContext context, {
   required List<BlindBoxReward> rewards,
+  TemplateItem? template,
+  Future<void> Function()? onOpenTemplate,
 }) {
   return showGeneralDialog<void>(
     context: context,
@@ -76,14 +80,25 @@ Future<void> showBlindBoxDialog(
     barrierLabel: '关闭盲盒弹窗',
     barrierColor: Colors.transparent,
     transitionDuration: Duration.zero,
-    pageBuilder: (context, _, _) => BlindBoxDialog(rewards: rewards),
+    pageBuilder: (context, _, _) => BlindBoxDialog(
+      rewards: rewards,
+      template: template,
+      onOpenTemplate: onOpenTemplate,
+    ),
   );
 }
 
 class BlindBoxDialog extends StatefulWidget {
   final List<BlindBoxReward> rewards;
+  final TemplateItem? template;
+  final Future<void> Function()? onOpenTemplate;
 
-  const BlindBoxDialog({super.key, required this.rewards});
+  const BlindBoxDialog({
+    super.key,
+    required this.rewards,
+    this.template,
+    this.onOpenTemplate,
+  });
 
   @override
   State<BlindBoxDialog> createState() => _BlindBoxDialogState();
@@ -223,7 +238,9 @@ class _BlindBoxDialogState extends State<BlindBoxDialog>
                               height: _designHeight,
                               child: _BlindBoxSheet(
                                 rewards: widget.rewards,
+                                template: widget.template,
                                 onDismiss: _dismiss,
+                                onOpenTemplate: widget.onOpenTemplate,
                               ),
                             ),
                           ),
@@ -243,9 +260,16 @@ class _BlindBoxDialogState extends State<BlindBoxDialog>
 
 class _BlindBoxSheet extends StatefulWidget {
   final List<BlindBoxReward> rewards;
+  final TemplateItem? template;
   final Future<void> Function() onDismiss;
+  final Future<void> Function()? onOpenTemplate;
 
-  const _BlindBoxSheet({required this.rewards, required this.onDismiss});
+  const _BlindBoxSheet({
+    required this.rewards,
+    this.template,
+    required this.onDismiss,
+    this.onOpenTemplate,
+  });
 
   @override
   State<_BlindBoxSheet> createState() => _BlindBoxSheetState();
@@ -357,8 +381,20 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
     _isDrawingAgain = false;
   }
 
+  Future<void> _openTemplate() async {
+    await widget.onDismiss();
+    await widget.onOpenTemplate?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final template = widget.template;
+    final previewUrl = template == null
+        ? ''
+        : template.previewUrl.trim().isNotEmpty
+        ? template.previewUrl
+        : template.thumbnailUrl;
+
     return ClipRRect(
       key: const ValueKey('blind-box-dialog'),
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -443,6 +479,7 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
             ),
             _PrintingPattern(
               pattern: _reward.patternAsset,
+              imageUrl: previewUrl,
               progress: CurvedAnimation(
                 parent: _printController,
                 curve: Curves.easeOutCubic,
@@ -515,7 +552,7 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
                           foregroundColor: Colors.black,
                           backgroundColor: Colors.white,
                           borderColor: const Color(0x1F000000),
-                          onTap: () => widget.onDismiss(),
+                          onTap: _openTemplate,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -753,9 +790,14 @@ class _OutlinedTitleText extends StatelessWidget {
 
 class _PrintingPattern extends StatelessWidget {
   final String pattern;
+  final String imageUrl;
   final Animation<double> progress;
 
-  const _PrintingPattern({required this.pattern, required this.progress});
+  const _PrintingPattern({
+    required this.pattern,
+    required this.imageUrl,
+    required this.progress,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -795,11 +837,25 @@ class _PrintingPattern extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.asset(
-                          pattern,
-                          fit: BoxFit.cover,
-                          alignment: Alignment.topCenter,
-                        ),
+                        imageUrl.isEmpty
+                            ? Image.asset(
+                                pattern,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.topCenter,
+                              )
+                            : Image.network(
+                                imageUrl,
+                                key: const ValueKey(
+                                  'blind-box-template-preview',
+                                ),
+                                fit: BoxFit.cover,
+                                alignment: Alignment.topCenter,
+                                errorBuilder: (_, _, _) => Image.asset(
+                                  pattern,
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.topCenter,
+                                ),
+                              ),
                         const Positioned(
                           left: 0,
                           top: _paperMaskTop,

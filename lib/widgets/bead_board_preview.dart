@@ -9,12 +9,18 @@ class BeadBoardPreview extends StatefulWidget {
   static const int defaultBoardSize = 50;
   static const double colorRefMinEffectiveCellSize = 20;
 
+  static int boardDimensionFor(int patternDimension) =>
+      math.max(defaultBoardSize, patternDimension);
+
   final Uint8List pixels;
   final Uint8List? layoutPixels;
   final int width;
   final int height;
-  final int boardWidth;
-  final int boardHeight;
+
+  /// Optional physical board dimensions. When omitted, the board follows the
+  /// generated chart while retaining a 50×50 minimum for smaller patterns.
+  final int? boardWidth;
+  final int? boardHeight;
   final List<PaletteEntry> paletteEntries;
   final String? selectedRef;
   final bool showRulers;
@@ -31,8 +37,8 @@ class BeadBoardPreview extends StatefulWidget {
     this.layoutPixels,
     required this.width,
     required this.height,
-    this.boardWidth = defaultBoardSize,
-    this.boardHeight = defaultBoardSize,
+    this.boardWidth,
+    this.boardHeight,
     this.paletteEntries = const [],
     this.selectedRef,
     this.showRulers = true,
@@ -55,6 +61,11 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
   int? _editingPointerId;
   _BoardCell? _pendingEditCell;
   bool _strokeStarted = false;
+
+  int get _boardWidth =>
+      widget.boardWidth ?? BeadBoardPreview.boardDimensionFor(widget.width);
+  int get _boardHeight =>
+      widget.boardHeight ?? BeadBoardPreview.boardDimensionFor(widget.height);
 
   @override
   void initState() {
@@ -80,24 +91,26 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final boardWidth = _boardWidth;
+        final boardHeight = _boardHeight;
         final maxWidth = constraints.hasBoundedWidth
             ? constraints.maxWidth
-            : widget.boardWidth * 8.0;
+            : boardWidth * 8.0;
         final maxHeight = constraints.hasBoundedHeight
             ? constraints.maxHeight
-            : widget.boardHeight * 8.0;
+            : boardHeight * 8.0;
         const labelBandCells = 1.25;
         final cellSize = math
             .min(
-              maxWidth / (widget.boardWidth + labelBandCells * 2),
-              maxHeight / (widget.boardHeight + labelBandCells * 2),
+              maxWidth / (boardWidth + labelBandCells * 2),
+              maxHeight / (boardHeight + labelBandCells * 2),
             )
             .clamp(2.5, 18.0)
             .toDouble();
         final labelBand = cellSize * labelBandCells;
         final boardSize = Size(
-          widget.boardWidth * cellSize + labelBand * 2,
-          widget.boardHeight * cellSize + labelBand * 2,
+          boardWidth * cellSize + labelBand * 2,
+          boardHeight * cellSize + labelBand * 2,
         );
         final showColorRefs =
             cellSize * _scale >= BeadBoardPreview.colorRefMinEffectiveCellSize;
@@ -145,8 +158,8 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
                         layoutPixels: widget.layoutPixels,
                         patternWidth: widget.width,
                         patternHeight: widget.height,
-                        boardWidth: widget.boardWidth,
-                        boardHeight: widget.boardHeight,
+                        boardWidth: boardWidth,
+                        boardHeight: boardHeight,
                         cellSize: cellSize,
                         labelBand: labelBand,
                         colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
@@ -170,8 +183,8 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
                       key: const ValueKey('bead-mode-pinned-rulers'),
                       painter: _PinnedBoardRulerPainter(
                         transform: transform,
-                        boardWidth: widget.boardWidth,
-                        boardHeight: widget.boardHeight,
+                        boardWidth: boardWidth,
+                        boardHeight: boardHeight,
                         cellSize: cellSize,
                         labelBand: labelBand,
                         childOffset: childOffset,
@@ -202,9 +215,9 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
     final boardX = ((localPosition.dx - labelBand) / cellSize).floor();
     final boardY = ((localPosition.dy - labelBand) / cellSize).floor();
     if (boardX < 0 ||
-        boardX >= widget.boardWidth ||
+        boardX >= _boardWidth ||
         boardY < 0 ||
-        boardY >= widget.boardHeight) {
+        boardY >= _boardHeight) {
       return null;
     }
 
@@ -219,8 +232,8 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
     final activeBottom = bounds?.bottom ?? widget.height - 1;
     final activeWidth = activeRight - activeLeft + 1;
     final activeHeight = activeBottom - activeTop + 1;
-    final originX = (widget.boardWidth - activeWidth) ~/ 2 - activeLeft;
-    final originY = (widget.boardHeight - activeHeight) ~/ 2 - activeTop;
+    final originX = (_boardWidth - activeWidth) ~/ 2 - activeLeft;
+    final originY = (_boardHeight - activeHeight) ~/ 2 - activeTop;
     var patternX = boardX - originX;
     final patternY = boardY - originY;
 

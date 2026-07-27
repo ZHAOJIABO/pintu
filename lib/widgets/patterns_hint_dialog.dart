@@ -11,15 +11,21 @@ const _dialogTotalHeight = _dialogCardHeight + 16 + _dialogActionHeight;
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 
+enum PatternsHintDestination { patterns, favorites }
+
 /// Shows the Figma-designed hint that explains where saved patterns are kept.
-Future<void> showPatternsHintDialog(BuildContext context) {
+Future<void> showPatternsHintDialog(
+  BuildContext context, {
+  PatternsHintDestination destination = PatternsHintDestination.patterns,
+}) {
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭图纸查看提示',
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 220),
-    pageBuilder: (context, _, _) => const PatternsHintDialog(),
+    pageBuilder: (context, _, _) =>
+        PatternsHintDialog(destination: destination),
     transitionBuilder: (context, animation, _, child) {
       final opacity = CurvedAnimation(
         parent: animation,
@@ -32,7 +38,12 @@ Future<void> showPatternsHintDialog(BuildContext context) {
 }
 
 class PatternsHintDialog extends StatelessWidget {
-  const PatternsHintDialog({super.key});
+  final PatternsHintDestination destination;
+
+  const PatternsHintDialog({
+    super.key,
+    this.destination = PatternsHintDestination.patterns,
+  });
 
   void _dismiss(BuildContext context) => Navigator.of(context).pop();
 
@@ -75,6 +86,7 @@ class PatternsHintDialog extends StatelessWidget {
                       height: _dialogTotalHeight,
                       child: _PatternsHintDialogContent(
                         onDismiss: () => _dismiss(context),
+                        destination: destination,
                       ),
                     ),
                   ),
@@ -90,11 +102,16 @@ class PatternsHintDialog extends StatelessWidget {
 
 class _PatternsHintDialogContent extends StatelessWidget {
   final VoidCallback onDismiss;
+  final PatternsHintDestination destination;
 
-  const _PatternsHintDialogContent({required this.onDismiss});
+  const _PatternsHintDialogContent({
+    required this.onDismiss,
+    required this.destination,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final isFavorites = destination == PatternsHintDestination.favorites;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -111,17 +128,25 @@ class _PatternsHintDialogContent extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  _HintTitle(),
-                  SizedBox(height: 24),
+                children: [
+                  _HintTitle(destination: destination),
+                  const SizedBox(height: 24),
                   SizedBox(
-                    key: ValueKey('patterns-hint-dialog-illustration'),
+                    key: ValueKey(
+                      isFavorites
+                          ? 'patterns-hint-dialog-favorites-illustration'
+                          : 'patterns-hint-dialog-illustration',
+                    ),
                     width: 282,
                     height: 201,
                     child: ClipRRect(
                       borderRadius: BorderRadius.all(Radius.circular(12)),
                       child: Image(
-                        image: AssetImage('assets/figma_my/patterns_hint.png'),
+                        image: AssetImage(
+                          isFavorites
+                              ? 'assets/figma_my/favorites_hint.png'
+                              : 'assets/figma_my/patterns_hint.png',
+                        ),
                         fit: BoxFit.cover,
                         filterQuality: FilterQuality.high,
                       ),
@@ -173,11 +198,14 @@ class _PatternsHintDialogContent extends StatelessWidget {
 }
 
 class _HintTitle extends StatelessWidget {
-  const _HintTitle();
+  final PatternsHintDestination destination;
+
+  const _HintTitle({required this.destination});
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
+    final isFavorites = destination == PatternsHintDestination.favorites;
+    return SizedBox(
       width: 282,
       height: 32,
       child: Stack(
@@ -187,8 +215,8 @@ class _HintTitle extends StatelessWidget {
             top: 6,
             left: 0,
             child: Text(
-              '图纸也可以在“我的-图纸”中查看哦～',
-              style: TextStyle(
+              isFavorites ? '已保存至“我的-收藏”' : '图纸也可以在“我的-图纸”中查看哦～',
+              style: const TextStyle(
                 color: Colors.black,
                 fontFamily: _roundFontFamily,
                 fontFamilyFallback: _fontFallbacks,
@@ -199,11 +227,17 @@ class _HintTitle extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: 119,
+            left: isFavorites ? 67 : 119,
             bottom: 1,
-            width: 57,
+            width: isFavorites ? 76 : 57,
             height: 3,
-            child: CustomPaint(painter: _PinkUnderlinePainter()),
+            child: CustomPaint(
+              painter: _HintUnderlinePainter(
+                color: isFavorites
+                    ? const Color(0xFFFFC62D)
+                    : const Color(0xFFFF55BD),
+              ),
+            ),
           ),
         ],
       ),
@@ -211,8 +245,10 @@ class _HintTitle extends StatelessWidget {
   }
 }
 
-class _PinkUnderlinePainter extends CustomPainter {
-  const _PinkUnderlinePainter();
+class _HintUnderlinePainter extends CustomPainter {
+  final Color color;
+
+  const _HintUnderlinePainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -239,7 +275,7 @@ class _PinkUnderlinePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFFFF55BD)
+        ..color = color
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
         ..strokeCap = StrokeCap.round,
@@ -247,5 +283,7 @@ class _PinkUnderlinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PinkUnderlinePainter oldDelegate) => false;
+  bool shouldRepaint(covariant _HintUnderlinePainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
 }

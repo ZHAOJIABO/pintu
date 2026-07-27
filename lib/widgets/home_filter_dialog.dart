@@ -14,11 +14,11 @@ const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 
 /// Displays the Figma-designed filter sheet for the home gallery.
-Future<void> showHomeFilterDialog(
+Future<HomeFilterSelection?> showHomeFilterDialog(
   BuildContext context, {
   Future<List<TemplateCategory>> Function()? loadCategories,
 }) {
-  return showGeneralDialog<void>(
+  return showGeneralDialog<HomeFilterSelection>(
     context: context,
     barrierDismissible: false,
     barrierLabel: '关闭筛选弹窗',
@@ -27,6 +27,13 @@ Future<void> showHomeFilterDialog(
     pageBuilder: (context, _, _) =>
         HomeFilterDialog(loadCategories: loadCategories),
   );
+}
+
+class HomeFilterSelection {
+  final TemplateCategory category;
+  final bool isDefault;
+
+  const HomeFilterSelection({required this.category, required this.isDefault});
 }
 
 class HomeFilterDialog extends StatefulWidget {
@@ -105,7 +112,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
     super.dispose();
   }
 
-  Future<void> _dismiss() async {
+  Future<void> _dismiss([HomeFilterSelection? selection]) async {
     if (_isDismissing) return;
     _isDismissing = true;
 
@@ -117,7 +124,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
 
     if (!mounted) return;
     _allowPop = true;
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(selection);
   }
 
   void _handleSystemDismiss(bool didPop, Object? _) {
@@ -226,7 +233,7 @@ class _HomeFilterSheet extends StatelessWidget {
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
-  final Future<void> Function() onDismiss;
+  final Future<void> Function([HomeFilterSelection? selection]) onDismiss;
 
   const _HomeFilterSheet({
     required this.categories,
@@ -290,6 +297,7 @@ class _HomeFilterSheet extends StatelessWidget {
                 loading: loading,
                 loadFailed: loadFailed,
                 onRetry: onRetry,
+                onCategorySelected: onDismiss,
               ),
             ),
           ],
@@ -304,12 +312,14 @@ class _FilterCategoryContent extends StatelessWidget {
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
+  final Future<void> Function(HomeFilterSelection selection) onCategorySelected;
 
   const _FilterCategoryContent({
     required this.categories,
     required this.loading,
     required this.loadFailed,
     required this.onRetry,
+    required this.onCategorySelected,
   });
 
   @override
@@ -352,6 +362,9 @@ class _FilterCategoryContent extends StatelessWidget {
         return _FilterTile(
           key: ValueKey('home-filter-category-${category.categoryId}'),
           label: category.name,
+          onTap: () => onCategorySelected(
+            HomeFilterSelection(category: category, isDefault: index == 0),
+          ),
         );
       },
     );
@@ -360,32 +373,38 @@ class _FilterCategoryContent extends StatelessWidget {
 
 class _FilterTile extends StatelessWidget {
   final String label;
+  final VoidCallback onTap;
 
-  const _FilterTile({required this.label, super.key});
+  const _FilterTile({required this.label, required this.onTap, super.key});
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      button: true,
       label: label,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xFFEEF0F6),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black,
-              fontFamily: _roundFontFamily,
-              fontFamilyFallback: _fontFallbacks,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              height: 16 / 14,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xFFEEF0F6),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.black,
+                fontFamily: _roundFontFamily,
+                fontFamilyFallback: _fontFallbacks,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                height: 16 / 14,
+              ),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),

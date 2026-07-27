@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/color.dart';
@@ -6,10 +7,15 @@ import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/rendering/pattern_chart_painter.dart';
 import 'package:bobobeads/screens/result_screen.dart';
+import 'package:bobobeads/services/api/api_models.dart';
+import 'package:bobobeads/services/api/api_scope.dart';
+import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
@@ -191,6 +197,125 @@ void main() {
     expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
   });
 
+  testWidgets('官方模板图纸仅提供开拼和收藏，并可切换收藏状态', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/templates/template-001/favorite' => {
+            'isFavorited': request.method == 'POST',
+            'favoriteCount': request.method == 'POST' ? 1 : 0,
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: ResultScreen(pattern: _pattern(), template: _template()),
+        ),
+      ),
+    );
+
+    expect(find.text('编辑'), findsNothing);
+    expect(find.text('立即开拼'), findsOneWidget);
+    final favoriteButton = find.byKey(
+      const ValueKey('result-secondary-action'),
+    );
+    expect(
+      find.descendant(of: favoriteButton, matching: find.text('收藏')),
+      findsOneWidget,
+    );
+
+    await tester.tap(favoriteButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      requests.where(
+        (request) =>
+            request.url.path == '/api/v1/templates/template-001/favorite',
+      ),
+      hasLength(1),
+    );
+    expect(
+      find.descendant(of: favoriteButton, matching: find.text('已收藏')),
+      findsOneWidget,
+    );
+    expect(find.text('已保存至“我的-收藏”'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('patterns-hint-dialog-favorites-illustration')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('patterns-hint-dialog-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(favoriteButton);
+    await tester.pumpAndSettle();
+
+    expect(
+      requests
+          .where(
+            (request) =>
+                request.url.path == '/api/v1/templates/template-001/favorite',
+          )
+          .map((request) => request.method),
+      ['POST', 'DELETE'],
+    );
+    expect(
+      find.descendant(of: favoriteButton, matching: find.text('收藏')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('官方模板开拼页不提供编辑图纸入口', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(pattern: _pattern(), template: _template()),
+      ),
+    );
+
+    await tester.tap(find.text('立即开拼'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('bead-mode-edit-button')), findsNothing);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets(
       'generated result shows Figma patterns hint dialog on $viewport',
@@ -265,6 +390,43 @@ void main() {
     expect(boardPainter.boardHeight, 50);
     expect(boardPainter.showColorRefs, isFalse);
     expect(boardPainter.selectedRef, isNull);
+  });
+
+  testWidgets('bead mode and editor retain charts larger than 50 by 50', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _patternWithSize(80, 72))),
+    );
+
+    await tester.tap(find.text('立即开拼'));
+    await tester.pumpAndSettle();
+
+    BeadBoardPainter boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.boardWidth, 80);
+    expect(boardPainter.boardHeight, 72);
+
+    await tester.tap(find.byKey(const ValueKey('bead-mode-edit-button')));
+    await tester.pumpAndSettle();
+
+    boardPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<BeadBoardPainter>()
+        .single;
+    expect(boardPainter.boardWidth, 80);
+    expect(boardPainter.boardHeight, 72);
   });
 
   testWidgets('bead mode filters board by selected color ref', (tester) async {
@@ -362,5 +524,60 @@ GeneratedPattern _pattern() {
     usage: const {'R1': 2, 'H7': 2},
     paletteEntries: [red, black],
     draft: DraftProject(originalImageBytes: Uint8List(0)),
+  );
+}
+
+TemplateItem _template({bool isFavorited = false}) {
+  return TemplateItem(
+    templateId: 'template-001',
+    title: '兔子模板',
+    previewUrl: '',
+    thumbnailUrl: '',
+    description: '',
+    boardSpec: '2x2',
+    tags: const [],
+    difficulty: 1,
+    width: 2,
+    height: 2,
+    colorCount: 2,
+    isFree: true,
+    creditCost: 0,
+    downloadCount: 0,
+    favoriteCount: 0,
+    isFavorited: isFavorited,
+  );
+}
+
+class _MemoryApiSessionStore extends ApiSessionStore {
+  AuthSession? _session;
+
+  @override
+  Future<String> readOrCreateDeviceId() async => 'device-1';
+
+  @override
+  Future<AuthSession?> readSession() async => _session;
+
+  @override
+  Future<void> saveSession(AuthSession session) async {
+    _session = session;
+  }
+}
+
+GeneratedPattern _patternWithSize(int width, int height) {
+  final base = _pattern();
+  final pixels = Uint8List(width * height * 4);
+  for (var offset = 0; offset < pixels.length; offset += 4) {
+    final isRed = (offset ~/ 4).isEven;
+    pixels[offset] = isRed ? 255 : 0;
+    pixels[offset + 1] = 0;
+    pixels[offset + 2] = 0;
+    pixels[offset + 3] = 255;
+  }
+
+  return base.copyWith(
+    pixels: pixels,
+    width: width,
+    height: height,
+    usage: {'R1': width * height ~/ 2, 'H7': width * height ~/ 2},
   );
 }

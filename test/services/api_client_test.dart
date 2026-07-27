@@ -16,8 +16,13 @@ import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image/image.dart' as img;
 
 void main() {
+  test('ApiClient defaults to the production API origin', () {
+    expect(ApiClient.defaultBaseUrl, 'https://appbobo.cn');
+  });
+
   test('ApiClient sends common headers and parses successful body', () async {
     late http.Request captured;
     final client = ApiClient(
@@ -50,6 +55,39 @@ void main() {
     expect(captured.headers['X-App-Version'], '1.0.0');
     expect(captured.headers['X-Device-Id'], 'device-1');
   });
+
+  test(
+    'ApiClient sends the blind box request header as the only GET body',
+    () async {
+      late http.Request captured;
+      final client = ApiClient(
+        baseUrl: 'http://example.test',
+        tokenProvider: () async => 'token-1',
+        deviceIdProvider: () async => 'device-1',
+        httpClient: MockClient((request) async {
+          captured = request;
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              'template': const {},
+              'patternData': const {},
+            }),
+            200,
+          );
+        }),
+      );
+
+      await client.get(
+        '/api/v1/templates/random',
+        body: const {'header': <String, Object?>{}},
+      );
+
+      expect(captured.method, 'GET');
+      expect(captured.url.path, '/api/v1/templates/random');
+      expect(jsonDecode(captured.body), {'header': {}});
+      expect(captured.headers['Content-Type'], 'application/json');
+    },
+  );
 
   test('ApiClient converts non-zero response header to ApiException', () async {
     final client = ApiClient(
@@ -231,6 +269,89 @@ void main() {
   });
 
   test(
+    'PatternExportService renders compact color blocks without chart lines',
+    () async {
+      final bytes = await const PatternExportService()
+          .exportChartThumbnailPngBytes(_pattern());
+      final image = img.decodePng(bytes);
+
+      expect(image, isNotNull);
+      expect(image!.width, 300);
+      expect(image.height, 300);
+      expect(_pixelAt(image, 75, 75), [255, 0, 0, 255]);
+      expect(_pixelAt(image, 225, 75), [255, 255, 255, 255]);
+      expect(_pixelAt(image, 75, 225), [255, 255, 255, 255]);
+      expect(_pixelAt(image, 225, 225), [255, 0, 0, 255]);
+    },
+  );
+
+  test(
+    'GenerationRepository defaults an omitted thumbnailUrl to empty',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_complete_default_thumbnail_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      late final AuthSessionController auth;
+      late final http.Request completeRequest;
+      late final ApiClient client;
+      client = ApiClient(
+        baseUrl: 'http://api.example.test',
+        tokenProvider: () async => 'access-token',
+        deviceIdProvider: () async => 'device-1',
+        onUnauthorized: () => auth.refreshOrGuestLogin(),
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/api/v1/auth/guest') {
+            return http.Response(
+              jsonEncode({
+                'header': {'code': 0, 'message': 'success'},
+                'accessToken': 'access-token',
+                'refreshToken': 'refresh-token',
+                'expiresIn': 3600,
+                'user': {'userId': 'guest-1'},
+              }),
+              200,
+            );
+          }
+          completeRequest = request;
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              'workId': 'work-001',
+              'duplicated': false,
+            }),
+            200,
+          );
+        }),
+      );
+      auth = AuthSessionController(
+        store: ApiSessionStore(
+          fileProvider: () async =>
+              File('${temporaryDirectory.path}/session.json'),
+        ),
+        repository: AuthRepository(client),
+      );
+
+      await GenerationRepository(
+        apiClient: client,
+        auth: auth,
+      ).completeGeneration(
+        generationId: 'generation-001',
+        title: '拼豆图纸',
+        originalImageUrl: 'https://cdn.example.test/original.png',
+        patternImageUrl: 'https://cdn.example.test/pattern.png',
+        patternData: PatternData.fromGeneratedPattern(_pattern()),
+        beadCount: 3,
+        colorCount: 2,
+      );
+
+      final body = jsonDecode(completeRequest.body) as Map<String, dynamic>;
+      expect(body['thumbnailUrl'], '');
+    },
+  );
+
+  test(
     'GenerationCompletionService uploads assets and completes a pattern',
     () async {
       final temporaryDirectory = await Directory.systemTemp.createTemp(
@@ -282,8 +403,8 @@ void main() {
             },
             '/api/v1/media/upload-token' => {
               'uploadUrl':
-                  'https://storage.example.test/${requestBody['purpose']}',
-              'fileKey': '${requestBody['purpose']}-key',
+                  'https://storage.example.test/${requestBody['fileName']}',
+              'fileKey': '${requestBody['fileName']}-key',
               'headers': const <String, String>{},
               'expiresAt': 1783421800,
               'uploadMethod': 'PUT',
@@ -297,7 +418,9 @@ void main() {
               'workId': 'work-001',
               'duplicated': false,
             },
-            '/original' || '/pattern' => <String, Object?>{},
+            '/generation-source.png' ||
+            '/pattern-preview.png' ||
+            '/pattern-thumbnail.png' => <String, Object?>{},
             _ => throw StateError('Unexpected request: ${request.url}'),
           };
           return http.Response(
@@ -353,11 +476,37 @@ void main() {
           jsonDecode(completeRequest.body) as Map<String, dynamic>;
       expect(
         completeBody['originalImageUrl'],
-        'https://cdn.example.test/original-key',
+        'https://cdn.example.test/generation-source.png-key',
       );
       expect(
         completeBody['patternImageUrl'],
-        'https://cdn.example.test/pattern-key',
+        'https://cdn.example.test/pattern-preview.png-key',
+      );
+      expect(
+        completeBody['thumbnailUrl'],
+        'https://cdn.example.test/pattern-thumbnail.png-key',
+      );
+      final uploadTokenRequests = requests
+          .where((request) => request.url.path == '/api/v1/media/upload-token')
+          .map((request) => jsonDecode(request.body) as Map<String, dynamic>)
+          .toList();
+      expect(
+        uploadTokenRequests.map((request) => request['fileName']).toList(),
+        [
+          'generation-source.png',
+          'pattern-preview.png',
+          'pattern-thumbnail.png',
+          'generation-source.png',
+          'pattern-preview.png',
+          'pattern-thumbnail.png',
+        ],
+      );
+      expect(
+        uploadTokenRequests
+            .where((request) => request['fileName'] == 'pattern-thumbnail.png')
+            .map((request) => request['purpose'])
+            .toList(),
+        ['pattern', 'pattern'],
       );
       expect(completeBody['beadCount'], 3);
       expect(completeBody['colorCount'], 2);
@@ -462,6 +611,18 @@ class _FakePatternExportService extends PatternExportService {
   Future<Uint8List> exportChartPngBytes(GeneratedPattern pattern) async {
     return Uint8List.fromList([1, 2, 3]);
   }
+
+  @override
+  Future<Uint8List> exportChartThumbnailPngBytes(
+    GeneratedPattern pattern,
+  ) async {
+    return Uint8List.fromList([4, 5, 6]);
+  }
+}
+
+List<int> _pixelAt(img.Image image, int x, int y) {
+  final pixel = image.getPixel(x, y);
+  return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt(), pixel.a.toInt()];
 }
 
 GeneratedPattern _pattern() {

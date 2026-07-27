@@ -8,6 +8,8 @@ import '../models/generated_pattern.dart';
 import '../models/palette.dart';
 import '../models/pattern_chart.dart';
 import '../rendering/pattern_chart_painter.dart';
+import '../services/api/api_models.dart';
+import '../services/api/api_scope.dart';
 import '../services/pattern_export_service.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import 'bead_mode_screen.dart';
@@ -22,12 +24,14 @@ const _chartMajorGrid = PatternChartPainter.defaultMajorGridColor;
 
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
+  final TemplateItem? template;
   final bool showGeneratedHint;
   final PatternExportService exportService;
 
   const ResultScreen({
     super.key,
     required this.pattern,
+    this.template,
     this.showGeneratedHint = false,
     this.exportService = const PatternExportService(),
   });
@@ -39,7 +43,9 @@ class ResultScreen extends StatefulWidget {
 class _ResultScreenState extends State<ResultScreen> {
   late final PatternExportService _exportService = widget.exportService;
   late GeneratedPattern _pattern = widget.pattern;
+  late TemplateItem? _template = widget.template;
   bool _exporting = false;
+  bool _updatingFavorite = false;
 
   @override
   void initState() {
@@ -54,7 +60,12 @@ class _ResultScreenState extends State<ResultScreen> {
   Future<void> _openBeadMode() async {
     await Navigator.push<void>(
       context,
-      MaterialPageRoute(builder: (_) => BeadModeScreen(pattern: _pattern)),
+      MaterialPageRoute(
+        builder: (_) => BeadModeScreen(
+          pattern: _pattern,
+          editingEnabled: _template == null,
+        ),
+      ),
     );
   }
 
@@ -66,6 +77,41 @@ class _ResultScreenState extends State<ResultScreen> {
     if (!mounted || editedPattern == null) return;
 
     setState(() => _pattern = editedPattern);
+  }
+
+  Future<void> _toggleTemplateFavorite() async {
+    final template = _template;
+    final services = BackendScope.maybeOf(context);
+    if (template == null ||
+        template.templateId.isEmpty ||
+        services == null ||
+        _updatingFavorite) {
+      return;
+    }
+
+    setState(() => _updatingFavorite = true);
+    try {
+      final result = template.isFavorited
+          ? await services.templates.unfavorite(template.templateId)
+          : await services.templates.favorite(template.templateId);
+      if (!mounted) return;
+      setState(
+        () => _template = template.copyWith(
+          isFavorited: result.isFavorited,
+          favoriteCount: result.favoriteCount,
+        ),
+      );
+      if (result.isFavorited) {
+        await showPatternsHintDialog(
+          context,
+          destination: PatternsHintDestination.favorites,
+        );
+      }
+    } catch (_) {
+      if (mounted) _showToast('收藏失败，请重试');
+    } finally {
+      if (mounted) setState(() => _updatingFavorite = false);
+    }
   }
 
   Future<void> _saveImage() async {
@@ -113,7 +159,15 @@ class _ResultScreenState extends State<ResultScreen> {
           children: [
             _DrawingHeader(pattern: _pattern, onSaveImage: _saveImage),
             Expanded(child: _MaterialSummary(pattern: _pattern)),
-            _BottomActionBar(onStart: _openBeadMode, onEdit: _openEditor),
+            _BottomActionBar(
+              onStart: _openBeadMode,
+              secondaryLabel: _template == null
+                  ? '编辑'
+                  : (_template!.isFavorited ? '已收藏' : '收藏'),
+              onSecondary: _template == null
+                  ? _openEditor
+                  : (_updatingFavorite ? null : _toggleTemplateFavorite),
+            ),
           ],
         ),
       ),
@@ -508,9 +562,14 @@ class _MaterialUsageTile extends StatelessWidget {
 
 class _BottomActionBar extends StatelessWidget {
   final VoidCallback onStart;
-  final VoidCallback onEdit;
+  final String secondaryLabel;
+  final VoidCallback? onSecondary;
 
-  const _BottomActionBar({required this.onStart, required this.onEdit});
+  const _BottomActionBar({
+    required this.onStart,
+    required this.secondaryLabel,
+    required this.onSecondary,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -537,8 +596,9 @@ class _BottomActionBar extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: _ResultActionButton(
-                  label: '编辑',
-                  onTap: onEdit,
+                  key: const ValueKey('result-secondary-action'),
+                  label: secondaryLabel,
+                  onTap: onSecondary,
                   filled: true,
                 ),
               ),
@@ -556,6 +616,7 @@ class _ResultActionButton extends StatelessWidget {
   final bool filled;
 
   const _ResultActionButton({
+    super.key,
     required this.label,
     required this.onTap,
     required this.filled,

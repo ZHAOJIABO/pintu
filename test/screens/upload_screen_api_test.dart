@@ -84,6 +84,36 @@ void main() {
               ],
             },
           },
+          '/api/v1/templates/random' => {
+            'template': {
+              'templateId': 'template-random',
+              'title': '随机小熊',
+              'previewUrl': 'https://example.test/random-preview.png',
+              'thumbnailUrl': 'https://example.test/random-thumbnail.png',
+            },
+            'patternData': {
+              'width': 2,
+              'height': 2,
+              'boardSpec': '2x2',
+              'pixels': [1, 2, 0, 1],
+              'colorPalette': [
+                {
+                  'index': 1,
+                  'hex': '#ff2850',
+                  'brand': 'mard',
+                  'code': 'A01',
+                  'name': '红色',
+                },
+                {
+                  'index': 2,
+                  'hex': '#000000',
+                  'brand': 'mard',
+                  'code': 'A02',
+                  'name': '黑色',
+                },
+              ],
+            },
+          },
           _ => throw StateError('Unexpected request: ${request.url}'),
         };
         return http.Response.bytes(
@@ -109,10 +139,29 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
+    await tester.pumpAndSettle();
+
+    final blindBoxRequest = requests.lastWhere(
+      (request) => request.url.path == '/api/v1/templates/random',
+    );
+    expect(blindBoxRequest.method, 'GET');
+    expect(jsonDecode(blindBoxRequest.body), {'header': {}});
+    expect(find.byKey(const ValueKey('blind-box-dialog')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('blind-box-template-preview')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('blind-box-close')));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
     await tester.pumpAndSettle();
 
-    expect(find.text('动物'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-filter-category-7')),
+      findsOneWidget,
+    );
     expect(find.text('节日'), findsOneWidget);
     expect(
       requests.where(
@@ -120,12 +169,30 @@ void main() {
       ),
       hasLength(1),
     );
-    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
+    await tester.tap(find.byKey(const ValueKey('home-filter-category-7')));
     await tester.pumpAndSettle();
+
+    final filteredTemplateRequest = requests.lastWhere(
+      (request) =>
+          request.url.path == '/api/v1/templates' &&
+          request.url.queryParameters['categoryId'] == '7',
+    );
+    expect(filteredTemplateRequest.url.queryParameters['scene'], 'home');
+    expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
+    expect(find.byKey(const ValueKey('home-gallery-category')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('home-gallery-category')))
+          .data,
+      '全部',
+    );
 
     await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
     await tester.pumpAndSettle();
-    expect(find.text('动物'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-filter-category-7')),
+      findsOneWidget,
+    );
     expect(
       requests.where(
         (request) => request.url.path == '/api/v1/templates/categories',
@@ -137,7 +204,7 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('gallery-thumbnail-template-001')),
-      findsNWidgets(15),
+      findsOneWidget,
     );
     final galleryTile = find.ancestor(
       of: find.byKey(const ValueKey('gallery-thumbnail-template-001')).first,
@@ -148,7 +215,7 @@ void main() {
 
     expect(
       requests.where((request) => request.url.path == '/api/v1/templates'),
-      hasLength(1),
+      hasLength(2),
     );
     expect(
       requests.where((request) => request.url.path == '/api/v1/auth/guest'),

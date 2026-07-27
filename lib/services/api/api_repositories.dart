@@ -1,5 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 
 import 'api_client.dart';
 import 'api_models.dart';
@@ -148,6 +150,19 @@ class TemplateRepository {
     );
   }
 
+  /// Draws one published template for the home blind box.
+  Future<TemplateDetail> getRandomTemplate() async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get(
+      '/api/v1/templates/random',
+      body: const {'header': <String, Object?>{}},
+    );
+    return TemplateDetail(
+      template: TemplateItem.fromJson(_map(data['template']) ?? const {}),
+      patternData: PatternData.fromJson(_map(data['patternData']) ?? const {}),
+    );
+  }
+
   Future<TemplateFavoriteResult> favorite(String templateId) async {
     await auth.ensureSignedIn();
     final data = await apiClient.post(
@@ -172,6 +187,22 @@ class TemplateRepository {
     await auth.ensureSignedIn();
     final data = await apiClient.get(
       '/api/v1/templates/favorites',
+      query: {'page.page': page, 'page.pageSize': pageSize},
+    );
+    return PagedResult(
+      items: _mapList(data['templates'], TemplateItem.fromJson),
+      page: PageResponse.fromJson(_map(data['page'])),
+    );
+  }
+
+  /// Lists the current user's blind-box opening history, newest first.
+  Future<PagedResult<TemplateItem>> listRandomHistory({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get(
+      '/api/v1/templates/random/history',
       query: {'page.page': page, 'page.pageSize': pageSize},
     );
     return PagedResult(
@@ -347,6 +378,7 @@ class GenerationRepository {
     required String title,
     required String originalImageUrl,
     required String patternImageUrl,
+    String thumbnailUrl = '',
     required PatternData patternData,
     required int beadCount,
     required int colorCount,
@@ -358,6 +390,7 @@ class GenerationRepository {
         'title': title,
         'originalImageUrl': originalImageUrl,
         'patternImageUrl': patternImageUrl,
+        'thumbnailUrl': thumbnailUrl,
         'patternData': patternData.toJson(),
         'beadCount': beadCount,
         'colorCount': colorCount,
@@ -407,9 +440,15 @@ class WorkRepository {
         'page.pageSize': pageSize,
       },
     );
+    if (kDebugMode) {
+      debugPrintSynchronously(
+        '[API] GET /api/v1/works response: ${jsonEncode(data)}',
+      );
+    }
+    final payload = _map(data['data']) ?? data;
     return PagedResult(
-      items: _mapList(data['works'], WorkItem.fromJson),
-      page: PageResponse.fromJson(_map(data['page'])),
+      items: _mapList(payload['works'], WorkItem.fromJson),
+      page: PageResponse.fromJson(_map(payload['page'])),
     );
   }
 

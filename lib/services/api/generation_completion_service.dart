@@ -53,11 +53,13 @@ class GenerationCompletionService {
         originalImageUrl ??
         await _uploadOriginalImage(pattern.draft.imageForGeneration);
     final previewUrl = await _uploadPatternPreview(pattern);
+    final thumbnailUrl = await _uploadPatternThumbnail(pattern);
     final result = await generations.completeGeneration(
       generationId: generationId,
       title: title ?? _defaultTitle(),
       originalImageUrl: sourceUrl,
       patternImageUrl: previewUrl,
+      thumbnailUrl: thumbnailUrl,
       patternData: patternData,
       beadCount: beadCount,
       colorCount: colorCount,
@@ -113,6 +115,17 @@ class GenerationCompletionService {
       purpose: 'pattern',
     );
     return _requiredUrl(uploaded, '图纸预览图');
+  }
+
+  Future<String> _uploadPatternThumbnail(GeneratedPattern pattern) async {
+    final bytes = await exportService.exportChartThumbnailPngBytes(pattern);
+    final uploaded = await media.uploadBytes(
+      bytes: bytes,
+      fileName: 'pattern-thumbnail.png',
+      contentType: 'image/png',
+      purpose: 'pattern',
+    );
+    return _requiredUrl(uploaded, '图纸缩略图');
   }
 
   String _requiredUrl(UploadedMedia media, String label) {

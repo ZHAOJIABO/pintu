@@ -174,6 +174,44 @@ void main() {
     expect(find.text('暂无筛选分类'), findsOneWidget);
   });
 
+  testWidgets('选择分类后返回所选分类及默认标记', (tester) async {
+    setViewport(tester);
+    HomeFilterSelection? selection;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              selection = await showHomeFilterDialog(
+                context,
+                loadCategories: () async => const [
+                  TemplateCategory(
+                    categoryId: 7,
+                    name: '动物',
+                    iconUrl: '',
+                    templateCount: 3,
+                  ),
+                ],
+              );
+            },
+            child: const Text('打开筛选'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开筛选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-filter-category-7')));
+    await tester.pumpAndSettle();
+
+    expect(selection?.category.categoryId, 7);
+    expect(selection?.category.name, '动物');
+    expect(selection?.isDefault, isTrue);
+    expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
+  });
+
   testWidgets('长分类名称会在标签内单行省略', (tester) async {
     setViewport(tester);
     const name = '这是一个超过筛选标签宽度的很长很长分类名称';

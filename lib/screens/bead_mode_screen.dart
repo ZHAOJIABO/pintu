@@ -12,8 +12,13 @@ const _pageBackground = Color(0xFFEEF0F6);
 
 class BeadModeScreen extends StatefulWidget {
   final GeneratedPattern pattern;
+  final bool editingEnabled;
 
-  const BeadModeScreen({super.key, required this.pattern});
+  const BeadModeScreen({
+    super.key,
+    required this.pattern,
+    this.editingEnabled = true,
+  });
 
   @override
   State<BeadModeScreen> createState() => _BeadModeScreenState();
@@ -51,7 +56,10 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
           bottom: false,
           child: Column(
             children: [
-              _BeadModeNavigationBar(onEdit: _openEditor),
+              _BeadModeNavigationBar(
+                editingEnabled: widget.editingEnabled,
+                onEdit: _openEditor,
+              ),
               Expanded(
                 child: Stack(
                   children: [
@@ -116,9 +124,13 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
 }
 
 class _BeadModeNavigationBar extends StatelessWidget {
+  final bool editingEnabled;
   final VoidCallback onEdit;
 
-  const _BeadModeNavigationBar({required this.onEdit});
+  const _BeadModeNavigationBar({
+    required this.editingEnabled,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -134,12 +146,15 @@ class _BeadModeNavigationBar extends StatelessWidget {
               onTap: () => Navigator.pop(context),
               asset: 'assets/pin_icon/bead_back.svg',
             ),
-            _NavigationAction(
-              key: const ValueKey('bead-mode-edit-button'),
-              label: '编辑图纸',
-              onTap: onEdit,
-              asset: 'assets/pin_icon/bead_edit.svg',
-            ),
+            if (editingEnabled)
+              _NavigationAction(
+                key: const ValueKey('bead-mode-edit-button'),
+                label: '编辑图纸',
+                onTap: onEdit,
+                asset: 'assets/pin_icon/bead_edit.svg',
+              )
+            else
+              const SizedBox(width: 44, height: 44),
           ],
         ),
       ),

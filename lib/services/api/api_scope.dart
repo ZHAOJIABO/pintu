@@ -100,7 +100,11 @@ class BackendServices {
     }
   }
 
-  Future<PagedResult<TemplateItem>> loadHomeTemplates() async {
+  Future<PagedResult<TemplateItem>> loadHomeTemplates({int? categoryId}) async {
+    if (categoryId != null) {
+      return templates.listTemplates(scene: 'home', categoryId: categoryId);
+    }
+
     final existing = _homeTemplatesRequest;
     if (existing != null) return existing;
 
