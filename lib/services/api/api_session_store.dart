@@ -71,6 +71,12 @@ class ApiSessionStore {
     return _writeString(_pendingAiTaskIdKey, taskId);
   }
 
+  Future<String?> readPendingAiTaskId() async {
+    final data = await _read();
+    final taskId = data[_pendingAiTaskIdKey]?.toString();
+    return taskId == null || taskId.isEmpty ? null : taskId;
+  }
+
   Future<void> clearPendingAiTaskId() {
     return _remove(_pendingAiTaskIdKey);
   }

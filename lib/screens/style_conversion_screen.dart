@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/draft_project.dart';
+import '../services/ai_style_transfer_service.dart';
+import '../services/api/api_models.dart';
+import '../services/api/api_scope.dart';
 import 'parameter_config_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -24,36 +27,20 @@ class StyleConversionScreen extends StatefulWidget {
 }
 
 class _StyleConversionScreenState extends State<StyleConversionScreen> {
-  static const _styles = [
-    _StyleOption(
-      id: 'picture_book',
-      asset: 'assets/figma_style/style_thumb_1.png',
-    ),
-    _StyleOption(
-      id: 'bold_line',
-      asset: 'assets/figma_style/style_thumb_2.png',
-    ),
-    _StyleOption(
-      id: 'soft_daily',
-      asset: 'assets/figma_style/style_thumb_3.png',
-    ),
-    _StyleOption(
-      id: 'playful_doodle',
-      asset: 'assets/figma_style/style_thumb_4.png',
-    ),
-    _StyleOption(
-      id: 'pastel_pop',
-      asset: 'assets/figma_style/style_thumb_5.png',
-    ),
-  ];
-
   late final Uint8List _sourceImage =
       widget.draft.croppedImageBytes ?? widget.draft.originalImageBytes;
   late final double _imageAspectRatio = _decodeImageAspectRatio(_sourceImage);
 
+  BackendServices? _services;
+  AiStyleTransferService? _styleTransfer;
+  List<AIStyleItem> _styles = const [];
   String? _selectedStyleId;
   Uint8List? _convertedImage;
   bool _converting = false;
+  bool _stylesLoading = true;
+  String? _stylesError;
+  bool _didResolveServices = false;
+  bool _didTryResume = false;
   final _styleScrollController = ScrollController();
 
   Uint8List get _displayImage => _convertedImage ?? _sourceImage;
@@ -65,21 +52,149 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     return decoded.width / decoded.height;
   }
 
-  Future<void> _startConversion(_StyleOption style) async {
-    if (_converting) return;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final services = BackendScope.maybeOf(context);
+    if (_didResolveServices && identical(_services, services)) return;
 
+    _didResolveServices = true;
+    _services = services;
+    if (services == null) {
+      _stylesLoading = false;
+      _stylesError = '风格服务暂不可用';
+      return;
+    }
+    _styleTransfer = AiStyleTransferService(
+      media: services.media,
+      generations: services.aiGenerations,
+      store: services.store,
+    );
+    _loadStyles();
+  }
+
+  Future<void> _loadStyles() async {
+    final services = _services;
+    if (services == null) return;
     setState(() {
-      _selectedStyleId = style.id;
+      _stylesLoading = true;
+      _stylesError = null;
+    });
+    try {
+      final styles = await services.loadAiStyles();
+      if (!mounted || !identical(services, _services)) return;
+      setState(() {
+        _styles = styles;
+        _stylesLoading = false;
+      });
+      if (!_didTryResume) {
+        _didTryResume = true;
+        await _resumePendingTask();
+      }
+    } catch (_) {
+      if (!mounted || !identical(services, _services)) return;
+      setState(() {
+        _stylesLoading = false;
+        _stylesError = '风格加载失败，请重试';
+      });
+    }
+  }
+
+  Future<void> _resumePendingTask() async {
+    final transfer = _styleTransfer;
+    final services = _services;
+    if (transfer == null || services == null) return;
+
+    setState(() => _converting = true);
+    try {
+      final task = await transfer.resumePendingTask();
+      if (task == null) return;
+      if (!mounted || !identical(services, _services)) return;
+      setState(() => _selectedStyleId = task.styleId);
+      await _handleTerminalTask(task, services);
+    } on StyleGenerationStillRunningException {
+      _showMessage('仍在生成中，可稍后在历史记录里查看');
+    } catch (_) {
+      _showMessage('生成状态查询失败，可稍后重试');
+    } finally {
+      if (mounted && identical(services, _services)) {
+        setState(() => _converting = false);
+      }
+    }
+  }
+
+  Future<void> _startConversion(AIStyleItem style) async {
+    if (_converting) return;
+    final transfer = _styleTransfer;
+    final services = _services;
+    if (transfer == null || services == null) {
+      _showMessage('风格服务暂不可用');
+      return;
+    }
+
+    final isNewStyle =
+        _selectedStyleId != null && _selectedStyleId != style.styleId;
+    setState(() {
+      _selectedStyleId = style.styleId;
       _converting = true;
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 720));
-    if (!mounted) return;
+    try {
+      if (isNewStyle) await transfer.startNewAttempt();
+      final task = await transfer.submitAndWait(
+        styleId: style.styleId,
+        imageBytes: _sourceImage,
+      );
+      if (!mounted || !identical(services, _services)) return;
+      await _handleTerminalTask(task, services);
+    } on StyleGenerationStillRunningException {
+      _showMessage('仍在生成中，可稍后在历史记录里查看');
+    } on ApiException catch (error) {
+      if (error.code == 1102) {
+        await _loadStyles();
+      }
+      _showMessage(_submissionErrorMessage(error));
+    } catch (_) {
+      _showMessage('风格转换失败，请稍后重试');
+    } finally {
+      if (mounted && identical(services, _services)) {
+        setState(() => _converting = false);
+      }
+    }
+  }
 
-    setState(() {
-      _convertedImage = _sourceImage;
-      _converting = false;
-    });
+  Future<void> _handleTerminalTask(
+    AIGenerationItem task,
+    BackendServices services,
+  ) async {
+    if (task.isSucceeded && task.outputImageUrl.isNotEmpty) {
+      final outputBytes = await services.media.downloadBytes(
+        task.outputImageUrl,
+      );
+      if (!mounted || !identical(services, _services)) return;
+      setState(() => _convertedImage = outputBytes);
+      return;
+    }
+    _showMessage(
+      task.errorMessage.isNotEmpty ? task.errorMessage : '风格转换未完成，请重试',
+    );
+  }
+
+  String _submissionErrorMessage(ApiException error) {
+    return switch (error.code) {
+      2001 => '积分不足，请先获取更多积分',
+      2005 => '你还有任务在生成中，完成后再试',
+      1003 => '图片上传未完成，请重试',
+      1102 => '该风格已下架，正在刷新列表',
+      _ => error.message.isEmpty ? '风格转换失败，请稍后重试' : error.message,
+    };
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _continueToParameters() async {
@@ -130,9 +245,12 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
                     bottomInset: bottomInset,
                     scrollController: _styleScrollController,
                     styles: _styles,
+                    loading: _stylesLoading,
+                    errorMessage: _stylesError,
                     selectedStyleId: _selectedStyleId,
                     canGenerate: _canGenerate,
                     onStyleTap: _startConversion,
+                    onRetry: _loadStyles,
                     onGenerate: _continueToParameters,
                   ),
                 ],
@@ -362,19 +480,25 @@ class _BottomStylePanel extends StatelessWidget {
 
   final double bottomInset;
   final ScrollController scrollController;
-  final List<_StyleOption> styles;
+  final List<AIStyleItem> styles;
+  final bool loading;
+  final String? errorMessage;
   final String? selectedStyleId;
   final bool canGenerate;
-  final ValueChanged<_StyleOption> onStyleTap;
+  final ValueChanged<AIStyleItem> onStyleTap;
+  final VoidCallback onRetry;
   final VoidCallback onGenerate;
 
   const _BottomStylePanel({
     required this.bottomInset,
     required this.scrollController,
     required this.styles,
+    required this.loading,
+    required this.errorMessage,
     required this.selectedStyleId,
     required this.canGenerate,
     required this.onStyleTap,
+    required this.onRetry,
     required this.onGenerate,
   });
 
@@ -435,32 +559,7 @@ class _BottomStylePanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              height: 88,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return ListView.separated(
-                    controller: scrollController,
-                    clipBehavior: Clip.none,
-                    scrollDirection: Axis.horizontal,
-                    itemCount: styles.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(width: _thumbnailGap),
-                    itemBuilder: (context, index) {
-                      final style = styles[index];
-                      return _StyleThumbnail(
-                        style: style,
-                        selected: style.id == selectedStyleId,
-                        onTap: () {
-                          _scrollStyleIntoView(index, constraints.maxWidth);
-                          onStyleTap(style);
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
+            SizedBox(height: 88, child: _buildStyleContent()),
             const SizedBox(height: 32),
             Padding(
               padding: const EdgeInsets.only(right: 20),
@@ -471,10 +570,43 @@ class _BottomStylePanel extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildStyleContent() {
+    if (loading) return const Center(child: CircularProgressIndicator());
+    if (errorMessage != null) {
+      return Center(
+        child: TextButton(onPressed: onRetry, child: Text(errorMessage!)),
+      );
+    }
+    if (styles.isEmpty) return const Center(child: Text('暂无可用风格'));
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return ListView.separated(
+          controller: scrollController,
+          clipBehavior: Clip.none,
+          scrollDirection: Axis.horizontal,
+          itemCount: styles.length,
+          separatorBuilder: (_, _) => const SizedBox(width: _thumbnailGap),
+          itemBuilder: (context, index) {
+            final style = styles[index];
+            return _StyleThumbnail(
+              style: style,
+              selected: style.styleId == selectedStyleId,
+              onTap: () {
+                _scrollStyleIntoView(index, constraints.maxWidth);
+                onStyleTap(style);
+              },
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 class _StyleThumbnail extends StatelessWidget {
-  final _StyleOption style;
+  final AIStyleItem style;
   final bool selected;
   final VoidCallback onTap;
 
@@ -487,7 +619,7 @@ class _StyleThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      key: ValueKey('style-option-${style.id}'),
+      key: ValueKey('style-option-${style.styleKey}'),
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: AnimatedContainer(
@@ -506,10 +638,31 @@ class _StyleThumbnail extends StatelessWidget {
           borderRadius: BorderRadius.circular(selected ? 6 : 8),
           child: Stack(
             fit: StackFit.expand,
-            children: [Image.asset(style.asset, fit: BoxFit.cover)],
+            children: [
+              if (style.coverUrl.isNotEmpty)
+                Image.network(
+                  style.coverUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const _StyleImageFallback(),
+                )
+              else
+                const _StyleImageFallback(),
+            ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _StyleImageFallback extends StatelessWidget {
+  const _StyleImageFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: Color(0xFFC6E0EF),
+      child: Icon(Icons.image_outlined, color: Colors.white),
     );
   }
 }
@@ -550,13 +703,6 @@ class _GenerateButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _StyleOption {
-  final String id;
-  final String asset;
-
-  const _StyleOption({required this.id, required this.asset});
 }
 
 class _DotPainter extends CustomPainter {

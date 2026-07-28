@@ -1,11 +1,17 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/screens/crop_screen.dart';
 import 'package:bobobeads/screens/parameter_config_screen.dart';
 import 'package:bobobeads/screens/style_conversion_screen.dart';
+import 'package:bobobeads/services/api/api_models.dart';
+import 'package:bobobeads/services/api/api_scope.dart';
+import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
@@ -46,7 +52,110 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+  }
+
+  Future<BackendServices> createStyleBackend(Uint8List outputImage) async {
+    final styles = List.generate(
+      5,
+      (index) => {
+        'styleId': '${index + 1}',
+        'styleKey': const [
+          'picture_book',
+          'bold_line',
+          'soft_daily',
+          'playful_doodle',
+          'pastel_pop',
+        ][index],
+        'name': '风格 ${index + 1}',
+        'coverUrl': 'https://image.example.test/style-$index.png',
+        'costCredits': 1,
+      },
+    );
+    final services = BackendServices(
+      baseUrl: 'http://api.example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        if (request.url.host == 'image.example.test' ||
+            request.url.host == 'storage.example.test') {
+          return http.Response.bytes(outputImage, 200);
+        }
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'token',
+            'refreshToken': 'refresh',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest'},
+          },
+          '/api/v1/ai/styles' => {'styles': styles},
+          '/api/v1/media/upload-token' => {
+            'uploadUrl': 'https://storage.example.test/style-input.png',
+            'fileKey': 'style_input/style-input.png',
+            'headers': {'Content-Type': 'image/png'},
+            'uploadMethod': 'PUT',
+            'maxFileSize': 20 * 1024 * 1024,
+          },
+          '/api/v1/media/report-upload' => const <String, Object?>{},
+          '/api/v1/ai/style-generations' => {
+            'taskId': 'task-1',
+            'status': 0,
+            'creditsDeducted': 1,
+            'remainingBalance': 9,
+            'duplicated': false,
+          },
+          '/api/v1/ai/style-generations/task-1' => {
+            'task': {
+              'taskId': 'task-1',
+              'styleId': '1',
+              'status': 2,
+              'outputImageUrl': 'https://image.example.test/output.png',
+            },
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              ...body,
+            }),
+          ),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    await services.loadAiStyles();
+    return services;
+  }
+
+  Future<void> pumpStyleScreen(WidgetTester tester, Uint8List image) async {
+    final backend = await createStyleBackend(image);
+    await tester.pumpWidget(
+      BackendScope(
+        services: backend,
+        child: MaterialApp(
+          home: StyleConversionScreen(
+            draft: DraftProject(
+              originalImageBytes: image,
+              croppedImageBytes: image,
+              imageSource: DraftImageSource.photo,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
   }
 
   testWidgets('photo flow enters style conversion after crop', (tester) async {
@@ -54,7 +163,9 @@ void main() {
     await pumpCropScreen(tester, DraftImageSource.photo);
 
     await tester.tap(find.byIcon(Icons.check));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
 
     expect(find.text('转换风格'), findsAtLeastNWidgets(1));
     expect(find.text('确定参数'), findsNothing);
@@ -79,25 +190,19 @@ void main() {
     usePhoneViewport(tester);
     final image = sampleImagePng();
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StyleConversionScreen(
-          draft: DraftProject(
-            originalImageBytes: image,
-            croppedImageBytes: image,
-            imageSource: DraftImageSource.photo,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await pumpStyleScreen(tester, image);
 
     await tester.tap(find.byKey(const ValueKey('style-generate-button')));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.text('确定参数'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('style-option-picture_book')));
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
 
     final selectedStyle = tester.widget<AnimatedContainer>(
       find.descendant(
@@ -108,18 +213,15 @@ void main() {
     final selectedDecoration = selectedStyle.decoration! as BoxDecoration;
     expect(selectedDecoration.border!.top.color, const Color(0xFFFF55BE));
 
-    expect(find.text('风格转换中'), findsOneWidget);
-    expect(find.text('转换中'), findsNothing);
     expect(find.text('生成图纸'), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 900));
 
     expect(find.text('转换风格'), findsAtLeastNWidgets(1));
     expect(find.text('确定参数'), findsNothing);
     expect(find.text('生成图纸'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('style-generate-button')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.text('确定参数'), findsOneWidget);
     expect(find.text('选择大小'), findsOneWidget);
@@ -131,18 +233,7 @@ void main() {
     usePhoneViewport(tester);
     final image = sampleImagePng();
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: StyleConversionScreen(
-          draft: DraftProject(
-            originalImageBytes: image,
-            croppedImageBytes: image,
-            imageSource: DraftImageSource.photo,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await pumpStyleScreen(tester, image);
 
     final fifthStyle = find.byKey(const ValueKey('style-option-pastel_pop'));
     final screenRect = tester.getRect(find.byType(Scaffold));
@@ -155,7 +246,7 @@ void main() {
 
     final afterTapRect = tester.getRect(fifthStyle);
     expect(afterTapRect.right, lessThanOrEqualTo(screenRect.right + 0.5));
-    await tester.pump(const Duration(milliseconds: 720));
+    await tester.pump();
   });
 
   for (final entry in {
@@ -167,18 +258,7 @@ void main() {
     ) async {
       usePhoneViewport(tester);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StyleConversionScreen(
-            draft: DraftProject(
-              originalImageBytes: entry.value,
-              croppedImageBytes: entry.value,
-              imageSource: DraftImageSource.photo,
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await pumpStyleScreen(tester, entry.value);
 
       final frameRect = tester.getRect(
         find.byKey(const ValueKey('style-image-frame')),
@@ -521,5 +601,45 @@ void main() {
         );
       },
     );
+  }
+}
+
+class _MemoryApiSessionStore extends ApiSessionStore {
+  AuthSession? _session;
+  String? _pendingStyleRequestId;
+  String? _pendingAiTaskId;
+
+  @override
+  Future<String> readOrCreateDeviceId() async => 'device-1';
+
+  @override
+  Future<AuthSession?> readSession() async => _session;
+
+  @override
+  Future<void> saveSession(AuthSession session) async {
+    _session = session;
+  }
+
+  @override
+  Future<String> readOrCreatePendingStyleClientRequestId() async {
+    return _pendingStyleRequestId ??= 'style-request-1';
+  }
+
+  @override
+  Future<void> clearPendingStyleClientRequestId() async {
+    _pendingStyleRequestId = null;
+  }
+
+  @override
+  Future<void> savePendingAiTaskId(String taskId) async {
+    _pendingAiTaskId = taskId;
+  }
+
+  @override
+  Future<String?> readPendingAiTaskId() async => _pendingAiTaskId;
+
+  @override
+  Future<void> clearPendingAiTaskId() async {
+    _pendingAiTaskId = null;
   }
 }

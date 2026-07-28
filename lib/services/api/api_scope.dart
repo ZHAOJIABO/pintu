@@ -12,6 +12,7 @@ import 'api_session_store.dart';
 class BackendServices {
   Future<PagedResult<TemplateItem>>? _homeTemplatesRequest;
   Future<List<TemplateCategory>>? _templateCategoriesRequest;
+  Future<List<AIStyleItem>>? _aiStylesRequest;
 
   final ApiSessionStore store;
   final ApiClient client;
@@ -131,6 +132,22 @@ class BackendServices {
     } catch (_) {
       if (identical(_templateCategoriesRequest, request)) {
         _templateCategoriesRequest = null;
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<AIStyleItem>> loadAiStyles() async {
+    final existing = _aiStylesRequest;
+    if (existing != null) return existing;
+
+    final request = aiGenerations.listStyles();
+    _aiStylesRequest = request;
+    try {
+      return await request;
+    } catch (_) {
+      if (identical(_aiStylesRequest, request)) {
+        _aiStylesRequest = null;
       }
       rethrow;
     }

@@ -11,8 +11,8 @@ typedef UnauthorizedHandler = Future<bool> Function();
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
     'BOBOBEADS_API_BASE_URL',
-     defaultValue: 'https://appbobo.cn',
-    // defaultValue: 'http://127.0.0.1:8080',
+     //defaultValue: 'https://appbobo.cn',
+     defaultValue: 'http://127.0.0.1:8080',
   );
 
   final Uri baseUri;

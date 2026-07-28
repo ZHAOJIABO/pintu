@@ -6,6 +6,7 @@ import 'package:bobobeads/models/color.dart';
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
+import 'package:bobobeads/services/ai_style_transfer_service.dart';
 import 'package:bobobeads/services/api/api_client.dart';
 import 'package:bobobeads/services/api/generation_completion_service.dart';
 import 'package:bobobeads/services/api/api_models.dart';
@@ -117,6 +118,122 @@ void main() {
       ),
     );
   });
+
+  test(
+    'AI style transfer uploads, submits and polls with documented fields',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_ai_style_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      final requests = <http.Request>[];
+      final store = ApiSessionStore(
+        fileProvider: () async => File('${temporaryDirectory.path}/session'),
+      );
+      late final AuthSessionController auth;
+      late final ApiClient client;
+      client = ApiClient(
+        baseUrl: 'http://api.example.test',
+        tokenProvider: store.readAccessToken,
+        deviceIdProvider: store.readOrCreateDeviceId,
+        onUnauthorized: () => auth.refreshOrGuestLogin(),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.host == 'storage.example.test') {
+            return http.Response('', 200);
+          }
+          final body = switch (request.url.path) {
+            '/api/v1/auth/guest' => {
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'expiresIn': 3600,
+              'user': {'userId': 'guest-1'},
+            },
+            '/api/v1/media/upload-token' => {
+              'uploadUrl': 'https://storage.example.test/style-input.png',
+              'fileKey': 'style_input/style-input.png',
+              'headers': {'Content-Type': 'image/png'},
+              'uploadMethod': 'PUT',
+              'maxFileSize': 20 * 1024 * 1024,
+            },
+            '/api/v1/media/report-upload' => const <String, Object?>{},
+            '/api/v1/ai/style-generations' => {
+              'taskId': 'style-task-1',
+              'status': 0,
+              'creditsDeducted': 1,
+              'remainingBalance': 9,
+              'duplicated': false,
+            },
+            '/api/v1/ai/style-generations/style-task-1' => {
+              'task': {
+                'taskId': 'style-task-1',
+                'styleId': '2',
+                'status': 2,
+                'outputImageUrl': 'https://cdn.example.test/output.png',
+                'createdAt': '1785209431',
+                'completedAt': '1785209432',
+              },
+            },
+            _ => throw StateError('Unexpected request: ${request.url}'),
+          };
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              ...body,
+            }),
+            200,
+          );
+        }),
+      );
+      auth = AuthSessionController(
+        store: store,
+        repository: AuthRepository(client),
+      );
+      final service = AiStyleTransferService(
+        media: MediaRepository(apiClient: client, auth: auth),
+        generations: AIGenerationRepository(apiClient: client, auth: auth),
+        store: store,
+      );
+
+      final task = await service.submitAndWait(
+        styleId: '2',
+        imageBytes: Uint8List.fromList([1, 2, 3]),
+      );
+
+      expect(task.isSucceeded, isTrue);
+      expect(task.createdAt, 1785209431);
+      expect(await store.readPendingAiTaskId(), isNull);
+      final uploadToken = requests.firstWhere(
+        (request) => request.url.path == '/api/v1/media/upload-token',
+      );
+      expect(jsonDecode(uploadToken.body), {
+        'file_name': 'style-input.png',
+        'content_type': 'image/png',
+        'purpose': 'style_input',
+      });
+      final storageRequest = requests.firstWhere(
+        (request) => request.url.host == 'storage.example.test',
+      );
+      expect(storageRequest.method, 'PUT');
+      expect(storageRequest.headers.containsKey('Authorization'), isFalse);
+      final report = requests.firstWhere(
+        (request) => request.url.path == '/api/v1/media/report-upload',
+      );
+      expect(jsonDecode(report.body), {
+        'file_key': 'style_input/style-input.png',
+        'file_size': 3,
+      });
+      final submission = requests.firstWhere(
+        (request) => request.url.path == '/api/v1/ai/style-generations',
+      );
+      expect(jsonDecode(submission.body), {
+        'style_id': '2',
+        'input_file_key': 'style_input/style-input.png',
+        'client_request_id': isA<String>(),
+      });
+    },
+  );
 
   test(
     'ApiClient retries once after unauthorized handler refreshes token',
@@ -403,8 +520,8 @@ void main() {
             },
             '/api/v1/media/upload-token' => {
               'uploadUrl':
-                  'https://storage.example.test/${requestBody['fileName']}',
-              'fileKey': '${requestBody['fileName']}-key',
+                  'https://storage.example.test/${requestBody['file_name']}',
+              'fileKey': '${requestBody['file_name']}-key',
               'headers': const <String, String>{},
               'expiresAt': 1783421800,
               'uploadMethod': 'PUT',
@@ -412,7 +529,7 @@ void main() {
               'maxFileSize': 20 * 1024 * 1024,
             },
             '/api/v1/media/report-upload' => {
-              'fileUrl': 'https://cdn.example.test/${requestBody['fileKey']}',
+              'fileUrl': 'https://cdn.example.test/${requestBody['file_key']}',
             },
             '/api/v1/generation/generation-001/complete' => {
               'workId': 'work-001',
@@ -491,7 +608,7 @@ void main() {
           .map((request) => jsonDecode(request.body) as Map<String, dynamic>)
           .toList();
       expect(
-        uploadTokenRequests.map((request) => request['fileName']).toList(),
+        uploadTokenRequests.map((request) => request['file_name']).toList(),
         [
           'generation-source.png',
           'pattern-preview.png',
@@ -503,7 +620,7 @@ void main() {
       );
       expect(
         uploadTokenRequests
-            .where((request) => request['fileName'] == 'pattern-thumbnail.png')
+            .where((request) => request['file_name'] == 'pattern-thumbnail.png')
             .map((request) => request['purpose'])
             .toList(),
         ['pattern', 'pattern'],

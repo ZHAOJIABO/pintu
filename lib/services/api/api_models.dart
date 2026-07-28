@@ -611,9 +611,10 @@ class AIGenerationItem {
     required this.completedAt,
   });
 
-  bool get isProcessing => status == pending || status == running;
+  /// The server reserves every status from 2 onward for terminal states.
+  bool get isProcessing => status < succeeded;
   bool get isSucceeded => status == succeeded;
-  bool get isFinished => !isProcessing;
+  bool get isFinished => status >= succeeded;
 
   factory AIGenerationItem.fromJson(JsonMap json) {
     return AIGenerationItem(
@@ -629,6 +630,15 @@ class AIGenerationItem {
       completedAt: _intValue(json['completedAt']),
     );
   }
+}
+
+class StyleGenerationStillRunningException implements Exception {
+  final String taskId;
+
+  const StyleGenerationStillRunningException(this.taskId);
+
+  @override
+  String toString() => 'StyleGenerationStillRunningException($taskId)';
 }
 
 class AIGenerationCreateResult {

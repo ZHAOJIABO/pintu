@@ -227,8 +227,8 @@ class MediaRepository {
     final data = await apiClient.post(
       '/api/v1/media/upload-token',
       body: {
-        'fileName': fileName,
-        'contentType': contentType,
+        'file_name': fileName,
+        'content_type': contentType,
         'purpose': purpose,
       },
     );
@@ -253,7 +253,7 @@ class MediaRepository {
     await auth.ensureSignedIn();
     final data = await apiClient.post(
       '/api/v1/media/report-upload',
-      body: {'fileKey': fileKey, 'fileSize': fileSize},
+      body: {'file_key': fileKey, 'file_size': fileSize},
     );
     return UploadedMedia(
       fileKey: fileKey,
@@ -302,9 +302,9 @@ class AIGenerationRepository {
     final data = await apiClient.post(
       '/api/v1/ai/style-generations',
       body: {
-        'styleId': styleId,
-        'inputFileKey': inputFileKey,
-        'clientRequestId': clientRequestId,
+        'style_id': styleId,
+        'input_file_key': inputFileKey,
+        'client_request_id': clientRequestId,
       },
     );
     return AIGenerationCreateResult.fromJson(data);
@@ -335,16 +335,22 @@ class AIGenerationRepository {
 
   Future<AIGenerationItem> waitForStyleGeneration(
     String taskId, {
-    Duration interval = const Duration(seconds: 2),
-    Duration timeout = const Duration(minutes: 30),
+    Duration timeout = const Duration(minutes: 5),
   }) async {
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
+    final started = DateTime.now();
+    var attempt = 0;
+    while (DateTime.now().difference(started) < timeout) {
       final task = await getStyleGeneration(taskId);
-      if (!task.isProcessing) return task;
-      await Future<void>.delayed(interval);
+      if (task.isFinished) return task;
+      attempt++;
+      final delay = attempt <= 3
+          ? const Duration(seconds: 1)
+          : (attempt <= 15
+                ? const Duration(seconds: 2)
+                : const Duration(seconds: 3));
+      await Future<void>.delayed(delay);
     }
-    throw const ApiException(2002, 'AI 风格转换超时');
+    throw StyleGenerationStillRunningException(taskId);
   }
 }
 

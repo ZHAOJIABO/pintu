@@ -374,7 +374,7 @@ class _GalleryFade extends StatelessWidget {
     return const DecoratedBox(
       decoration: BoxDecoration(
         gradient: RadialGradient(
-          colors: [Color(0x00FFFFFF), Colors.white],
+          colors: [Color(0x00FFFFFF), Color(0x00FFFFFF)],
           radius: 0.78,
         ),
       ),
