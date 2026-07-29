@@ -1,7 +1,7 @@
 # bobobeads
 
 一个跨平台 Flutter 应用，将图片转换为拼豆（Perler Bead）图案。支持 iOS 和 Android。
-
+flutter build ios --release --config-only --build-name=1.0.0 --build-number=n
 ---
 
 ## 功能

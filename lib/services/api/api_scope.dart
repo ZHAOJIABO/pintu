@@ -8,6 +8,7 @@ import 'generation_completion_service.dart';
 import 'api_models.dart';
 import 'api_repositories.dart';
 import 'api_session_store.dart';
+import '../style_thumbnail_cache.dart';
 
 class BackendServices {
   Future<PagedResult<TemplateItem>>? _homeTemplatesRequest;
@@ -25,6 +26,7 @@ class BackendServices {
   final WorkRepository works;
   final CreditRepository credits;
   final SystemRepository system;
+  final StyleThumbnailCache styleThumbnails;
 
   BackendServices._({
     required this.store,
@@ -38,12 +40,14 @@ class BackendServices {
     required this.works,
     required this.credits,
     required this.system,
+    required this.styleThumbnails,
   });
 
   factory BackendServices({
     String baseUrl = ApiClient.defaultBaseUrl,
     http.Client? httpClient,
     ApiSessionStore? store,
+    StyleThumbnailCache? styleThumbnails,
   }) {
     final sessionStore = store ?? const ApiSessionStore();
     late final AuthSessionController auth;
@@ -79,6 +83,8 @@ class BackendServices {
       works: WorkRepository(apiClient: client, auth: auth),
       credits: CreditRepository(apiClient: client, auth: auth),
       system: SystemRepository(client),
+      styleThumbnails:
+          styleThumbnails ?? StyleThumbnailCache(httpClient: client.httpClient),
     );
   }
 
@@ -87,17 +93,30 @@ class BackendServices {
 
     // The detail endpoint needs an id, so start the home list first and warm
     // the first available template once the shared startup requests complete.
+    // Style covers are intentionally warmed here, before the user reaches the
+    // conversion flow, so its first row can render from cache.
     final homeTemplates = loadHomeTemplates();
+    final styleThumbnails = _warmStyleThumbnails();
     await Future.wait<void>([
       system.getConfig().then((_) {}),
       system.listBoardSpecs().then((_) {}),
       system.listBeadColors().then((_) {}),
       loadTemplateCategories().then((_) {}),
+      styleThumbnails,
     ]);
 
     final firstTemplate = (await homeTemplates).items.firstOrNull;
     if (firstTemplate != null && firstTemplate.templateId.isNotEmpty) {
       await templates.getTemplate(firstTemplate.templateId);
+    }
+  }
+
+  Future<void> _warmStyleThumbnails() async {
+    try {
+      final styles = await loadAiStyles();
+      await styleThumbnails.preload(styles.map((style) => style.coverUrl));
+    } catch (_) {
+      // Startup must remain resilient when the optional style service is down.
     }
   }
 

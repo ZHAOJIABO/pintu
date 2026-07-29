@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import '../models/draft_project.dart';
 import '../services/ai_style_transfer_service.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../services/style_thumbnail_cache.dart';
 import 'parameter_config_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -86,6 +88,13 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
       setState(() {
         _styles = styles;
         _stylesLoading = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(
+          services.styleThumbnails.preload(
+            styles.map((style) => style.coverUrl),
+          ),
+        );
       });
       if (!_didTryResume) {
         _didTryResume = true;
@@ -247,6 +256,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
                     styles: _styles,
                     loading: _stylesLoading,
                     errorMessage: _stylesError,
+                    thumbnailCache: _services?.styleThumbnails,
                     selectedStyleId: _selectedStyleId,
                     canGenerate: _canGenerate,
                     onStyleTap: _startConversion,
@@ -483,6 +493,7 @@ class _BottomStylePanel extends StatelessWidget {
   final List<AIStyleItem> styles;
   final bool loading;
   final String? errorMessage;
+  final StyleThumbnailCache? thumbnailCache;
   final String? selectedStyleId;
   final bool canGenerate;
   final ValueChanged<AIStyleItem> onStyleTap;
@@ -495,6 +506,7 @@ class _BottomStylePanel extends StatelessWidget {
     required this.styles,
     required this.loading,
     required this.errorMessage,
+    required this.thumbnailCache,
     required this.selectedStyleId,
     required this.canGenerate,
     required this.onStyleTap,
@@ -592,6 +604,7 @@ class _BottomStylePanel extends StatelessWidget {
             final style = styles[index];
             return _StyleThumbnail(
               style: style,
+              thumbnailCache: thumbnailCache,
               selected: style.styleId == selectedStyleId,
               onTap: () {
                 _scrollStyleIntoView(index, constraints.maxWidth);
@@ -607,11 +620,13 @@ class _BottomStylePanel extends StatelessWidget {
 
 class _StyleThumbnail extends StatelessWidget {
   final AIStyleItem style;
+  final StyleThumbnailCache? thumbnailCache;
   final bool selected;
   final VoidCallback onTap;
 
   const _StyleThumbnail({
     required this.style,
+    required this.thumbnailCache,
     required this.selected,
     required this.onTap,
   });
@@ -639,11 +654,10 @@ class _StyleThumbnail extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (style.coverUrl.isNotEmpty)
-                Image.network(
-                  style.coverUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const _StyleImageFallback(),
+              if (style.coverUrl.isNotEmpty && thumbnailCache != null)
+                _CachedStyleImage(
+                  url: style.coverUrl,
+                  thumbnailCache: thumbnailCache!,
                 )
               else
                 const _StyleImageFallback(),
@@ -651,6 +665,52 @@ class _StyleThumbnail extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CachedStyleImage extends StatefulWidget {
+  final String url;
+  final StyleThumbnailCache thumbnailCache;
+
+  const _CachedStyleImage({required this.url, required this.thumbnailCache});
+
+  @override
+  State<_CachedStyleImage> createState() => _CachedStyleImageState();
+}
+
+class _CachedStyleImageState extends State<_CachedStyleImage> {
+  late Future<Uint8List> _imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageBytes = widget.thumbnailCache.load(widget.url);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CachedStyleImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url ||
+        oldWidget.thumbnailCache != widget.thumbnailCache) {
+      _imageBytes = widget.thumbnailCache.load(widget.url);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: _imageBytes,
+      builder: (context, snapshot) {
+        final imageBytes = snapshot.data;
+        if (imageBytes == null) return const _StyleImageFallback();
+        return Image.memory(
+          imageBytes,
+          fit: BoxFit.cover,
+          cacheWidth: 320,
+          errorBuilder: (_, _, _) => const _StyleImageFallback(),
+        );
+      },
     );
   }
 }

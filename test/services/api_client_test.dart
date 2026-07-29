@@ -655,7 +655,7 @@ void main() {
   );
 
   test(
-    'startup warm-up preloads template categories, home list and detail',
+    'startup warm-up preloads the style covers for the first screen',
     () async {
       final temporaryDirectory = await Directory.systemTemp.createTemp(
         'bobobeads_api_warm_up_test_',
@@ -671,6 +671,9 @@ void main() {
         ),
         httpClient: MockClient((request) async {
           requests.add(request);
+          if (request.url.host == 'images.example.test') {
+            return http.Response.bytes(const [1, 2, 3], 200);
+          }
           final body = switch (request.url.path) {
             '/api/v1/auth/guest' => {
               'accessToken': 'access-token',
@@ -692,6 +695,16 @@ void main() {
               'template': {'templateId': 'template-001'},
               'patternData': <String, Object?>{},
             },
+            '/api/v1/ai/styles' => {
+              'styles': List.generate(
+                10,
+                (index) => {
+                  'styleId': 'style-$index',
+                  'styleKey': 'style_$index',
+                  'coverUrl': 'https://images.example.test/style-$index.webp',
+                },
+              ),
+            },
             _ => throw StateError('Unexpected request: ${request.url}'),
           };
           return http.Response(
@@ -710,6 +723,11 @@ void main() {
       expect(paths, contains('/api/v1/templates/categories'));
       expect(paths, contains('/api/v1/templates'));
       expect(paths, contains('/api/v1/templates/template-001'));
+      expect(paths, contains('/api/v1/ai/styles'));
+      expect(
+        requests.where((request) => request.url.host == 'images.example.test'),
+        hasLength(8),
+      );
 
       final homeListRequest = requests.singleWhere(
         (request) => request.url.path == '/api/v1/templates',
