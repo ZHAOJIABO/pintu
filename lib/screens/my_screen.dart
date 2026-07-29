@@ -185,6 +185,16 @@ class _MyDesignCanvas extends StatelessWidget {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _showCurrentUserId(BuildContext context) async {
+    final services = BackendScope.maybeOf(context);
+    if (services == null) return;
+
+    final userId = (await services.store.readSession())?.user.userId;
+    if (!context.mounted || userId == null || userId.isEmpty) return;
+
+    _showComingSoon(context, userId);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -213,7 +223,7 @@ class _MyDesignCanvas extends StatelessWidget {
               button: true,
               label: '设置',
               child: InkResponse(
-                onTap: () => _showComingSoon(context, '设置功能即将开放'),
+                onTap: () => _showCurrentUserId(context),
                 radius: 24,
                 child: Center(
                   child: Image.asset(

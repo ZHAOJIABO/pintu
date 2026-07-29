@@ -160,14 +160,20 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
     var saved = false;
+    Uint8List? savedWatermark;
+    final watermark = Uint8List.fromList([1, 2, 3]);
 
     await tester.pumpWidget(
       MaterialApp(
         home: ResultScreen(
           pattern: _pattern(),
           exportService: _FakePatternExportService(
-            onSave: (_) async => saved = true,
+            onSave: (_, value) async {
+              saved = true;
+              savedWatermark = value;
+            },
           ),
+          loadWatermarkPngBytes: () async => watermark,
         ),
       ),
     );
@@ -176,7 +182,37 @@ void main() {
     await tester.pump();
 
     expect(saved, isTrue);
+    expect(savedWatermark, watermark);
     expect(find.text('图纸已保存'), findsOneWidget);
+  });
+
+  testWidgets('does not save the original chart when watermark loading fails', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    var saved = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          exportService: _FakePatternExportService(
+            onSave: (pattern, watermark) async => saved = true,
+          ),
+          loadWatermarkPngBytes: () async => throw StateError('offline'),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
+    await tester.pump();
+
+    expect(saved, isFalse);
+    expect(find.text('水印加载失败，请重试'), findsOneWidget);
   });
 
   testWidgets('edit action opens the pattern editor', (tester) async {
@@ -472,13 +508,17 @@ void main() {
 }
 
 class _FakePatternExportService extends PatternExportService {
-  final Future<void> Function(GeneratedPattern pattern) onSave;
+  final Future<void> Function(GeneratedPattern pattern, Uint8List? watermark)
+  onSave;
 
   const _FakePatternExportService({required this.onSave});
 
   @override
-  Future<void> saveChartPngToPhotoLibrary(GeneratedPattern pattern) {
-    return onSave(pattern);
+  Future<void> saveChartPngToPhotoLibrary(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) {
+    return onSave(pattern, watermarkPngBytes);
   }
 }
 

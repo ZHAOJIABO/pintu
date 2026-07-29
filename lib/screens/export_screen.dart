@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -7,6 +8,9 @@ import '../algorithms/color_reducer.dart';
 import '../models/palette.dart';
 import '../models/project.dart';
 import '../rendering/bead_painter.dart';
+import '../services/api/api_scope.dart';
+import '../services/export_watermark_renderer.dart';
+import '../services/export_watermark_service.dart';
 
 class ExportScreen extends StatelessWidget {
   final ColorReducerResult result;
@@ -21,6 +25,23 @@ class ExportScreen extends StatelessWidget {
   });
 
   Future<void> _exportPng(BuildContext context) async {
+    final services = BackendScope.maybeOf(context);
+    if (services == null) {
+      _showWatermarkError(context);
+      return;
+    }
+
+    Uint8List? watermarkPngBytes;
+    try {
+      watermarkPngBytes = await ExportWatermarkService(
+        system: services.system,
+        client: services.client,
+      ).loadWatermarkBytes();
+    } catch (_) {
+      if (context.mounted) _showWatermarkError(context);
+      return;
+    }
+
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final beadSize = 12.0;
@@ -35,13 +56,18 @@ class ExportScreen extends StatelessWidget {
       showGrid: true,
     );
     painter.paint(canvas, size);
+    if (watermarkPngBytes != null) {
+      await ExportWatermarkRenderer.drawCover(canvas, size, watermarkPngBytes);
+    }
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(
       size.width.toInt(),
       size.height.toInt(),
     );
+    picture.dispose();
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
     if (byteData == null) return;
 
     final dir = await getTemporaryDirectory();
@@ -49,6 +75,17 @@ class ExportScreen extends StatelessWidget {
     await file.writeAsBytes(byteData.buffer.asUint8List());
 
     await Share.shareXFiles([XFile(file.path)]);
+  }
+
+  void _showWatermarkError(BuildContext context) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('水印加载失败，请重试'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
   }
 
   @override

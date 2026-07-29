@@ -743,7 +743,10 @@ class _FakePatternExportService extends PatternExportService {
   const _FakePatternExportService();
 
   @override
-  Future<Uint8List> exportChartPngBytes(GeneratedPattern pattern) async {
+  Future<Uint8List> exportChartPngBytes(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async {
     return Uint8List.fromList([1, 2, 3]);
   }
 

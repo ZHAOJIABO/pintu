@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/generated_pattern.dart';
 import '../models/pattern_chart.dart';
 import '../rendering/pattern_chart_painter.dart';
+import 'export_watermark_renderer.dart';
 
 class PatternExportService {
   static const double pngCellSize = 20;
@@ -33,13 +34,25 @@ class PatternExportService {
     );
   }
 
-  Future<void> saveChartPngToPhotoLibrary(GeneratedPattern pattern) async {
-    final bytes = await exportChartPngBytes(pattern);
+  Future<void> saveChartPngToPhotoLibrary(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async {
+    final bytes = await exportChartPngBytes(
+      pattern,
+      watermarkPngBytes: watermarkPngBytes,
+    );
     await _photoLibraryChannel.invokeMethod<void>('savePng', bytes);
   }
 
-  Future<File> exportChartPng(GeneratedPattern pattern) async {
-    final bytes = await exportChartPngBytes(pattern);
+  Future<File> exportChartPng(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async {
+    final bytes = await exportChartPngBytes(
+      pattern,
+      watermarkPngBytes: watermarkPngBytes,
+    );
     final dir = await getTemporaryDirectory();
     final file = File(
       '${dir.path}/bobobeads_pattern_chart_${DateTime.now().microsecondsSinceEpoch}.png',
@@ -48,10 +61,18 @@ class PatternExportService {
     return file;
   }
 
-  Future<Uint8List> exportChartPngBytes(GeneratedPattern pattern) async {
+  Future<Uint8List> exportChartPngBytes(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async {
     final painter = _buildPagePainter(pattern);
     final size = painter.pageSize;
-    return _renderPng(painter, size, pixelRatio: _exportPixelRatio(size));
+    return _renderPng(
+      painter,
+      size,
+      pixelRatio: _exportPixelRatio(size),
+      watermarkPngBytes: watermarkPngBytes,
+    );
   }
 
   /// Renders only the pattern's color blocks for gallery lists.
@@ -118,12 +139,16 @@ class PatternExportService {
     CustomPainter painter,
     ui.Size size, {
     double pixelRatio = 1,
+    Uint8List? watermarkPngBytes,
   }) async {
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
 
     canvas.scale(pixelRatio);
     painter.paint(canvas, size);
+    if (watermarkPngBytes != null) {
+      await ExportWatermarkRenderer.drawCover(canvas, size, watermarkPngBytes);
+    }
 
     final picture = recorder.endRecording();
     final image = await picture.toImage(

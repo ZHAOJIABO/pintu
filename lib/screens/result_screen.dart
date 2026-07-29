@@ -10,6 +10,7 @@ import '../models/pattern_chart.dart';
 import '../rendering/pattern_chart_painter.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../services/export_watermark_service.dart';
 import '../services/pattern_export_service.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import 'bead_mode_screen.dart';
@@ -22,11 +23,14 @@ const _chartBorder = PatternChartPainter.defaultBorderColor;
 const _chartMinorGrid = PatternChartPainter.defaultMinorGridColor;
 const _chartMajorGrid = PatternChartPainter.defaultMajorGridColor;
 
+typedef WatermarkPngBytesLoader = Future<Uint8List?> Function();
+
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final TemplateItem? template;
   final bool showGeneratedHint;
   final PatternExportService exportService;
+  final WatermarkPngBytesLoader? loadWatermarkPngBytes;
 
   const ResultScreen({
     super.key,
@@ -34,6 +38,7 @@ class ResultScreen extends StatefulWidget {
     this.template,
     this.showGeneratedHint = false,
     this.exportService = const PatternExportService(),
+    this.loadWatermarkPngBytes,
   });
 
   @override
@@ -119,15 +124,40 @@ class _ResultScreenState extends State<ResultScreen> {
 
     setState(() => _exporting = true);
     try {
-      await _exportService.saveChartPngToPhotoLibrary(_pattern);
-      if (!mounted) return;
-      _showToast('图纸已保存');
-    } catch (error) {
-      if (!mounted) return;
-      _showToast('保存失败：$error');
+      Uint8List? watermarkPngBytes;
+      try {
+        watermarkPngBytes = await _loadWatermarkPngBytes();
+      } catch (_) {
+        if (mounted) _showToast('水印加载失败，请重试');
+        return;
+      }
+
+      try {
+        await _exportService.saveChartPngToPhotoLibrary(
+          _pattern,
+          watermarkPngBytes: watermarkPngBytes,
+        );
+        if (mounted) _showToast('图纸已保存');
+      } catch (error) {
+        if (mounted) _showToast('保存失败：$error');
+      }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  Future<Uint8List?> _loadWatermarkPngBytes() {
+    final loader = widget.loadWatermarkPngBytes;
+    if (loader != null) return loader();
+
+    final services = BackendScope.maybeOf(context);
+    if (services == null) {
+      return Future<Uint8List?>.error(StateError('无法获取导出水印配置'));
+    }
+    return ExportWatermarkService(
+      system: services.system,
+      client: services.client,
+    ).loadWatermarkBytes();
   }
 
   void _showToast(String message) {

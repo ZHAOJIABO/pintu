@@ -147,6 +147,38 @@ void main() {
     );
   });
 
+  testWidgets('点击设置显示当前用户的 userId', (tester) async {
+    final store = _MemoryApiSessionStore();
+    await store.saveSession(
+      const AuthSession(
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresIn: 3600,
+        user: ApiUser(
+          userId: 'current-user-42',
+          nickname: '',
+          avatarUrl: '',
+          phone: '',
+          isVip: false,
+        ),
+      ),
+    );
+    final services = BackendServices(store: store);
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.bySemanticsLabel('设置'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('current-user-42'), findsOneWidget);
+  });
+
   testWidgets('点击我的图纸会进入图纸页', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MyScreen()));
     await tester.pumpAndSettle();
