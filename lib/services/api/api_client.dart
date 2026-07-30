@@ -11,8 +11,8 @@ typedef UnauthorizedHandler = Future<bool> Function();
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
     'BOBOBEADS_API_BASE_URL',
-     defaultValue: 'https://appbobo.cn',
-     //defaultValue: 'http://127.0.0.1:8080',
+    defaultValue: 'https://appbobo.cn',
+    //defaultValue: 'http://127.0.0.1:8080',
   );
 
   final Uri baseUri;
@@ -30,9 +30,17 @@ class ApiClient {
     required this.deviceIdProvider,
     this.onUnauthorized,
     this.appVersion = '1.0.0',
-    this.platform = 'ios',
+    String? platform,
   }) : baseUri = Uri.parse(baseUrl),
-       httpClient = httpClient ?? http.Client();
+       httpClient = httpClient ?? http.Client(),
+       platform = platform ?? _defaultPlatform();
+
+  static String _defaultPlatform() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return 'android';
+    }
+    return 'ios';
+  }
 
   Future<JsonMap> get(
     String path, {
@@ -56,6 +64,7 @@ class ApiClient {
     Object? body,
     Map<String, Object?> query = const {},
     bool includeAuth = true,
+    bool includeDeviceId = true,
     bool retryUnauthorized = true,
   }) {
     return _sendJson(
@@ -64,6 +73,7 @@ class ApiClient {
       query: query,
       body: body,
       includeAuth: includeAuth,
+      includeDeviceId: includeDeviceId,
       retryUnauthorized: retryUnauthorized,
     );
   }
@@ -176,10 +186,16 @@ class ApiClient {
     Map<String, Object?> query = const {},
     Object? body,
     required bool includeAuth,
+    bool includeDeviceId = true,
     required bool retryUnauthorized,
   }) async {
     final request = http.Request(method, _resolve(path, query));
-    request.headers.addAll(await _headers(includeAuth: includeAuth));
+    request.headers.addAll(
+      await _headers(
+        includeAuth: includeAuth,
+        includeDeviceId: includeDeviceId,
+      ),
+    );
     if (body != null) {
       request.headers['Content-Type'] = 'application/json';
       request.body = jsonEncode(body);
@@ -208,6 +224,7 @@ class ApiClient {
           query: query,
           body: body,
           includeAuth: includeAuth,
+          includeDeviceId: includeDeviceId,
           retryUnauthorized: false,
         );
       }
@@ -235,6 +252,7 @@ class ApiClient {
             query: query,
             body: body,
             includeAuth: includeAuth,
+            includeDeviceId: includeDeviceId,
             retryUnauthorized: false,
           );
         }
@@ -343,13 +361,18 @@ class ApiClient {
     return data;
   }
 
-  Future<Map<String, String>> _headers({required bool includeAuth}) async {
+  Future<Map<String, String>> _headers({
+    required bool includeAuth,
+    bool includeDeviceId = true,
+  }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
       'X-Platform': platform,
       'X-App-Version': appVersion,
-      'X-Device-Id': await deviceIdProvider(),
     };
+    if (includeDeviceId) {
+      headers['X-Device-Id'] = await deviceIdProvider();
+    }
     if (includeAuth) {
       final token = await tokenProvider();
       if (token != null && token.isNotEmpty) {

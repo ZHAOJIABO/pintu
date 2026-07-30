@@ -6,17 +6,19 @@ import 'package:flutter/foundation.dart';
 import 'api_client.dart';
 import 'api_models.dart';
 import 'api_session_store.dart';
+import 'vendor_identifier.dart';
 
 class AuthRepository {
   final ApiClient apiClient;
 
   const AuthRepository(this.apiClient);
 
-  Future<AuthSession> guestLogin(String deviceId) async {
+  Future<AuthSession> guestLogin(DeviceIdentifiers identifiers) async {
     final data = await apiClient.post(
       '/api/v1/auth/guest',
-      body: {'deviceId': deviceId},
+      body: identifiers.toGuestLoginBody(apiClient.platform),
       includeAuth: false,
+      includeDeviceId: false,
       retryUnauthorized: false,
     );
     return AuthSession.fromJson(data);
@@ -45,7 +47,11 @@ class AuthRepository {
       includeAuth: false,
       retryUnauthorized: false,
     );
-    return AuthSession.fromJson(data, fallbackUser: fallbackUser);
+    return AuthSession.fromJson(
+      data,
+      fallbackUser: fallbackUser,
+      fallbackRefreshToken: refreshToken,
+    );
   }
 }
 
@@ -65,10 +71,9 @@ class AuthSessionController {
 
   Future<void> _ensureSignedIn() async {
     final session = await store.readSession();
-    if (session?.accessToken.isNotEmpty == true) return;
-    final deviceId = await store.readOrCreateDeviceId();
-    final next = await repository.guestLogin(deviceId);
-    await store.saveSession(next);
+    if (session?.hasValidAccessToken() == true) return;
+    if (await refreshOrGuestLogin()) return;
+    throw StateError('Unable to initialize an authenticated session.');
   }
 
   Future<bool> refreshOrGuestLogin() {
@@ -93,8 +98,8 @@ class AuthSessionController {
     }
 
     try {
-      final deviceId = await store.readOrCreateDeviceId();
-      final guest = await repository.guestLogin(deviceId);
+      final identifiers = await store.readDeviceIdentifiers();
+      final guest = await repository.guestLogin(identifiers);
       await store.saveSession(guest);
       return true;
     } catch (_) {

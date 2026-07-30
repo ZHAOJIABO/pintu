@@ -123,24 +123,37 @@ class AuthSession {
   final String accessToken;
   final String refreshToken;
   final int expiresIn;
+  final DateTime? accessTokenExpiresAt;
   final ApiUser user;
 
   const AuthSession({
     required this.accessToken,
     required this.refreshToken,
     required this.expiresIn,
+    this.accessTokenExpiresAt,
     required this.user,
   });
 
-  factory AuthSession.fromJson(JsonMap json, {ApiUser? fallbackUser}) {
+  factory AuthSession.fromJson(
+    JsonMap json, {
+    ApiUser? fallbackUser,
+    String? fallbackRefreshToken,
+  }) {
     final responseUser = ApiUser.fromJson(_mapValue(json['user']));
     final user = responseUser.userId.isEmpty && fallbackUser != null
         ? fallbackUser
         : responseUser;
+    final expiresIn = _intValue(json['expiresIn']);
+    final responseRefreshToken = _stringValue(json['refreshToken']);
     return AuthSession(
       accessToken: _stringValue(json['accessToken']),
-      refreshToken: _stringValue(json['refreshToken']),
-      expiresIn: _intValue(json['expiresIn']),
+      refreshToken: responseRefreshToken.isEmpty
+          ? fallbackRefreshToken ?? ''
+          : responseRefreshToken,
+      expiresIn: expiresIn,
+      accessTokenExpiresAt: expiresIn > 0
+          ? DateTime.now().add(Duration(seconds: expiresIn))
+          : null,
       user: user,
     );
   }
@@ -150,16 +163,31 @@ class AuthSession {
       accessToken: _stringValue(json['accessToken']),
       refreshToken: _stringValue(json['refreshToken']),
       expiresIn: _intValue(json['expiresIn']),
+      accessTokenExpiresAt: _storedExpiry(json['accessTokenExpiresAtMs']),
       user: ApiUser.fromJson(_mapValue(json['user'])),
     );
+  }
+
+  bool hasValidAccessToken([DateTime? now]) {
+    if (accessToken.isEmpty) return false;
+    final expiresAt = accessTokenExpiresAt;
+    return expiresAt != null && expiresAt.isAfter(now ?? DateTime.now());
   }
 
   JsonMap toJson() => {
     'accessToken': accessToken,
     'refreshToken': refreshToken,
     'expiresIn': expiresIn,
+    if (accessTokenExpiresAt != null)
+      'accessTokenExpiresAtMs': accessTokenExpiresAt!.millisecondsSinceEpoch,
     'user': user.toJson(),
   };
+
+  static DateTime? _storedExpiry(Object? value) {
+    final milliseconds = _intValue(value);
+    if (milliseconds <= 0) return null;
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
+  }
 }
 
 class TemplateCategory {

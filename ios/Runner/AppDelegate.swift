@@ -62,6 +62,23 @@ import Vision
 
         self.removeBackground(typedData.data, result: result)
       }
+
+      let deviceIdentifiersChannel = FlutterMethodChannel(
+        name: "bobobeads/device_identifiers",
+        binaryMessenger: controller.binaryMessenger
+      )
+      deviceIdentifiersChannel.setMethodCallHandler { call, result in
+        guard call.method == "getDeviceIdentifiers" else {
+          result(FlutterMethodNotImplemented)
+          return
+        }
+        var identifiers: [String: String] = [:]
+        if let idfv = UIDevice.current.identifierForVendor?.uuidString,
+           !idfv.isEmpty {
+          identifiers["idfv"] = idfv
+        }
+        result(identifiers)
+      }
     }
 
     GeneratedPluginRegistrant.register(with: self)

@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +25,26 @@ class MainActivity : FlutterActivity() {
                     } else {
                         savePngToGallery(bytes, result)
                     }
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "bobobeads/device_identifiers",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDeviceIdentifiers" -> {
+                    val androidId = Settings.Secure.getString(
+                        contentResolver,
+                        Settings.Secure.ANDROID_ID,
+                    )
+                    val identifiers = mutableMapOf<String, String>()
+                    if (!androidId.isNullOrBlank()) {
+                        identifiers["androidId"] = androidId
+                    }
+                    result.success(identifiers)
                 }
                 else -> result.notImplemented()
             }

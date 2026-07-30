@@ -1,14 +1,19 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:path_provider/path_provider.dart';
 
 import 'api_models.dart';
+import 'vendor_identifier.dart';
+
+typedef DeviceIdentifiersProvider = Future<DeviceIdentifiers> Function();
 
 class ApiSessionStore {
   static const _fileName = 'bobobeads_api_session.json';
   static const _deviceIdKey = 'deviceId';
+  static const _deviceIdFileSuffix = '.device_id';
   static const _sessionKey = 'session';
   static const _pendingStyleClientRequestIdKey = 'pendingStyleClientRequestId';
   static const _pendingAiTaskIdKey = 'pendingAiTaskId';
@@ -17,17 +22,65 @@ class ApiSessionStore {
   static const _pendingGenerationIdKey = 'pendingGenerationId';
 
   final Future<File> Function()? fileProvider;
+  final DeviceIdentifiersProvider? deviceIdentifiersProvider;
 
-  const ApiSessionStore({this.fileProvider});
+  /// Multiple service instances can be created while the widget tree is being
+  /// rebuilt. Serialize the first read/create per persisted file so they can
+  /// never generate competing IDs for one installation.
+  static final Map<String, Future<String>> _deviceIdRequests = {};
+
+  const ApiSessionStore({this.fileProvider, this.deviceIdentifiersProvider});
+
+  Future<DeviceIdentifiers> readDeviceIdentifiers() async {
+    final provider = deviceIdentifiersProvider;
+    if (provider != null) return provider();
+    return DeviceIdentifierReader.read();
+  }
 
   Future<String> readOrCreateDeviceId() async {
+    final deviceFile = await _deviceFile();
+    final existingRequest = _deviceIdRequests[deviceFile.path];
+    if (existingRequest != null) return existingRequest;
+
+    final request = _readOrCreateDeviceId(deviceFile);
+    _deviceIdRequests[deviceFile.path] = request;
+    unawaited(
+      request.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          if (identical(_deviceIdRequests[deviceFile.path], request)) {
+            _deviceIdRequests.remove(deviceFile.path);
+          }
+        },
+      ),
+    );
+    return request;
+  }
+
+  Future<String> _readOrCreateDeviceId(File deviceFile) async {
+    final identifiers = await readDeviceIdentifiers();
+    final idfv = identifiers.idfv;
+    if (idfv != null && idfv.isNotEmpty) return 'ios-$idfv';
+    final androidId = identifiers.androidId ?? identifiers.oaid;
+    if (androidId != null && androidId.isNotEmpty) return 'android-$androidId';
+
+    if (await deviceFile.exists()) {
+      final existing = (await deviceFile.readAsString()).trim();
+      if (existing.isNotEmpty) return existing;
+    }
+
+    // Migrate installations that stored the device id in the session file.
     final data = await _read();
-    final existing = data[_deviceIdKey]?.toString();
-    if (existing != null && existing.isNotEmpty) return existing;
+    final existing = data[_deviceIdKey]?.toString().trim();
+    if (existing != null && existing.isNotEmpty) {
+      await deviceFile.parent.create(recursive: true);
+      await deviceFile.writeAsString(existing, flush: true);
+      return existing;
+    }
 
     final deviceId = 'ios-${RequestId.generate()}';
-    data[_deviceIdKey] = deviceId;
-    await _write(data);
+    await deviceFile.parent.create(recursive: true);
+    await deviceFile.writeAsString(deviceId, flush: true);
     return deviceId;
   }
 
@@ -150,6 +203,11 @@ class ApiSessionStore {
     if (provider != null) return provider();
     final root = await getApplicationDocumentsDirectory();
     return File('${root.path}/$_fileName');
+  }
+
+  Future<File> _deviceFile() async {
+    final sessionFile = await _file();
+    return File('${sessionFile.path}$_deviceIdFileSuffix');
   }
 }
 

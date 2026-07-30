@@ -19,10 +19,8 @@ class AiStyleTransferService {
   });
 
   Future<void> startNewAttempt() async {
-    await Future.wait([
-      store.clearPendingStyleClientRequestId(),
-      store.clearPendingAiTaskId(),
-    ]);
+    await store.clearPendingStyleClientRequestId();
+    await store.clearPendingAiTaskId();
   }
 
   Future<AIGenerationItem> submitAndWait({
@@ -68,10 +66,8 @@ class AiStyleTransferService {
 
   Future<AIGenerationItem> _waitForTerminalTask(String taskId) async {
     final task = await generations.waitForStyleGeneration(taskId);
-    await Future.wait([
-      store.clearPendingAiTaskId(),
-      store.clearPendingStyleClientRequestId(),
-    ]);
+    await store.clearPendingAiTaskId();
+    await store.clearPendingStyleClientRequestId();
     return task;
   }
 }

@@ -13,6 +13,7 @@ import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_repositories.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/services/api/vendor_identifier.dart';
 import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -30,6 +31,7 @@ void main() {
       baseUrl: 'http://example.test',
       tokenProvider: () async => 'token-1',
       deviceIdProvider: () async => 'device-1',
+      platform: 'ios',
       httpClient: MockClient((request) async {
         captured = request;
         return http.Response(
@@ -55,6 +57,102 @@ void main() {
     expect(captured.headers['X-Platform'], 'ios');
     expect(captured.headers['X-App-Version'], '1.0.0');
     expect(captured.headers['X-Device-Id'], 'device-1');
+  });
+
+  test(
+    'guest login sends the iOS identifier envelope and preserves userId',
+    () async {
+      late http.Request captured;
+      final client = ApiClient(
+        baseUrl: 'http://example.test',
+        tokenProvider: () async => null,
+        deviceIdProvider: () async => 'legacy-device-id',
+        platform: 'ios',
+        httpClient: MockClient((request) async {
+          captured = request;
+          return _jsonResponse({
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': '8635871597563'},
+          });
+        }),
+      );
+
+      final session = await AuthRepository(client).guestLogin(
+        const DeviceIdentifiers(idfv: '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'),
+      );
+
+      expect(captured.url.path, '/api/v1/auth/guest');
+      expect(captured.headers['X-Platform'], 'ios');
+      expect(captured.headers.containsKey('X-Device-Id'), isFalse);
+      expect(jsonDecode(captured.body), {
+        'header': {
+          'device': {'idfv': '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'},
+        },
+      });
+      expect(jsonDecode(captured.body), isNot(contains('deviceId')));
+      expect(session.user.userId, '8635871597563');
+    },
+  );
+
+  test(
+    'guest login sends Android identifiers in server priority order',
+    () async {
+      late http.Request captured;
+      final client = ApiClient(
+        baseUrl: 'http://example.test',
+        tokenProvider: () async => null,
+        deviceIdProvider: () async => 'legacy-device-id',
+        platform: 'android',
+        httpClient: MockClient((request) async {
+          captured = request;
+          return _jsonResponse({
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': '8635871597563'},
+          });
+        }),
+      );
+
+      await AuthRepository(client).guestLogin(
+        const DeviceIdentifiers(androidId: 'android-id', oaid: 'oaid-value'),
+      );
+
+      expect(captured.headers['X-Platform'], 'android');
+      expect(captured.headers.containsKey('X-Device-Id'), isFalse);
+      expect(jsonDecode(captured.body), {
+        'header': {
+          'device': {'androidId': 'android-id'},
+        },
+      });
+    },
+  );
+
+  test('guest login uses the fallback identifier only when needed', () {
+    expect(
+      const DeviceIdentifiers(
+        androidId: '',
+        oaid: 'oaid-value',
+      ).toGuestLoginBody('android'),
+      {
+        'header': {
+          'device': {'oaid': 'oaid-value'},
+        },
+      },
+    );
+    expect(
+      const DeviceIdentifiers(
+        idfv: '',
+        idfa: 'idfa-value',
+      ).toGuestLoginBody('ios'),
+      {
+        'header': {
+          'device': {'idfa': 'idfa-value'},
+        },
+      },
+    );
   });
 
   test(
@@ -271,6 +369,410 @@ void main() {
       expect(calls, 2);
     },
   );
+
+  test(
+    'expired persisted access token refreshes before another guest login',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_auth_expiry_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      final sessionFile = File('${temporaryDirectory.path}/session.json');
+      await sessionFile.writeAsString(
+        jsonEncode({
+          'session': {
+            'accessToken': 'expired-access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'accessTokenExpiresAtMs': DateTime.now()
+                .subtract(const Duration(minutes: 1))
+                .millisecondsSinceEpoch,
+            'user': {'userId': 'guest-1'},
+          },
+        }),
+      );
+      final store = ApiSessionStore(fileProvider: () async => sessionFile);
+      var refreshRequests = 0;
+      var guestRequests = 0;
+      late final AuthSessionController auth;
+      late final ApiClient client;
+      client = ApiClient(
+        baseUrl: 'http://api.example.test',
+        tokenProvider: store.readAccessToken,
+        deviceIdProvider: store.readOrCreateDeviceId,
+        onUnauthorized: () => auth.refreshOrGuestLogin(),
+        httpClient: MockClient((request) async {
+          switch (request.url.path) {
+            case '/api/v1/auth/refresh':
+              refreshRequests++;
+              expect(jsonDecode(request.body), {
+                'refreshToken': 'refresh-token',
+              });
+              return _jsonResponse({
+                'accessToken': 'fresh-access-token',
+                'refreshToken': 'fresh-refresh-token',
+                'expiresIn': 3600,
+                'user': {'userId': 'guest-1'},
+              });
+            case '/api/v1/auth/guest':
+              guestRequests++;
+              return _jsonResponse(const {});
+            default:
+              throw StateError('Unexpected request: ${request.url}');
+          }
+        }),
+      );
+      auth = AuthSessionController(
+        store: store,
+        repository: AuthRepository(client),
+      );
+
+      await auth.ensureSignedIn();
+      await auth.ensureSignedIn();
+
+      expect(refreshRequests, 1);
+      expect(guestRequests, 0);
+      final session = await store.readSession();
+      expect(session?.accessToken, 'fresh-access-token');
+      expect(session?.refreshToken, 'fresh-refresh-token');
+      expect(session?.accessTokenExpiresAt, isNotNull);
+      expect(session!.hasValidAccessToken(), isTrue);
+    },
+  );
+
+  test('refresh fallback reuses one stable IDFV for guest logins', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_guest_device_test_',
+    );
+    addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+    final sessionFile = File('${temporaryDirectory.path}/session.json');
+    const idfv = '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4';
+    final store = ApiSessionStore(
+      fileProvider: () async => sessionFile,
+      deviceIdentifiersProvider: () async =>
+          const DeviceIdentifiers(idfv: idfv),
+    );
+    await store.saveSession(
+      AuthSession(
+        accessToken: 'expired-access-token',
+        refreshToken: 'bad-refresh-token',
+        expiresIn: 3600,
+        accessTokenExpiresAt: DateTime.now().subtract(
+          const Duration(minutes: 1),
+        ),
+        user: const ApiUser(
+          userId: 'guest-1',
+          nickname: '',
+          avatarUrl: '',
+          phone: '',
+          isVip: false,
+        ),
+      ),
+    );
+
+    final guestIdfvs = <String>[];
+    late final AuthSessionController auth;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://api.example.test',
+      tokenProvider: store.readAccessToken,
+      deviceIdProvider: store.readOrCreateDeviceId,
+      platform: 'ios',
+      onUnauthorized: () => auth.refreshOrGuestLogin(),
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/api/v1/auth/refresh') {
+          return http.Response('expired refresh token', 401);
+        }
+        if (request.url.path == '/api/v1/auth/guest') {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final device =
+              (body['header'] as Map<String, dynamic>)['device']
+                  as Map<String, dynamic>;
+          expect(body, isNot(contains('deviceId')));
+          guestIdfvs.add(device['idfv'] as String);
+          return _jsonResponse({
+            'accessToken': 'guest-access-${guestIdfvs.length}',
+            'refreshToken': 'guest-refresh-${guestIdfvs.length}',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          });
+        }
+        throw StateError('Unexpected request: ${request.url}');
+      }),
+    );
+    auth = AuthSessionController(
+      store: store,
+      repository: AuthRepository(client),
+    );
+
+    expect(await auth.refreshOrGuestLogin(), isTrue);
+    final firstGuestSession = await store.readSession();
+    expect(firstGuestSession?.accessToken, 'guest-access-1');
+    expect(firstGuestSession?.refreshToken, 'guest-refresh-1');
+    expect(firstGuestSession?.accessTokenExpiresAt, isNotNull);
+    await store.saveSession(
+      AuthSession(
+        accessToken: 'expired-access-token',
+        refreshToken: 'bad-refresh-token',
+        expiresIn: 3600,
+        accessTokenExpiresAt: DateTime.now().subtract(
+          const Duration(minutes: 1),
+        ),
+        user: (await store.readSession())!.user,
+      ),
+    );
+    expect(await auth.refreshOrGuestLogin(), isTrue);
+
+    expect(guestIdfvs, [idfv, idfv]);
+    expect(await store.readOrCreateDeviceId(), 'ios-$idfv');
+  });
+
+  test('valid access token skips both refresh and guest login', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_valid_auth_test_',
+    );
+    addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+    final sessionFile = File('${temporaryDirectory.path}/session.json');
+    final store = ApiSessionStore(fileProvider: () async => sessionFile);
+    await store.saveSession(
+      AuthSession(
+        accessToken: 'valid-access-token',
+        refreshToken: 'refresh-token',
+        expiresIn: 3600,
+        accessTokenExpiresAt: DateTime.now().add(const Duration(hours: 1)),
+        user: const ApiUser(
+          userId: 'guest-1',
+          nickname: '',
+          avatarUrl: '',
+          phone: '',
+          isVip: false,
+        ),
+      ),
+    );
+    late final AuthSessionController auth;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://api.example.test',
+      tokenProvider: store.readAccessToken,
+      deviceIdProvider: store.readOrCreateDeviceId,
+      onUnauthorized: () => auth.refreshOrGuestLogin(),
+      httpClient: MockClient(
+        (request) => throw StateError('Unexpected request: ${request.url}'),
+      ),
+    );
+    auth = AuthSessionController(
+      store: store,
+      repository: AuthRepository(client),
+    );
+
+    await auth.ensureSignedIn();
+    await auth.ensureSignedIn();
+  });
+
+  test(
+    'legacy persisted session refreshes before protected requests',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_legacy_auth_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      final sessionFile = File('${temporaryDirectory.path}/session.json');
+      await sessionFile.writeAsString(
+        jsonEncode({
+          'session': {
+            'accessToken': 'legacy-access-token',
+            'refreshToken': 'legacy-refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+        }),
+      );
+      final store = ApiSessionStore(fileProvider: () async => sessionFile);
+      var refreshRequests = 0;
+      late final AuthSessionController auth;
+      late final ApiClient client;
+      client = ApiClient(
+        baseUrl: 'http://api.example.test',
+        tokenProvider: store.readAccessToken,
+        deviceIdProvider: store.readOrCreateDeviceId,
+        onUnauthorized: () => auth.refreshOrGuestLogin(),
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/api/v1/auth/refresh');
+          refreshRequests++;
+          return _jsonResponse({
+            'accessToken': 'fresh-access-token',
+            'refreshToken': 'fresh-refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          });
+        }),
+      );
+      auth = AuthSessionController(
+        store: store,
+        repository: AuthRepository(client),
+      );
+
+      await auth.ensureSignedIn();
+
+      expect(refreshRequests, 1);
+      expect((await store.readSession())?.hasValidAccessToken(), isTrue);
+    },
+  );
+
+  test('refresh keeps the prior token when the response omits it', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_refresh_token_test_',
+    );
+    addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+    final sessionFile = File('${temporaryDirectory.path}/session.json');
+    final store = ApiSessionStore(fileProvider: () async => sessionFile);
+    final expiredAt = DateTime.now().subtract(const Duration(minutes: 1));
+    await store.saveSession(
+      AuthSession(
+        accessToken: 'expired-access-token',
+        refreshToken: 'retained-refresh-token',
+        expiresIn: 3600,
+        accessTokenExpiresAt: expiredAt,
+        user: const ApiUser(
+          userId: 'guest-1',
+          nickname: '',
+          avatarUrl: '',
+          phone: '',
+          isVip: false,
+        ),
+      ),
+    );
+    var refreshRequests = 0;
+    late final AuthSessionController auth;
+    late final ApiClient client;
+    client = ApiClient(
+      baseUrl: 'http://api.example.test',
+      tokenProvider: store.readAccessToken,
+      deviceIdProvider: store.readOrCreateDeviceId,
+      onUnauthorized: () => auth.refreshOrGuestLogin(),
+      httpClient: MockClient((request) async {
+        expect(jsonDecode(request.body), {
+          'refreshToken': 'retained-refresh-token',
+        });
+        refreshRequests++;
+        return _jsonResponse({
+          'accessToken': 'fresh-access-token-$refreshRequests',
+          'expiresIn': 3600,
+          'user': {'userId': 'guest-1'},
+        });
+      }),
+    );
+    auth = AuthSessionController(
+      store: store,
+      repository: AuthRepository(client),
+    );
+
+    await auth.ensureSignedIn();
+    expect((await store.readSession())?.refreshToken, 'retained-refresh-token');
+    await store.saveSession(
+      AuthSession(
+        accessToken: 'expired-again',
+        refreshToken: (await store.readSession())!.refreshToken,
+        expiresIn: 3600,
+        accessTokenExpiresAt: expiredAt,
+        user: (await store.readSession())!.user,
+      ),
+    );
+    await auth.ensureSignedIn();
+
+    expect(refreshRequests, 2);
+  });
+
+  test(
+    'device id is generated once across concurrent store instances',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_device_id_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      final sessionFile = File('${temporaryDirectory.path}/session.json');
+      final firstStore = ApiSessionStore(fileProvider: () async => sessionFile);
+      final secondStore = ApiSessionStore(
+        fileProvider: () async => sessionFile,
+      );
+
+      final deviceIds = await Future.wait([
+        firstStore.readOrCreateDeviceId(),
+        secondStore.readOrCreateDeviceId(),
+        firstStore.readOrCreateDeviceId(),
+      ]);
+
+      expect(deviceIds.toSet(), hasLength(1));
+      expect(deviceIds.first, matches(r'^ios-[0-9a-f-]{36}$'));
+      expect(
+        await ApiSessionStore(
+          fileProvider: () async => sessionFile,
+        ).readOrCreateDeviceId(),
+        deviceIds.first,
+      );
+    },
+  );
+
+  test('device id follows an unchanged IDFV across app-data resets', () async {
+    final firstDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_idfv_first_test_',
+    );
+    final secondDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_idfv_second_test_',
+    );
+    addTearDown(() async {
+      await firstDirectory.delete(recursive: true);
+      await secondDirectory.delete(recursive: true);
+    });
+
+    Future<DeviceIdentifiers> readIdentifiers() async =>
+        const DeviceIdentifiers(idfv: '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4');
+    final firstStore = ApiSessionStore(
+      fileProvider: () async => File('${firstDirectory.path}/session.json'),
+      deviceIdentifiersProvider: readIdentifiers,
+    );
+    final secondStore = ApiSessionStore(
+      fileProvider: () async => File('${secondDirectory.path}/session.json'),
+      deviceIdentifiersProvider: readIdentifiers,
+    );
+
+    expect(
+      await firstStore.readOrCreateDeviceId(),
+      'ios-6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4',
+    );
+    expect(
+      await secondStore.readOrCreateDeviceId(),
+      'ios-6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4',
+    );
+  });
+
+  test('device id creation retries after a transient file failure', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'bobobeads_device_retry_test_',
+    );
+    addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+    final sessionFile = File('${temporaryDirectory.path}/session.json');
+    final deviceDirectory = Directory('${sessionFile.path}.device_id');
+    await deviceDirectory.create();
+    final store = ApiSessionStore(fileProvider: () async => sessionFile);
+
+    await expectLater(
+      store.readOrCreateDeviceId(),
+      throwsA(isA<FileSystemException>()),
+    );
+    await deviceDirectory.delete();
+
+    final deviceId = await store.readOrCreateDeviceId();
+
+    expect(deviceId, matches(r'^ios-[0-9a-f-]{36}$'));
+  });
 
   test('PatternData serializes generated rgba pixels as palette indexes', () {
     final red = PaletteEntry(
@@ -736,6 +1238,16 @@ void main() {
       expect(homeListRequest.url.queryParameters['page.page'], '1');
       expect(homeListRequest.url.queryParameters['page.pageSize'], '20');
     },
+  );
+}
+
+http.Response _jsonResponse(Map<String, Object?> body) {
+  return http.Response(
+    jsonEncode({
+      'header': {'code': 0, 'message': 'success'},
+      ...body,
+    }),
+    200,
   );
 }
 
