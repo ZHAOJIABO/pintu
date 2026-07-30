@@ -1,5 +1,6 @@
 import Flutter
 import Photos
+import Security
 import UIKit
 import Vision
 
@@ -79,10 +80,96 @@ import Vision
         }
         result(identifiers)
       }
+
+      let guestCredentialChannel = FlutterMethodChannel(
+        name: "bobobeads/guest_credential",
+        binaryMessenger: controller.binaryMessenger
+      )
+      guestCredentialChannel.setMethodCallHandler { [weak self] call, result in
+        guard let self else {
+          result(FlutterError(
+            code: "unavailable",
+            message: "Guest credential storage is unavailable.",
+            details: nil
+          ))
+          return
+        }
+        do {
+          switch call.method {
+          case "readGuestCredential":
+            result(try self.readGuestCredential())
+          case "writeGuestCredential":
+            guard let arguments = call.arguments as? [String: Any],
+                  let value = arguments["value"] as? String,
+                  !value.isEmpty else {
+              result(FlutterError(
+                code: "invalid_args",
+                message: "A guest credential is required.",
+                details: nil
+              ))
+              return
+            }
+            try self.writeGuestCredential(value)
+            result(nil)
+          default:
+            result(FlutterMethodNotImplemented)
+          }
+        } catch {
+          result(FlutterError(
+            code: "keychain_error",
+            message: "Unable to access anonymous account storage.",
+            details: nil
+          ))
+        }
+      }
     }
 
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private var guestCredentialKeychainQuery: [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: "cn.appbobo.bobobeads.guest-identity",
+      kSecAttrAccount as String: "guest-credential",
+    ]
+  }
+
+  private func readGuestCredential() throws -> String? {
+    var query = guestCredentialKeychainQuery
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound {
+      return nil
+    }
+    guard status == errSecSuccess,
+          let data = result as? Data,
+          let credential = String(data: data, encoding: .utf8),
+          !credential.isEmpty else {
+      throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+    }
+    return credential
+  }
+
+  private func writeGuestCredential(_ credential: String) throws {
+    let data = Data(credential.utf8)
+    var attributes = guestCredentialKeychainQuery
+    attributes[kSecValueData as String] = data
+    attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+    let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+    if addStatus == errSecSuccess {
+      return
+    }
+    guard addStatus == errSecDuplicateItem else {
+      throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+    }
+    // A competing first-use request won the race. Leave its credential in
+    // place; Flutter reads it back after this call and uses the same account.
   }
 
   private func removeBackground(_ data: Data, result: @escaping FlutterResult) {

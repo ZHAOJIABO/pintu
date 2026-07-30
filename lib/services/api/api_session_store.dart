@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:path_provider/path_provider.dart';
 
 import 'api_models.dart';
+import 'guest_credential_store.dart';
 import 'vendor_identifier.dart';
 
 typedef DeviceIdentifiersProvider = Future<DeviceIdentifiers> Function();
@@ -14,6 +15,7 @@ class ApiSessionStore {
   static const _fileName = 'bobobeads_api_session.json';
   static const _deviceIdKey = 'deviceId';
   static const _deviceIdFileSuffix = '.device_id';
+  static const _guestCredentialFileSuffix = '.guest_credential';
   static const _sessionKey = 'session';
   static const _pendingStyleClientRequestIdKey = 'pendingStyleClientRequestId';
   static const _pendingAiTaskIdKey = 'pendingAiTaskId';
@@ -23,13 +25,24 @@ class ApiSessionStore {
 
   final Future<File> Function()? fileProvider;
   final DeviceIdentifiersProvider? deviceIdentifiersProvider;
+  final GuestCredentialStore? guestCredentialStore;
 
   /// Multiple service instances can be created while the widget tree is being
   /// rebuilt. Serialize the first read/create per persisted file so they can
   /// never generate competing IDs for one installation.
   static final Map<String, Future<String>> _deviceIdRequests = {};
 
-  const ApiSessionStore({this.fileProvider, this.deviceIdentifiersProvider});
+  /// Keychain is shared by every service instance in this process. Serialize
+  /// first-use so concurrent startup requests cannot register separate guest
+  /// accounts before either one writes the credential.
+  static final Map<GuestCredentialStore, Future<String>>
+  _guestCredentialRequests = {};
+
+  const ApiSessionStore({
+    this.fileProvider,
+    this.deviceIdentifiersProvider,
+    this.guestCredentialStore,
+  });
 
   Future<DeviceIdentifiers> readDeviceIdentifiers() async {
     final provider = deviceIdentifiersProvider;
@@ -55,6 +68,70 @@ class ApiSessionStore {
       ),
     );
     return request;
+  }
+
+  /// Returns the opaque credential used to restore an anonymous account.
+  ///
+  /// On iOS it is stored in Keychain, which normally remains available after
+  /// the app is deleted and reinstalled. It is intentionally distinct from
+  /// IDFV/IDFA, which are only device signals and must not own a user account.
+  Future<String> readOrCreateGuestCredential() async {
+    final secureStore = guestCredentialStore;
+    if (secureStore != null || Platform.isIOS) {
+      return _readOrCreateSharedGuestCredential(
+        secureStore ?? const KeychainGuestCredentialStore(),
+      );
+    }
+    return _readOrCreateFileGuestCredential();
+  }
+
+  Future<String> _readOrCreateSharedGuestCredential(
+    GuestCredentialStore secureStore,
+  ) {
+    final existingRequest = _guestCredentialRequests[secureStore];
+    if (existingRequest != null) return existingRequest;
+
+    final request = _readOrCreateSecureGuestCredential(secureStore);
+    _guestCredentialRequests[secureStore] = request;
+    unawaited(
+      request.then<void>(
+        (_) {},
+        onError: (Object _, StackTrace _) {
+          if (identical(_guestCredentialRequests[secureStore], request)) {
+            _guestCredentialRequests.remove(secureStore);
+          }
+        },
+      ),
+    );
+    return request;
+  }
+
+  Future<String> _readOrCreateSecureGuestCredential(
+    GuestCredentialStore secureStore,
+  ) async {
+    final existing = await secureStore.read();
+    if (existing != null && existing.isNotEmpty) return existing;
+
+    final credential = RequestId.generate();
+    await secureStore.write(credential);
+    final storedCredential = await secureStore.read();
+    if (storedCredential == null || storedCredential.isEmpty) {
+      throw StateError('Guest credential storage did not retain its value.');
+    }
+    return storedCredential;
+  }
+
+  Future<String> _readOrCreateFileGuestCredential() async {
+    final credentialFile = await _guestCredentialFile();
+    if (await credentialFile.exists()) {
+      final existing = (await credentialFile.readAsString()).trim();
+      if (existing.isNotEmpty) return existing;
+    }
+
+    final credential = RequestId.generate();
+    await credentialFile.parent.create(recursive: true);
+    await credentialFile.writeAsString(credential, flush: true);
+    return credential;
   }
 
   Future<String> _readOrCreateDeviceId(File deviceFile) async {
@@ -218,6 +295,11 @@ class ApiSessionStore {
   Future<File> _deviceFile() async {
     final sessionFile = await _file();
     return File('${sessionFile.path}$_deviceIdFileSuffix');
+  }
+
+  Future<File> _guestCredentialFile() async {
+    final sessionFile = await _file();
+    return File('${sessionFile.path}$_guestCredentialFileSuffix');
   }
 }
 

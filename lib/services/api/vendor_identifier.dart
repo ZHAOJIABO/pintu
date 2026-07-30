@@ -24,7 +24,10 @@ class DeviceIdentifiers {
     );
   }
 
-  Map<String, Object?> toGuestLoginBody(String platform) {
+  Map<String, Object?> toGuestLoginBody(
+    String platform, {
+    required String guestCredential,
+  }) {
     final device = <String, Object?>{};
     if (platform == 'android') {
       final primary = _nonEmpty(androidId);
@@ -42,7 +45,7 @@ class DeviceIdentifiers {
       }
     }
     return {
-      'header': {'device': device},
+      'header': {'guestCredential': guestCredential, 'device': device},
     };
   }
 

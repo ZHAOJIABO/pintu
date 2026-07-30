@@ -205,7 +205,11 @@ class ApiClient {
       debugPrint(
         '[API] $method $path${query.isNotEmpty ? ' query=$query' : ''}',
       );
-      if (body != null) debugPrint('[API] body: ${jsonEncode(body)}');
+      if (body != null) {
+        debugPrint(
+          '[API] body: ${jsonEncode(_redactSecretsForLog(body, redactVerificationCode: path.startsWith('/api/v1/auth/')))}',
+        );
+      }
     }
 
     final streamed = await httpClient.send(request);
@@ -433,5 +437,41 @@ class ApiClient {
       return response.reasonPhrase ?? 'request failed';
     }
     return response.reasonPhrase ?? 'request failed';
+  }
+
+  Object? _redactSecretsForLog(
+    Object? value, {
+    required bool redactVerificationCode,
+  }) {
+    const secretKeys = {
+      'accessToken',
+      'guestCredential',
+      'refreshToken',
+      'token',
+    };
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          entry.key.toString():
+              secretKeys.contains(entry.key.toString()) ||
+                  (redactVerificationCode && entry.key == 'code')
+              ? '***'
+              : _redactSecretsForLog(
+                  entry.value,
+                  redactVerificationCode: redactVerificationCode,
+                ),
+      };
+    }
+    if (value is Iterable) {
+      return value
+          .map(
+            (item) => _redactSecretsForLog(
+              item,
+              redactVerificationCode: redactVerificationCode,
+            ),
+          )
+          .toList();
+    }
+    return value;
   }
 }

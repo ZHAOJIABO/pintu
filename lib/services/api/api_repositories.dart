@@ -13,10 +13,16 @@ class AuthRepository {
 
   const AuthRepository(this.apiClient);
 
-  Future<AuthSession> guestLogin(DeviceIdentifiers identifiers) async {
+  Future<AuthSession> guestLogin(
+    DeviceIdentifiers identifiers, {
+    required String guestCredential,
+  }) async {
     final data = await apiClient.post(
       '/api/v1/auth/guest',
-      body: identifiers.toGuestLoginBody(apiClient.platform),
+      body: identifiers.toGuestLoginBody(
+        apiClient.platform,
+        guestCredential: guestCredential,
+      ),
       includeAuth: false,
       includeDeviceId: false,
       retryUnauthorized: false,
@@ -99,7 +105,10 @@ class AuthSessionController {
 
     try {
       final identifiers = await store.readDeviceIdentifiers();
-      final guest = await repository.guestLogin(identifiers);
+      final guest = await repository.guestLogin(
+        identifiers,
+        guestCredential: await store.readOrCreateGuestCredential(),
+      );
       await store.saveSession(guest);
       return true;
     } catch (_) {

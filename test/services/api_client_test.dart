@@ -13,6 +13,7 @@ import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_repositories.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/services/api/guest_credential_store.dart';
 import 'package:bobobeads/services/api/vendor_identifier.dart';
 import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,7 +61,7 @@ void main() {
   });
 
   test(
-    'guest login sends the iOS identifier envelope and preserves userId',
+    'guest login sends a persistent credential with iOS identifiers',
     () async {
       late http.Request captured;
       final client = ApiClient(
@@ -81,6 +82,7 @@ void main() {
 
       final session = await AuthRepository(client).guestLogin(
         const DeviceIdentifiers(idfv: '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'),
+        guestCredential: 'guest-credential',
       );
 
       expect(captured.url.path, '/api/v1/auth/guest');
@@ -88,6 +90,7 @@ void main() {
       expect(captured.headers.containsKey('X-Device-Id'), isFalse);
       expect(jsonDecode(captured.body), {
         'header': {
+          'guestCredential': 'guest-credential',
           'device': {'idfv': '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'},
         },
       });
@@ -118,12 +121,14 @@ void main() {
 
       await AuthRepository(client).guestLogin(
         const DeviceIdentifiers(androidId: 'android-id', oaid: 'oaid-value'),
+        guestCredential: 'guest-credential',
       );
 
       expect(captured.headers['X-Platform'], 'android');
       expect(captured.headers.containsKey('X-Device-Id'), isFalse);
       expect(jsonDecode(captured.body), {
         'header': {
+          'guestCredential': 'guest-credential',
           'device': {'androidId': 'android-id'},
         },
       });
@@ -135,9 +140,10 @@ void main() {
       const DeviceIdentifiers(
         androidId: '',
         oaid: 'oaid-value',
-      ).toGuestLoginBody('android'),
+      ).toGuestLoginBody('android', guestCredential: 'guest-credential'),
       {
         'header': {
+          'guestCredential': 'guest-credential',
           'device': {'oaid': 'oaid-value'},
         },
       },
@@ -146,9 +152,10 @@ void main() {
       const DeviceIdentifiers(
         idfv: '',
         idfa: 'idfa-value',
-      ).toGuestLoginBody('ios'),
+      ).toGuestLoginBody('ios', guestCredential: 'guest-credential'),
       {
         'header': {
+          'guestCredential': 'guest-credential',
           'device': {'idfa': 'idfa-value'},
         },
       },
@@ -752,6 +759,53 @@ void main() {
     );
   });
 
+  test(
+    'guest credential survives an application-data reset via secure storage',
+    () async {
+      final firstDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_guest_credential_first_test_',
+      );
+      final secondDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_guest_credential_second_test_',
+      );
+      addTearDown(() async {
+        await firstDirectory.delete(recursive: true);
+        await secondDirectory.delete(recursive: true);
+      });
+      final secureStorage = _MemoryGuestCredentialStore();
+      final firstStore = ApiSessionStore(
+        fileProvider: () async => File('${firstDirectory.path}/session.json'),
+        guestCredentialStore: secureStorage,
+      );
+      final reinstalledStore = ApiSessionStore(
+        fileProvider: () async => File('${secondDirectory.path}/session.json'),
+        guestCredentialStore: secureStorage,
+      );
+
+      final credential = await firstStore.readOrCreateGuestCredential();
+
+      expect(await reinstalledStore.readOrCreateGuestCredential(), credential);
+    },
+  );
+
+  test(
+    'guest credential is created once across concurrent store instances',
+    () async {
+      final secureStorage = _MemoryGuestCredentialStore();
+      final firstStore = ApiSessionStore(guestCredentialStore: secureStorage);
+      final secondStore = ApiSessionStore(guestCredentialStore: secureStorage);
+
+      final credentials = await Future.wait([
+        firstStore.readOrCreateGuestCredential(),
+        secondStore.readOrCreateGuestCredential(),
+        firstStore.readOrCreateGuestCredential(),
+      ]);
+
+      expect(credentials.toSet(), hasLength(1));
+      expect(secureStorage.writeCount, 1);
+    },
+  );
+
   test('device id creation retries after a transient file failure', () async {
     final temporaryDirectory = await Directory.systemTemp.createTemp(
       'bobobeads_device_retry_test_',
@@ -1324,6 +1378,20 @@ class _FakePatternExportService extends PatternExportService {
     GeneratedPattern pattern,
   ) async {
     return Uint8List.fromList([4, 5, 6]);
+  }
+}
+
+class _MemoryGuestCredentialStore implements GuestCredentialStore {
+  String? value;
+  int writeCount = 0;
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String value) async {
+    writeCount++;
+    this.value = value;
   }
 }
 

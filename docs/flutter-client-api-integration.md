@@ -283,7 +283,7 @@ final clientRequestId = const Uuid().v4();
 sequenceDiagram
     participant App
     participant API
-    App->>API: POST /api/v1/auth/guest(deviceId)
+    App->>API: POST /api/v1/auth/guest(guestCredential, device)
     API-->>App: accessToken, refreshToken, user
     App->>API: GET /api/v1/system/config
     App->>API: GET /api/v1/system/board-specs
@@ -292,7 +292,7 @@ sequenceDiagram
 
 流程建议：
 
-1. 本地读取稳定 `deviceId`。没有就生成并保存。
+1. iOS 先从 Keychain 读取 `guestCredential`；没有才生成 128-bit 随机值并写入 Keychain。该项必须使用 `AfterFirstUnlockThisDeviceOnly`，且不得开启 iCloud 同步。
 2. 如果本地没有 token，调用游客登录。
 3. 如果已有 token，先直接请求接口。遇到 401 再 refresh 或重新游客登录。
 4. 拉取系统配置、豆板规格、颜色库。
@@ -572,9 +572,22 @@ POST /api/v1/auth/guest
 
 ```json
 {
-  "deviceId": "ios-device-uuid"
+  "header": {
+    "guestCredential": "46d2672e-42c3-4cff-8d4d-8c7ee0bd328c",
+    "device": {
+      "idfv": "6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4"
+    }
+  }
 }
 ```
+
+`guestCredential` 是游客账号的唯一恢复凭证，必须由客户端安全随机生成，服务端只保存其带服务端密钥的哈希值，绝不记录原文或输出到日志。服务端处理优先级必须为：
+
+1. 先按 `guestCredential` 哈希查找已绑定的游客用户，找到后直接返回原 `userId`；这是 iOS 卸载重装后设备标识变化时的恢复路径。
+2. 未找到时，按 `device` 中的旧设备标识查找既有游客用户；若找到，将新的凭证哈希绑定到该用户，兼容存量版本升级。
+3. 两者都未找到时才创建新游客用户，并原子写入凭证哈希绑定。
+
+`idfv`、`idfa`、`androidId` 和 `oaid` 仅用于兼容、风控和归因，不能作为游客用户的主键。凭证哈希需有唯一约束，首次创建/绑定需要事务或等价的幂等保证，避免并发启动创建多个用户。
 
 响应：
 

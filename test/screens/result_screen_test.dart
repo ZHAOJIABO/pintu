@@ -595,6 +595,9 @@ class _MemoryApiSessionStore extends ApiSessionStore {
   Future<String> readOrCreateDeviceId() async => 'device-1';
 
   @override
+  Future<String> readOrCreateGuestCredential() async => 'guest-credential';
+
+  @override
   Future<AuthSession?> readSession() async => _session;
 
   @override
