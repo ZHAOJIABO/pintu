@@ -100,7 +100,6 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   bool _denoise = false;
   int _saturation = 100;
   bool _generating = false;
-  bool _serverAttemptStarted = false;
 
   ProductTemplate get _customTemplate =>
       _sizeOptions.firstWhere((template) => template.custom);
@@ -179,9 +178,8 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 
     try {
       final backendServices = BackendScope.maybeOf(context);
-      if (backendServices != null && !_serverAttemptStarted) {
+      if (backendServices != null) {
         await backendServices.generationCompletion.startNewAttempt();
-        _serverAttemptStarted = true;
       }
       if (!mounted) return;
       final palette = await _paletteService.loadByName(brandId);
@@ -266,19 +264,16 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           onTemplateSelected: (template) {
                             setState(() {
                               _selectedTemplate = template;
-                              _serverAttemptStarted = false;
                             });
                           },
                           onCustomSizeChanged: (value) {
                             setState(() {
                               _customSize = value;
-                              _serverAttemptStarted = false;
                             });
                           },
                           onSmoothingChanged: () {
                             setState(() {
                               _smoothing = !_smoothing;
-                              _serverAttemptStarted = false;
                             });
                           },
                           onRemoveBackgroundChanged: () {
@@ -313,13 +308,11 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                               _brandId = value == _brandUnlimitedValue
                                   ? null
                                   : value;
-                              _serverAttemptStarted = false;
                             });
                           },
                           onColorLimitSelected: (limit) {
                             setState(() {
                               _limit = limit;
-                              _serverAttemptStarted = false;
                             });
                           },
                           onGenerate: _generate,

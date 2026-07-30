@@ -701,6 +701,8 @@ class GenerationCreateResult {
   final int remainingBalance;
   final int expiresAt;
   final bool duplicated;
+  final int headerCode;
+  final String? traceId;
 
   const GenerationCreateResult({
     required this.generationId,
@@ -708,15 +710,22 @@ class GenerationCreateResult {
     required this.remainingBalance,
     required this.expiresAt,
     required this.duplicated,
+    required this.headerCode,
+    this.traceId,
   });
 
   factory GenerationCreateResult.fromJson(JsonMap json) {
+    final header = ResponseHeader.fromJson(
+      (json['header'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
     return GenerationCreateResult(
       generationId: _stringValue(json['generationId']),
       creditsDeducted: _intValue(json['creditsDeducted']),
       remainingBalance: _intValue(json['remainingBalance']),
       expiresAt: _intValue(json['expiresAt']),
       duplicated: _boolValue(json['duplicated']),
+      headerCode: header.code,
+      traceId: header.traceId,
     );
   }
 }
@@ -724,16 +733,25 @@ class GenerationCreateResult {
 class GenerationCompleteResult {
   final String workId;
   final bool duplicated;
+  final int headerCode;
+  final String? traceId;
 
   const GenerationCompleteResult({
     required this.workId,
     required this.duplicated,
+    required this.headerCode,
+    this.traceId,
   });
 
   factory GenerationCompleteResult.fromJson(JsonMap json) {
+    final header = ResponseHeader.fromJson(
+      (json['header'] as Map?)?.cast<String, dynamic>() ?? const {},
+    );
     return GenerationCompleteResult(
       workId: _stringValue(json['workId']),
       duplicated: _boolValue(json['duplicated']),
+      headerCode: header.code,
+      traceId: header.traceId,
     );
   }
 }

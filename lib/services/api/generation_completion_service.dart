@@ -1,4 +1,6 @@
-import 'dart:typed_data';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 
 import '../../models/generated_pattern.dart';
 import '../pattern_export_service.dart';
@@ -6,25 +8,30 @@ import 'api_models.dart';
 import 'api_repositories.dart';
 import 'api_session_store.dart';
 
+typedef GenerationDiagnosticLogger = void Function(Map<String, Object?> event);
+
 class GenerationCompletionService {
   final MediaRepository media;
   final GenerationRepository generations;
   final ApiSessionStore store;
   final PatternExportService exportService;
+  final GenerationDiagnosticLogger? diagnosticLogger;
 
   const GenerationCompletionService({
     required this.media,
     required this.generations,
     required this.store,
     this.exportService = const PatternExportService(),
+    this.diagnosticLogger,
   });
 
-  Future<void> startNewAttempt() async {
-    await Future.wait([
-      store.clearPendingGenerationClientRequestId(),
-      store.clearPendingGenerationId(),
-    ]);
-    await store.readOrCreatePendingGenerationClientRequestId();
+  /// Starts an independent generation attempt and records the user click.
+  Future<String> startNewAttempt() async {
+    await store.clearPendingGenerationAttempt();
+    final clientRequestId = await store
+        .readOrCreatePendingGenerationClientRequestId();
+    _log(event: 'click', clientRequestId: clientRequestId, isRetry: false);
+    return clientRequestId;
   }
 
   Future<GenerationCompleteResult> completeGeneratedPattern(
@@ -34,47 +41,77 @@ class GenerationCompletionService {
     String? title,
     String? originalImageUrl,
   }) async {
-    final boardSpec = '${pattern.width}x${pattern.height}';
-    final patternData = PatternData.fromGeneratedPattern(
-      pattern,
-      boardSpec: boardSpec,
-    );
-    final beadCount = patternData.pixels.where((pixel) => pixel != 0).length;
-    final colorCount = patternData.pixels
-        .where((pixel) => pixel != 0)
-        .toSet()
-        .length;
-    final generationId = await _resolveGenerationId(
-      boardSpec: boardSpec,
-      sourceType: sourceType,
-      sourceId: sourceId,
-    );
-    final sourceUrl =
-        originalImageUrl ??
-        await _uploadOriginalImage(pattern.draft.imageForGeneration);
-    final previewUrl = await _uploadPatternPreview(pattern);
-    final thumbnailUrl = await _uploadPatternThumbnail(pattern);
-    final result = await generations.completeGeneration(
-      generationId: generationId,
-      title: title ?? _defaultTitle(),
-      originalImageUrl: sourceUrl,
-      patternImageUrl: previewUrl,
-      thumbnailUrl: thumbnailUrl,
-      patternData: patternData,
-      beadCount: beadCount,
-      colorCount: colorCount,
-    );
-    await Future.wait([
-      store.clearPendingGenerationClientRequestId(),
-      store.clearPendingGenerationId(),
-    ]);
-    return result;
+    final clientRequestId = await store
+        .readOrCreatePendingGenerationClientRequestId();
+    String? generationId;
+
+    try {
+      final boardSpec = '${pattern.width}x${pattern.height}';
+      final patternData = PatternData.fromGeneratedPattern(
+        pattern,
+        boardSpec: boardSpec,
+      );
+      final beadCount = patternData.pixels.where((pixel) => pixel != 0).length;
+      final colorCount = patternData.pixels
+          .where((pixel) => pixel != 0)
+          .toSet()
+          .length;
+      generationId = await _resolveGenerationId(
+        boardSpec: boardSpec,
+        sourceType: sourceType,
+        sourceId: sourceId,
+        clientRequestId: clientRequestId,
+      );
+      final sourceUrl =
+          originalImageUrl ??
+          await _uploadOriginalImage(pattern.draft.imageForGeneration);
+      final previewUrl = await _uploadPatternPreview(pattern);
+      final thumbnailUrl = await _uploadPatternThumbnail(pattern);
+      final result = await generations.completeGeneration(
+        generationId: generationId,
+        title: title ?? _defaultTitle(),
+        originalImageUrl: sourceUrl,
+        patternImageUrl: previewUrl,
+        thumbnailUrl: thumbnailUrl,
+        patternData: patternData,
+        beadCount: beadCount,
+        colorCount: colorCount,
+      );
+      _log(
+        event: 'complete_response',
+        clientRequestId: clientRequestId,
+        headerCode: result.headerCode,
+        duplicated: result.duplicated,
+        generationId: generationId,
+        traceId: result.traceId,
+      );
+      await store.clearPendingGenerationAttempt();
+      return result;
+    } on ApiException catch (error) {
+      _log(
+        event: 'failed',
+        clientRequestId: clientRequestId,
+        headerCode: error.code,
+        generationId: generationId,
+        traceId: error.traceId,
+      );
+      rethrow;
+    } catch (error) {
+      _log(
+        event: 'failed',
+        clientRequestId: clientRequestId,
+        generationId: generationId,
+        error: error.runtimeType.toString(),
+      );
+      rethrow;
+    }
   }
 
   Future<String> _resolveGenerationId({
     required String boardSpec,
     required String sourceType,
     required String sourceId,
+    required String clientRequestId,
   }) async {
     final pending = await store.readPendingGenerationId();
     if (pending != null && pending.isNotEmpty) return pending;
@@ -83,14 +120,49 @@ class GenerationCompletionService {
       boardSpec: boardSpec,
       sourceType: sourceType,
       sourceId: sourceId,
-      clientRequestId: await store
-          .readOrCreatePendingGenerationClientRequestId(),
+      clientRequestId: clientRequestId,
+    );
+    _log(
+      event: 'create_response',
+      clientRequestId: clientRequestId,
+      headerCode: created.headerCode,
+      duplicated: created.duplicated,
+      generationId: created.generationId,
+      traceId: created.traceId,
     );
     if (created.generationId.isEmpty) {
       throw const FormatException('生成凭证响应缺少 generationId');
     }
     await store.savePendingGenerationId(created.generationId);
     return created.generationId;
+  }
+
+  void _log({
+    required String event,
+    required String clientRequestId,
+    int? headerCode,
+    bool? duplicated,
+    String? generationId,
+    String? traceId,
+    bool? isRetry,
+    String? error,
+  }) {
+    final fields = <String, Object?>{
+      'event': event,
+      'clientRequestId': clientRequestId,
+      'header.code': headerCode,
+      'duplicated': duplicated,
+      'generationId': generationId,
+      'traceId': traceId,
+      'isRetry': ?isRetry,
+      'error': ?error,
+    };
+    final logger = diagnosticLogger;
+    if (logger != null) {
+      logger(fields);
+      return;
+    }
+    debugPrint('[GenerationDiagnostic] ${jsonEncode(fields)}');
   }
 
   Future<String> _uploadOriginalImage(Uint8List bytes) async {

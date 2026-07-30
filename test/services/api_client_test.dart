@@ -971,7 +971,7 @@ void main() {
   );
 
   test(
-    'GenerationCompletionService uploads assets and completes a pattern',
+    'GenerationCompletionService creates a new attempt after a failed click',
     () async {
       final temporaryDirectory = await Directory.systemTemp.createTemp(
         'bobobeads_generation_completion_test_',
@@ -979,7 +979,9 @@ void main() {
       addTearDown(() => temporaryDirectory.delete(recursive: true));
 
       final requests = <http.Request>[];
+      final diagnostics = <Map<String, Object?>>[];
       var completeAttempts = 0;
+      var generationCreateAttempts = 0;
       final store = ApiSessionStore(
         fileProvider: () async =>
             File('${temporaryDirectory.path}/session.json'),
@@ -1014,7 +1016,7 @@ void main() {
               'user': {'userId': 'guest-1'},
             },
             '/api/v1/generation/create' => {
-              'generationId': 'generation-001',
+              'generationId': 'generation-00${++generationCreateAttempts}',
               'creditsDeducted': 0,
               'remainingBalance': 3,
               'expiresAt': 1783421800,
@@ -1037,6 +1039,10 @@ void main() {
               'workId': 'work-001',
               'duplicated': false,
             },
+            '/api/v1/generation/generation-002/complete' => {
+              'workId': 'work-002',
+              'duplicated': false,
+            },
             '/generation-source.png' ||
             '/pattern-preview.png' ||
             '/pattern-thumbnail.png' => <String, Object?>{},
@@ -1044,7 +1050,11 @@ void main() {
           };
           return http.Response(
             jsonEncode({
-              'header': {'code': 0, 'message': 'success'},
+              'header': {
+                'code': 0,
+                'message': 'success',
+                'traceId': 'trace${request.url.path}',
+              },
               ...body,
             }),
             200,
@@ -1060,33 +1070,44 @@ void main() {
         generations: GenerationRepository(apiClient: client, auth: auth),
         store: store,
         exportService: const _FakePatternExportService(),
+        diagnosticLogger: diagnostics.add,
       );
 
+      final clientRequestId = await service.startNewAttempt();
       await expectLater(
         () => service.completeGeneratedPattern(_pattern()),
         throwsA(isA<ApiException>()),
       );
       expect(await store.readPendingGenerationId(), 'generation-001');
 
+      final secondClientRequestId = await service.startNewAttempt();
+      expect(secondClientRequestId, isNot(clientRequestId));
       final result = await service.completeGeneratedPattern(_pattern());
 
-      expect(result.workId, 'work-001');
+      expect(result.workId, 'work-002');
       final createRequests = requests
           .where((request) => request.url.path == '/api/v1/generation/create')
           .toList();
-      expect(createRequests, hasLength(1));
-      final createRequest = createRequests.single;
-      expect(jsonDecode(createRequest.body), {
+      expect(createRequests, hasLength(2));
+      expect(jsonDecode(createRequests.first.body), {
         'boardSpec': '2x2',
         'sourceType': 'photo',
         'sourceId': '',
         'clientRequestId': isA<String>(),
       });
+      final createRequestIds = createRequests
+          .map(
+            (request) =>
+                (jsonDecode(request.body)
+                    as Map<String, dynamic>)['clientRequestId'],
+          )
+          .toList();
+      expect(createRequestIds, [clientRequestId, secondClientRequestId]);
       final completeRequests = requests
           .where(
             (request) =>
-                request.url.path ==
-                '/api/v1/generation/generation-001/complete',
+                request.url.path.startsWith('/api/v1/generation/') &&
+                request.url.path.endsWith('/complete'),
           )
           .toList();
       expect(completeRequests, hasLength(2));
@@ -1153,6 +1174,42 @@ void main() {
         'schemaVersion': 1,
       });
       expect(await store.readPendingGenerationId(), isNull);
+      final clicks = diagnostics
+          .where((event) => event['event'] == 'click')
+          .toList();
+      expect(clicks, hasLength(2));
+      expect(clicks.first['clientRequestId'], clientRequestId);
+      expect(clicks.first['header.code'], isNull);
+      expect(clicks.first['duplicated'], isNull);
+      expect(clicks.first['generationId'], isNull);
+      expect(clicks.first['traceId'], isNull);
+      expect(clicks.first['isRetry'], false);
+      expect(clicks.last['clientRequestId'], secondClientRequestId);
+      expect(clicks.last['generationId'], isNull);
+      expect(clicks.last['isRetry'], false);
+
+      final createEvents = diagnostics
+          .where((event) => event['event'] == 'create_response')
+          .toList();
+      expect(createEvents, hasLength(2));
+      final createEvent = createEvents.last;
+      expect(createEvent['clientRequestId'], secondClientRequestId);
+      expect(createEvent['header.code'], 0);
+      expect(createEvent['duplicated'], false);
+      expect(createEvent['generationId'], 'generation-002');
+      expect(createEvent['traceId'], 'trace/api/v1/generation/create');
+
+      final completeEvent = diagnostics.singleWhere(
+        (event) => event['event'] == 'complete_response',
+      );
+      expect(completeEvent['clientRequestId'], secondClientRequestId);
+      expect(completeEvent['header.code'], 0);
+      expect(completeEvent['duplicated'], false);
+      expect(completeEvent['generationId'], 'generation-002');
+      expect(
+        completeEvent['traceId'],
+        'trace/api/v1/generation/generation-002/complete',
+      );
     },
   );
 

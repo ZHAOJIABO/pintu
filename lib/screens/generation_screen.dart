@@ -26,7 +26,6 @@ class _GenerationScreenState extends State<GenerationScreen> {
   bool _failed = false;
   Object? _error;
   int _generationToken = 0;
-  bool _serverAttemptStarted = false;
 
   @override
   void initState() {
@@ -43,9 +42,8 @@ class _GenerationScreenState extends State<GenerationScreen> {
     final token = _generationToken;
     try {
       final backendServices = BackendScope.maybeOf(context);
-      if (backendServices != null && !_serverAttemptStarted) {
+      if (backendServices != null) {
         await backendServices.generationCompletion.startNewAttempt();
-        _serverAttemptStarted = true;
       }
       if (!mounted || token != _generationToken) return;
       final palette = await _paletteService.loadByName(

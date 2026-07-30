@@ -156,6 +156,16 @@ class ApiSessionStore {
     return _remove(_pendingGenerationIdKey);
   }
 
+  /// Clears the generation idempotency state in one file write so a new user
+  /// click cannot retain either half of a previous attempt.
+  Future<void> clearPendingGenerationAttempt() async {
+    final data = await _read();
+    data
+      ..remove(_pendingGenerationClientRequestIdKey)
+      ..remove(_pendingGenerationIdKey);
+    await _write(data);
+  }
+
   Future<String> _readOrCreateString(String key) async {
     final data = await _read();
     final existing = data[key]?.toString();
