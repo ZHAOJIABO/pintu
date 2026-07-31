@@ -7,6 +7,7 @@ import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/rendering/pattern_chart_painter.dart';
 import 'package:bobobeads/screens/result_screen.dart';
+import 'package:bobobeads/screens/upload_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
@@ -59,6 +60,46 @@ void main() {
     final colorRef = tester.widget<Text>(find.text('R1'));
 
     expect(colorRef.style?.fontWeight, FontWeight.w600);
+  });
+
+  testWidgets('drawing back returns directly to the home route', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    const homeKey = ValueKey('navigation-test-home');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: homeKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ResultScreen(pattern: _pattern()),
+                ),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(homeKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(UploadScreen), findsOneWidget);
+    expect(find.byKey(homeKey), findsNothing);
+    expect(find.text('图纸'), findsNothing);
   });
 
   testWidgets('drawing navigation bar and actions are 44pt tall', (

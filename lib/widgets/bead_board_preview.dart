@@ -820,6 +820,11 @@ class BeadBoardPainter extends CustomPainter {
 /// sticks to the matching viewport edge instead.
 @immutable
 class BoardRulerPlacement {
+  /// Keeps rulers legible without allowing their cross-axis thickness to
+  /// cover an ever-larger portion of the board at high zoom levels.
+  static const double minBandSize = 5;
+  static const double maxBandSize = 36;
+
   final Rect horizontalRuler;
   final Rect verticalRuler;
 
@@ -827,6 +832,11 @@ class BoardRulerPlacement {
     required this.horizontalRuler,
     required this.verticalRuler,
   });
+
+  static double scaledBandSize({
+    required double labelBand,
+    required double scale,
+  }) => (labelBand * scale).clamp(minBandSize, maxBandSize).toDouble();
 
   factory BoardRulerPlacement.resolve({
     required Matrix4 transform,
@@ -896,9 +906,10 @@ class _PinnedBoardRulerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final scale = transform.getMaxScaleOnAxis();
-    final bandSize = (labelBand * scale)
-        .clamp(5.0, math.min(size.width, size.height) * 0.2)
-        .toDouble();
+    final bandSize = BoardRulerPlacement.scaledBandSize(
+      labelBand: labelBand,
+      scale: scale,
+    );
     final placement = BoardRulerPlacement.resolve(
       transform: transform,
       boardWidth: boardWidth,

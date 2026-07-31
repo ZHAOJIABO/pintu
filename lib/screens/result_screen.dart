@@ -7,6 +7,7 @@ import '../models/color.dart';
 import '../models/generated_pattern.dart';
 import '../models/palette.dart';
 import '../models/pattern_chart.dart';
+import '../navigation/home_navigation.dart';
 import '../rendering/pattern_chart_painter.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
@@ -258,7 +259,7 @@ class _ResultNavigationBar extends StatelessWidget {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.pop(context),
+              onTap: () => returnToHome(context),
               child: const SizedBox(
                 width: 24,
                 height: 44,

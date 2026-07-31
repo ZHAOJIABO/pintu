@@ -54,6 +54,11 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('我的成品'), findsOneWidget);
+      expect(find.bySemanticsLabel('更多成品'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('my-works-title-rabbit')),
+        findsOneWidget,
+      );
       expect(find.text('记录一下'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('my-works-placeholder')),
@@ -295,6 +300,33 @@ void main() {
     expect(find.byType(MyFavoritesScreen), findsOneWidget);
     expect(find.text('盲盒图纸'), findsOneWidget);
     expect(find.byKey(const ValueKey('my-pattern-gallery')), findsOneWidget);
+  });
+
+  testWidgets('图纸与收藏在详情页左右互换且内容随标签切换', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MyPatternsScreen()));
+    await tester.pumpAndSettle();
+
+    final patternsTab = find.text('我的图纸').first;
+    final favoritesTab = find.text('我的收藏').first;
+    expect(
+      tester.getTopLeft(patternsTab).dx,
+      lessThan(tester.getTopLeft(favoritesTab).dx),
+    );
+    expect(find.text('最近收藏'), findsOneWidget);
+
+    await tester.tap(favoritesTab);
+    await tester.pumpAndSettle();
+
+    expect(find.text('盲盒图纸'), findsOneWidget);
+    expect(find.byKey(const ValueKey('my-pattern-gallery')), findsOneWidget);
+  });
+
+  testWidgets('我的图纸页不显示分类筛选按钮', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: MyPatternsScreen()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('全部'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-gallery-filter')), findsNothing);
   });
 
   testWidgets('点击我的收藏会请求收藏模板和盲盒历史列表', (tester) async {

@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import '../models/color_limit.dart';
 import '../models/draft_project.dart';
 import '../models/product_template.dart';
+import '../navigation/home_navigation.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
@@ -343,7 +344,7 @@ class _ParameterNavigationBar extends StatelessWidget {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.pop(context),
+              onTap: () => returnToHome(context),
               child: const SizedBox(
                 width: 24,
                 height: 40,

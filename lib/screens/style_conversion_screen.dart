@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/draft_project.dart';
+import '../navigation/home_navigation.dart';
 import '../services/ai_style_transfer_service.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
@@ -286,7 +287,7 @@ class _StyleNavigationBar extends StatelessWidget {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.pop(context),
+              onTap: () => returnToHome(context),
               child: const SizedBox(
                 width: 24,
                 height: 40,

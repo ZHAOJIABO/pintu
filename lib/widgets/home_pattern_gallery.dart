@@ -28,6 +28,7 @@ class HomePatternGallery extends StatelessWidget {
   final List<PatternGalleryItem>? items;
   final String categoryName;
   final VoidCallback onFilter;
+  final bool showFilter;
   final ValueChanged<String>? onTemplateTap;
   final ValueChanged<String>? onItemTap;
   final double gridSpacing;
@@ -40,6 +41,7 @@ class HomePatternGallery extends StatelessWidget {
     this.items,
     required this.categoryName,
     required this.onFilter,
+    this.showFilter = true,
     this.onTemplateTap,
     this.onItemTap,
     this.gridSpacing = 12,
@@ -59,6 +61,7 @@ class HomePatternGallery extends StatelessWidget {
             child: _GalleryTitle(
               categoryName: categoryName,
               onFilter: onFilter,
+              showFilter: showFilter,
             ),
           ),
           SizedBox(height: gridSpacing),
@@ -79,8 +82,13 @@ class HomePatternGallery extends StatelessWidget {
 class _GalleryTitle extends StatelessWidget {
   final String categoryName;
   final VoidCallback onFilter;
+  final bool showFilter;
 
-  const _GalleryTitle({required this.categoryName, required this.onFilter});
+  const _GalleryTitle({
+    required this.categoryName,
+    required this.onFilter,
+    required this.showFilter,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -92,24 +100,25 @@ class _GalleryTitle extends StatelessWidget {
         children: [
           _GalleryTitleLabel(categoryName: categoryName),
           const Spacer(),
-          Semantics(
-            button: true,
-            label: '筛选图纸分类',
-            child: GestureDetector(
-              key: const ValueKey('home-gallery-filter'),
-              onTap: onFilter,
-              child: Transform.translate(
-                offset: const Offset(0, 1),
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: SvgPicture.asset(
-                    'assets/figma_home/gallery_filter_grid.svg',
+          if (showFilter)
+            Semantics(
+              button: true,
+              label: '筛选图纸分类',
+              child: GestureDetector(
+                key: const ValueKey('home-gallery-filter'),
+                onTap: onFilter,
+                child: Transform.translate(
+                  offset: const Offset(0, 1),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: SvgPicture.asset(
+                      'assets/figma_home/gallery_filter_grid.svg',
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );

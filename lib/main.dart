@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'navigation/home_navigation.dart';
 import 'services/api/api_scope.dart';
 import 'screens/upload_screen.dart';
 
@@ -44,6 +45,7 @@ class _BobobeadsAppState extends State<BobobeadsApp> {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.pinkAccent),
         useMaterial3: true,
       ),
+      navigatorObservers: [appNavigatorObserver],
       home: const UploadScreen(),
     );
 

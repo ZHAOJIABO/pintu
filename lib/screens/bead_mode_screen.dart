@@ -91,7 +91,9 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
                       ),
                     Positioned(
                       right: 0,
-                      bottom: _showColors ? 162 : 56,
+                      // The palette toggle changes only the color strip. The
+                      // toolbar stays anchored so its controls do not jump.
+                      bottom: 162,
                       child: _BeadModeToolbar(
                         key: const ValueKey('bead-mode-toolbar'),
                         collapsed: _toolbarCollapsed,

@@ -88,6 +88,30 @@ void main() {
     expect(topPinned.verticalRuler.top, 0);
   });
 
+  test('zoomed rulers only keep stretching along their matching axis', () {
+    const bandSize = BoardRulerPlacement.maxBandSize;
+    expect(BoardRulerPlacement.scaledBandSize(labelBand: 10, scale: 2), 20);
+    expect(
+      BoardRulerPlacement.scaledBandSize(labelBand: 10, scale: 8),
+      bandSize,
+    );
+
+    final placement = BoardRulerPlacement.resolve(
+      transform: Matrix4.diagonal3Values(8, 8, 1),
+      boardWidth: 50,
+      boardHeight: 50,
+      cellSize: 5,
+      labelBand: 10,
+      childOffset: Offset.zero,
+      rulerBandSize: bandSize,
+    );
+
+    expect(placement.horizontalRuler.height, bandSize);
+    expect(placement.horizontalRuler.width, 2080);
+    expect(placement.verticalRuler.width, bandSize);
+    expect(placement.verticalRuler.height, 2080);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('bead mode fits Figma layout on $viewport', (tester) async {
       _setViewport(tester, viewport);
@@ -170,6 +194,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final toolbarFinder = find.byKey(const ValueKey('bead-mode-toolbar'));
+    final initialToolbarPosition = tester.getTopLeft(toolbarFinder);
+
     await tester.tap(find.byKey(const ValueKey('bead-mode-tool-mirror')));
     await tester.pump();
     expect(_boardPainter(tester).mirrorHorizontally, isTrue);
@@ -201,6 +228,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('bead-mode-tool-colors')));
     await tester.pump();
     expect(find.byKey(const ValueKey('bead-mode-color-strip')), findsNothing);
+    expect(tester.getTopLeft(toolbarFinder), initialToolbarPosition);
     final colorButton = find.byKey(const ValueKey('bead-mode-tool-colors'));
     final colorSurface = tester.widget<Ink>(
       find.descendant(of: colorButton, matching: find.byType(Ink)),

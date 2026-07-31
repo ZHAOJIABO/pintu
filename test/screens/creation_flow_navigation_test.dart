@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/draft_project.dart';
+import 'package:bobobeads/navigation/home_navigation.dart';
 import 'package:bobobeads/screens/crop_screen.dart';
 import 'package:bobobeads/screens/parameter_config_screen.dart';
 import 'package:bobobeads/screens/style_conversion_screen.dart';
@@ -227,6 +228,50 @@ void main() {
     expect(find.text('选择大小'), findsOneWidget);
   });
 
+  testWidgets('style conversion back returns directly to the home route', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final image = sampleImagePng();
+    const homeKey = ValueKey('navigation-test-home');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [appNavigatorObserver],
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: homeKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => StyleConversionScreen(
+                    draft: DraftProject(
+                      originalImageBytes: image,
+                      croppedImageBytes: image,
+                      imageSource: DraftImageSource.photo,
+                    ),
+                  ),
+                ),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(homeKey));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byKey(homeKey), findsOneWidget);
+    expect(find.text('转换风格'), findsNothing);
+  });
+
   testWidgets('style conversion loading copy rotates while generation runs', (
     tester,
   ) async {
@@ -381,6 +426,48 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('生成图纸'), findsOneWidget);
+  });
+
+  testWidgets('parameter config back returns directly to the home route', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final image = sampleImagePng();
+    const homeKey = ValueKey('navigation-test-home');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorObservers: [appNavigatorObserver],
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: homeKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ParameterConfigScreen(
+                    draft: DraftProject(
+                      originalImageBytes: image,
+                      croppedImageBytes: image,
+                      imageSource: DraftImageSource.illustration,
+                    ),
+                  ),
+                ),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(homeKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(homeKey), findsOneWidget);
+    expect(find.text('确定参数'), findsNothing);
   });
 
   testWidgets(

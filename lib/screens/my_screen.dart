@@ -276,7 +276,6 @@ class _MyDesignCanvas extends StatelessWidget {
             left: 12,
             child: _WorksSection(
               onRecordTap: () => _showComingSoon(context, '记录功能即将开放'),
-              onMoreTap: () => _showComingSoon(context, '更多成品即将开放'),
             ),
           ),
         ],
@@ -691,6 +690,7 @@ class _MyPatternsContent extends StatelessWidget {
                 : null,
             categoryName: categoryName,
             onFilter: onFilter,
+            showFilter: selectedTab != _LibraryTab.patterns,
             onTemplateTap: onTemplateTap,
             onItemTap: onWorkTap,
             gridSpacing: 12,
@@ -726,18 +726,18 @@ class _PatternsSegmentedControl extends StatelessWidget {
         children: [
           Expanded(
             child: _SegmentedTabButton(
-              label: '我的收藏',
-              selected: selectedTab == _LibraryTab.favorites,
-              selectedColors: const [Color(0xFFFFE774), Color(0xFFFFF4B7)],
-              onTap: () => onTabSelected(_LibraryTab.favorites),
-            ),
-          ),
-          Expanded(
-            child: _SegmentedTabButton(
               label: '我的图纸',
               selected: selectedTab == _LibraryTab.patterns,
               selectedColors: const [Color(0xFFFF76CA), Color(0xFFFFB9E4)],
               onTap: () => onTabSelected(_LibraryTab.patterns),
+            ),
+          ),
+          Expanded(
+            child: _SegmentedTabButton(
+              label: '我的收藏',
+              selected: selectedTab == _LibraryTab.favorites,
+              selectedColors: const [Color(0xFFFFE774), Color(0xFFFFF4B7)],
+              onTap: () => onTabSelected(_LibraryTab.favorites),
             ),
           ),
         ],
@@ -1289,9 +1289,8 @@ class _PatternPreview extends StatelessWidget {
 
 class _WorksSection extends StatelessWidget {
   final VoidCallback onRecordTap;
-  final VoidCallback onMoreTap;
 
-  const _WorksSection({required this.onRecordTap, required this.onMoreTap});
+  const _WorksSection({required this.onRecordTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1307,12 +1306,12 @@ class _WorksSection extends StatelessWidget {
               children: [
                 Transform.translate(
                   offset: const Offset(0, 1),
-                  child: Image.asset(
-                    'assets/figma_home/gallery_title_icon.png',
+                  child: SvgPicture.asset(
+                    'assets/figma_home/gallery_title_rabbit.svg',
+                    key: const ValueKey('my-works-title-rabbit'),
                     width: 18,
                     height: 18,
                     fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -1328,38 +1327,6 @@ class _WorksSection extends StatelessWidget {
                   ),
                 ),
               ],
-            ),
-          ),
-          Positioned(
-            top: 0,
-            right: 0,
-            child: Semantics(
-              button: true,
-              label: '更多成品',
-              child: GestureDetector(
-                onTap: onMoreTap,
-                child: Row(
-                  children: [
-                    Text(
-                      '更多',
-                      style: TextStyle(
-                        fontFamily: _roundFontFamily,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        height: 20 / 14,
-                        color: const Color(0x99000000),
-                        fontFamilyFallback: _fontFallbacks,
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      size: 20,
-                      color: Color(0x99000000),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
           const Positioned(
