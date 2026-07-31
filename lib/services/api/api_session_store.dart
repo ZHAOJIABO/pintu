@@ -9,7 +9,7 @@ import 'api_models.dart';
 import 'guest_credential_store.dart';
 import 'vendor_identifier.dart';
 
-typedef DeviceIdentifiersProvider = Future<DeviceIdentifiers> Function();
+typedef DeviceIdentifiersProvider = Future<DeviceInfo> Function();
 
 class ApiSessionStore {
   static const _fileName = 'bobobeads_api_session.json';
@@ -44,11 +44,14 @@ class ApiSessionStore {
     this.guestCredentialStore,
   });
 
-  Future<DeviceIdentifiers> readDeviceIdentifiers() async {
+  Future<DeviceInfo> readDeviceInfo() async {
     final provider = deviceIdentifiersProvider;
     if (provider != null) return provider();
-    return DeviceIdentifierReader.read();
+    return PlatformDeviceInfoReader.read();
   }
+
+  @Deprecated('Use readDeviceInfo. Authentication now reports header.device.')
+  Future<DeviceInfo> readDeviceIdentifiers() => readDeviceInfo();
 
   Future<String> readOrCreateDeviceId() async {
     final deviceFile = await _deviceFile();
@@ -135,10 +138,10 @@ class ApiSessionStore {
   }
 
   Future<String> _readOrCreateDeviceId(File deviceFile) async {
-    final identifiers = await readDeviceIdentifiers();
-    final idfv = identifiers.idfv;
+    final deviceInfo = await readDeviceInfo();
+    final idfv = deviceInfo.idfv;
     if (idfv != null && idfv.isNotEmpty) return 'ios-$idfv';
-    final androidId = identifiers.androidId ?? identifiers.oaid;
+    final androidId = deviceInfo.androidId ?? deviceInfo.oaid;
     if (androidId != null && androidId.isNotEmpty) return 'android-$androidId';
 
     if (await deviceFile.exists()) {

@@ -1407,7 +1407,12 @@ GET /api/v1/system/board-specs
 6. `AIGenerationItem.inputImageUrl` 当前可能为空，显示输入图时用本地文件或 `ReportUploadResponse.fileUrl`。
 7. 本地开发 AI provider 是 fake provider，输出 URL 是 `https://fake-ai-output.example.com/...`。
 8. `CreditService.GetBalance.dailyFreeRemaining` 当前没有计算，UI 不要展示为真实剩余次数。
-9. `RequestHeader` 在 proto 中存在，但 REST 客户端主要通过 HTTP headers 传平台、token 和 device id。
+9. REST 请求使用 proto JSON 的 `header`（lowerCamelCase）。三个登录接口
+   `POST /api/v1/auth/guest`、`/phone`、`/refresh` 都必须在
+   `header.device` 上报客户端已获得授权的设备资料。游客登录还必须带上
+   `header.guestCredential`；不要使用旧的 `header.deviceId` 生成游客身份。
+   Android 身份优先 `device.androidId`、其次 `device.oaid`；iOS 身份优先
+   `device.idfv`、其次 `device.idfa`。
 10. 业务错误通常在 HTTP 200 的 `header.code` 中，不能只看 HTTP status。
 
 ## 10. 最小联调清单

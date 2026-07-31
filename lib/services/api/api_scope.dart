@@ -8,6 +8,7 @@ import 'generation_completion_service.dart';
 import 'api_models.dart';
 import 'api_repositories.dart';
 import 'api_session_store.dart';
+import 'vendor_identifier.dart';
 import '../style_thumbnail_cache.dart';
 
 class BackendServices {
@@ -58,6 +59,9 @@ class BackendServices {
       httpClient: httpClient,
       tokenProvider: sessionStore.readAccessToken,
       deviceIdProvider: sessionStore.readOrCreateDeviceId,
+      deviceInfoProvider: DeviceInfoProvider(
+        reader: sessionStore.readDeviceInfo,
+      ),
       onUnauthorized: () => auth.refreshOrGuestLogin(),
     );
     auth = AuthSessionController(

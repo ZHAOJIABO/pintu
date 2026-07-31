@@ -68,6 +68,20 @@ void main() {
         baseUrl: 'http://example.test',
         tokenProvider: () async => null,
         deviceIdProvider: () async => 'legacy-device-id',
+        deviceInfoProvider: DeviceInfoProvider(
+          reader: () async => const DeviceInfo(
+            idfv: '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4',
+            brand: 'Apple',
+            model: 'iPhone17,1',
+            os: 2,
+            osv: '18.0',
+            width: 1179,
+            height: 2556,
+            orientation: 1,
+            language: 'CHINESE',
+            timezone: 'Asia/Shanghai',
+          ),
+        ),
         platform: 'ios',
         httpClient: MockClient((request) async {
           captured = request;
@@ -80,18 +94,30 @@ void main() {
         }),
       );
 
-      final session = await AuthRepository(client).guestLogin(
-        const DeviceIdentifiers(idfv: '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'),
-        guestCredential: 'guest-credential',
-      );
+      final session = await AuthRepository(
+        client,
+      ).guestLogin(guestCredential: 'guest-credential');
 
       expect(captured.url.path, '/api/v1/auth/guest');
       expect(captured.headers['X-Platform'], 'ios');
       expect(captured.headers.containsKey('X-Device-Id'), isFalse);
       expect(jsonDecode(captured.body), {
         'header': {
+          'platform': 'ios',
+          'appVersion': '1.0.0',
           'guestCredential': 'guest-credential',
-          'device': {'idfv': '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4'},
+          'device': {
+            'idfv': '6F3B8D2A-58E3-4EF8-9C1A-815CE8C5D3D4',
+            'brand': 'Apple',
+            'model': 'iPhone17,1',
+            'os': 2,
+            'osv': '18.0',
+            'width': 1179,
+            'height': 2556,
+            'orientation': 1,
+            'language': 'CHINESE',
+            'timezone': 'Asia/Shanghai',
+          },
         },
       });
       expect(jsonDecode(captured.body), isNot(contains('deviceId')));
@@ -107,6 +133,10 @@ void main() {
         baseUrl: 'http://example.test',
         tokenProvider: () async => null,
         deviceIdProvider: () async => 'legacy-device-id',
+        deviceInfoProvider: DeviceInfoProvider(
+          reader: () async =>
+              const DeviceInfo(androidId: 'android-id', oaid: 'oaid-value'),
+        ),
         platform: 'android',
         httpClient: MockClient((request) async {
           captured = request;
@@ -119,47 +149,106 @@ void main() {
         }),
       );
 
-      await AuthRepository(client).guestLogin(
-        const DeviceIdentifiers(androidId: 'android-id', oaid: 'oaid-value'),
-        guestCredential: 'guest-credential',
-      );
+      await AuthRepository(
+        client,
+      ).guestLogin(guestCredential: 'guest-credential');
 
       expect(captured.headers['X-Platform'], 'android');
       expect(captured.headers.containsKey('X-Device-Id'), isFalse);
       expect(jsonDecode(captured.body), {
         'header': {
+          'platform': 'android',
+          'appVersion': '1.0.0',
           'guestCredential': 'guest-credential',
-          'device': {'androidId': 'android-id'},
+          'device': {'androidId': 'android-id', 'oaid': 'oaid-value'},
         },
       });
     },
   );
 
-  test('guest login uses the fallback identifier only when needed', () {
-    expect(
-      const DeviceIdentifiers(
-        androidId: '',
-        oaid: 'oaid-value',
-      ).toGuestLoginBody('android', guestCredential: 'guest-credential'),
-      {
-        'header': {
-          'guestCredential': 'guest-credential',
-          'device': {'oaid': 'oaid-value'},
+  test(
+    'DeviceInfo uses lowerCamelCase and retains all available identifiers',
+    () {
+      expect(
+        const DeviceInfo(
+          androidId: '',
+          oaid: 'oaid-value',
+          idfaMd5: 'idfa-md5',
+          installedApp: ['com.example.app'],
+          caids: [Caid(ver: '20201201', caid: 'caid-value')],
+          geo: Geo(lat: 31.2304, lon: 121.4737),
+          userInfo: DeviceUserInfo(age: 24, gender: 1),
+        ).toJson(),
+        {
+          'oaid': 'oaid-value',
+          'idfaMd5': 'idfa-md5',
+          'geo': {'lat': 31.2304, 'lon': 121.4737},
+          'installedApp': ['com.example.app'],
+          'caids': [
+            {'ver': '20201201', 'caid': 'caid-value'},
+          ],
+          'userInfo': {'age': 24, 'gender': 1},
         },
-      },
+      );
+    },
+  );
+
+  test('phone and refresh logins use the same device header', () async {
+    final requests = <http.Request>[];
+    final client = ApiClient(
+      baseUrl: 'http://example.test',
+      tokenProvider: () async => null,
+      deviceIdProvider: () async => 'legacy-device-id',
+      deviceInfoProvider: DeviceInfoProvider(
+        reader: () async => const DeviceInfo(
+          idfv: 'idfv-value',
+          brand: 'Apple',
+          model: 'iPhone17,1',
+          os: 2,
+          osv: '18.0',
+        ),
+      ),
+      platform: 'ios',
+      appVersion: '1.2.3',
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        return _jsonResponse({
+          'accessToken': 'access-token',
+          'refreshToken': 'refresh-token',
+          'expiresIn': 3600,
+          'user': {'userId': '8635871597563'},
+        });
+      }),
     );
-    expect(
-      const DeviceIdentifiers(
-        idfv: '',
-        idfa: 'idfa-value',
-      ).toGuestLoginBody('ios', guestCredential: 'guest-credential'),
-      {
-        'header': {
-          'guestCredential': 'guest-credential',
-          'device': {'idfa': 'idfa-value'},
-        },
+
+    final repository = AuthRepository(client);
+    await repository.phoneLogin(phone: '13800138000', code: '123456');
+    await repository.refresh('refresh-token');
+
+    expect(requests.map((request) => request.url.path), [
+      '/api/v1/auth/phone',
+      '/api/v1/auth/refresh',
+    ]);
+    final expectedHeader = {
+      'platform': 'ios',
+      'appVersion': '1.2.3',
+      'device': {
+        'idfv': 'idfv-value',
+        'brand': 'Apple',
+        'model': 'iPhone17,1',
+        'os': 2,
+        'osv': '18.0',
       },
-    );
+    };
+    expect(jsonDecode(requests.first.body), {
+      'phone': '13800138000',
+      'code': '123456',
+      'header': expectedHeader,
+    });
+    expect(jsonDecode(requests.last.body), {
+      'refreshToken': 'refresh-token',
+      'header': expectedHeader,
+    });
   });
 
   test(
@@ -413,8 +502,12 @@ void main() {
           switch (request.url.path) {
             case '/api/v1/auth/refresh':
               refreshRequests++;
-              expect(jsonDecode(request.body), {
-                'refreshToken': 'refresh-token',
+              final body = jsonDecode(request.body) as Map<String, dynamic>;
+              expect(body['refreshToken'], 'refresh-token');
+              expect(body['header'], {
+                'platform': 'android',
+                'appVersion': '1.0.0',
+                'device': {},
               });
               return _jsonResponse({
                 'accessToken': 'fresh-access-token',
@@ -663,8 +756,12 @@ void main() {
       deviceIdProvider: store.readOrCreateDeviceId,
       onUnauthorized: () => auth.refreshOrGuestLogin(),
       httpClient: MockClient((request) async {
-        expect(jsonDecode(request.body), {
-          'refreshToken': 'retained-refresh-token',
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['refreshToken'], 'retained-refresh-token');
+        expect(body['header'], {
+          'platform': 'android',
+          'appVersion': '1.0.0',
+          'device': {},
         });
         refreshRequests++;
         return _jsonResponse({

@@ -227,6 +227,35 @@ void main() {
     expect(find.text('选择大小'), findsOneWidget);
   });
 
+  testWidgets('style conversion loading copy rotates while generation runs', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: Center(child: StyleConversionLoadingCopy())),
+      ),
+    );
+
+    expect(find.text('风格转换中'), findsOneWidget);
+    expect(find.text('完成后可在“我的”中查看'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('风格转换中'), findsNothing);
+    expect(find.text('完成后可在“我的”中查看'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('风格转换中'), findsOneWidget);
+    expect(find.text('完成后可在“我的”中查看'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('style tabs scroll tapped clipped option fully into view', (
     tester,
   ) async {

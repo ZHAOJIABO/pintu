@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'api_models.dart';
+import 'vendor_identifier.dart';
 
 typedef TokenProvider = Future<String?> Function();
 typedef DeviceIdProvider = Future<String> Function();
@@ -11,14 +12,15 @@ typedef UnauthorizedHandler = Future<bool> Function();
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
     'BOBOBEADS_API_BASE_URL',
-    defaultValue: 'https://appbobo.cn',
-    //defaultValue: 'http://127.0.0.1:8080',
+    //defaultValue: 'https://appbobo.cn',
+    defaultValue: 'http://127.0.0.1:8080',
   );
 
   final Uri baseUri;
   final http.Client httpClient;
   final TokenProvider tokenProvider;
   final DeviceIdProvider deviceIdProvider;
+  final DeviceInfoProvider deviceInfoProvider;
   final UnauthorizedHandler? onUnauthorized;
   final String appVersion;
   final String platform;
@@ -28,6 +30,7 @@ class ApiClient {
     http.Client? httpClient,
     required this.tokenProvider,
     required this.deviceIdProvider,
+    this.deviceInfoProvider = const DeviceInfoProvider(),
     this.onUnauthorized,
     this.appVersion = '1.0.0',
     String? platform,
@@ -40,6 +43,24 @@ class ApiClient {
       return 'android';
     }
     return 'ios';
+  }
+
+  /// Builds the protobuf JSON `RequestHeader` used by authentication calls.
+  ///
+  /// `deviceId` deliberately does not appear here: guest identity is derived
+  /// on the server from `header.device` and `guestCredential` instead.
+  Future<Map<String, Object?>> authenticationHeader({
+    String? guestCredential,
+    DeviceInfo? deviceInfo,
+  }) async {
+    final device = deviceInfo ?? await deviceInfoProvider.read();
+    return {
+      'platform': platform,
+      'appVersion': appVersion,
+      if (guestCredential != null && guestCredential.isNotEmpty)
+        'guestCredential': guestCredential,
+      'device': device.toJson(),
+    };
   }
 
   Future<JsonMap> get(

@@ -1,6 +1,7 @@
 package com.bobobeads.bobobeads
 
 import android.content.ContentValues
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -8,6 +9,8 @@ import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.Locale
+import java.util.TimeZone
 
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -34,20 +37,37 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "bobobeads/device_identifiers",
         ).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "getDeviceIdentifiers" -> {
-                    val androidId = Settings.Secure.getString(
-                        contentResolver,
-                        Settings.Secure.ANDROID_ID,
-                    )
-                    val identifiers = mutableMapOf<String, String>()
-                    if (!androidId.isNullOrBlank()) {
-                        identifiers["androidId"] = androidId
-                    }
-                    result.success(identifiers)
-                }
-                else -> result.notImplemented()
+            if (call.method != "getDeviceInfo") {
+                result.notImplemented()
+                return@setMethodCallHandler
             }
+            val metrics = resources.displayMetrics
+            val isTablet = resources.configuration.screenLayout and
+                Configuration.SCREENLAYOUT_SIZE_MASK >= Configuration.SCREENLAYOUT_SIZE_LARGE
+            val orientation = when (resources.configuration.orientation) {
+                Configuration.ORIENTATION_PORTRAIT -> 1
+                Configuration.ORIENTATION_LANDSCAPE -> 2
+                else -> 0
+            }
+            val androidId = Settings.Secure.getString(
+                contentResolver,
+                Settings.Secure.ANDROID_ID,
+            )
+            result.success(
+                buildMap<String, Any> {
+                    if (!androidId.isNullOrBlank()) put("androidId", androidId)
+                    put("deviceType", if (isTablet) 1 else 0)
+                    put("brand", Build.BRAND)
+                    put("model", Build.MODEL)
+                    put("os", 1)
+                    put("osv", Build.VERSION.RELEASE)
+                    put("width", metrics.widthPixels)
+                    put("height", metrics.heightPixels)
+                    put("orientation", orientation)
+                    put("language", protoLanguage(Locale.getDefault().language))
+                    put("timezone", TimeZone.getDefault().id)
+                },
+            )
         }
     }
 
@@ -88,5 +108,18 @@ class MainActivity : FlutterActivity() {
             resolver.delete(uri, null, null)
             result.error("save_failed", error.localizedMessage, null)
         }
+    }
+
+    private fun protoLanguage(languageCode: String): String = when (languageCode.lowercase()) {
+        "zh" -> "CHINESE"
+        "en" -> "ENGLISH"
+        "ru" -> "RUSSIAN"
+        "vi" -> "VIETNAMESE"
+        "pt" -> "PORTUGUESE"
+        "id" -> "INDONESIAN"
+        "ms" -> "MALAY"
+        "th" -> "THAI"
+        "fil", "tl" -> "FILIPINO"
+        else -> "ENGLISH"
     }
 }

@@ -13,16 +13,18 @@ class AuthRepository {
 
   const AuthRepository(this.apiClient);
 
-  Future<AuthSession> guestLogin(
-    DeviceIdentifiers identifiers, {
+  Future<AuthSession> guestLogin({
     required String guestCredential,
+    DeviceInfo? deviceInfo,
   }) async {
     final data = await apiClient.post(
       '/api/v1/auth/guest',
-      body: identifiers.toGuestLoginBody(
-        apiClient.platform,
-        guestCredential: guestCredential,
-      ),
+      body: {
+        'header': await apiClient.authenticationHeader(
+          guestCredential: guestCredential,
+          deviceInfo: deviceInfo,
+        ),
+      },
       includeAuth: false,
       includeDeviceId: false,
       retryUnauthorized: false,
@@ -36,7 +38,11 @@ class AuthRepository {
   }) async {
     final data = await apiClient.post(
       '/api/v1/auth/phone',
-      body: {'phone': phone, 'code': code},
+      body: {
+        'header': await apiClient.authenticationHeader(),
+        'phone': phone,
+        'code': code,
+      },
       includeAuth: false,
       retryUnauthorized: false,
     );
@@ -46,10 +52,14 @@ class AuthRepository {
   Future<AuthSession> refresh(
     String refreshToken, {
     ApiUser? fallbackUser,
+    DeviceInfo? deviceInfo,
   }) async {
     final data = await apiClient.post(
       '/api/v1/auth/refresh',
-      body: {'refreshToken': refreshToken},
+      body: {
+        'header': await apiClient.authenticationHeader(deviceInfo: deviceInfo),
+        'refreshToken': refreshToken,
+      },
       includeAuth: false,
       retryUnauthorized: false,
     );
@@ -95,6 +105,7 @@ class AuthSessionController {
         final refreshed = await repository.refresh(
           current!.refreshToken,
           fallbackUser: current.user,
+          deviceInfo: await store.readDeviceInfo(),
         );
         await store.saveSession(refreshed);
         return true;
@@ -104,10 +115,9 @@ class AuthSessionController {
     }
 
     try {
-      final identifiers = await store.readDeviceIdentifiers();
       final guest = await repository.guestLogin(
-        identifiers,
         guestCredential: await store.readOrCreateGuestCredential(),
+        deviceInfo: await store.readDeviceInfo(),
       );
       await store.saveSession(guest);
       return true;

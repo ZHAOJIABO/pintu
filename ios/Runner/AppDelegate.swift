@@ -3,6 +3,7 @@ import Photos
 import Security
 import UIKit
 import Vision
+import Darwin
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
@@ -69,16 +70,29 @@ import Vision
         binaryMessenger: controller.binaryMessenger
       )
       deviceIdentifiersChannel.setMethodCallHandler { call, result in
-        guard call.method == "getDeviceIdentifiers" else {
+        guard call.method == "getDeviceInfo" else {
           result(FlutterMethodNotImplemented)
           return
         }
-        var identifiers: [String: String] = [:]
+        var device: [String: Any] = [
+          "deviceType": UIDevice.current.userInterfaceIdiom == .pad ? 1 : 0,
+          "brand": "Apple",
+          "model": self.hardwareModel(),
+          "os": 2,
+          "osv": UIDevice.current.systemVersion,
+          "width": Int(UIScreen.main.nativeBounds.width),
+          "height": Int(UIScreen.main.nativeBounds.height),
+          "orientation": UIScreen.main.bounds.height >= UIScreen.main.bounds.width ? 1 : 2,
+          "language": self.protoLanguage(Locale.current.languageCode),
+          "timezone": TimeZone.current.identifier,
+        ]
         if let idfv = UIDevice.current.identifierForVendor?.uuidString,
            !idfv.isEmpty {
-          identifiers["idfv"] = idfv
+          device["idfv"] = idfv
         }
-        result(identifiers)
+        // IDFA requires App Tracking Transparency authorization. It is not
+        // requested by authentication and is intentionally omitted here.
+        result(device)
       }
 
       let guestCredentialChannel = FlutterMethodChannel(
@@ -134,6 +148,29 @@ import Vision
       kSecAttrService as String: "cn.appbobo.bobobeads.guest-identity",
       kSecAttrAccount as String: "guest-credential",
     ]
+  }
+
+  private func hardwareModel() -> String {
+    var size = 0
+    sysctlbyname("hw.machine", nil, &size, nil, 0)
+    var machine = [CChar](repeating: 0, count: size)
+    sysctlbyname("hw.machine", &machine, &size, nil, 0)
+    return String(cString: machine)
+  }
+
+  private func protoLanguage(_ languageCode: String?) -> String {
+    switch languageCode?.lowercased() {
+    case "zh": return "CHINESE"
+    case "en": return "ENGLISH"
+    case "ru": return "RUSSIAN"
+    case "vi": return "VIETNAMESE"
+    case "pt": return "PORTUGUESE"
+    case "id": return "INDONESIAN"
+    case "ms": return "MALAY"
+    case "th": return "THAI"
+    case "fil", "tl": return "FILIPINO"
+    default: return "ENGLISH"
+    }
   }
 
   private func readGuestCredential() throws -> String? {

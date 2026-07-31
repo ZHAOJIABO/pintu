@@ -454,7 +454,7 @@ class _LoadingBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 72,
+      width: 168,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -467,18 +467,65 @@ class _LoadingBadge extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            '风格转换中',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.black,
-              fontSize: 12,
-              fontFamily: 'Z Labs RoundPix 12px M CN',
-              fontFamilyFallback: _fontFallbacks,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
+          const StyleConversionLoadingCopy(),
         ],
+      ),
+    );
+  }
+}
+
+class StyleConversionLoadingCopy extends StatefulWidget {
+  const StyleConversionLoadingCopy({super.key});
+
+  @override
+  State<StyleConversionLoadingCopy> createState() =>
+      _StyleConversionLoadingCopyState();
+}
+
+class _StyleConversionLoadingCopyState
+    extends State<StyleConversionLoadingCopy> {
+  static const _copies = ['风格转换中', '完成后可在“我的”中查看'];
+  static const _rotationInterval = Duration(seconds: 2);
+  late final Timer _rotationTimer;
+  var _copyIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationTimer = Timer.periodic(_rotationInterval, (_) {
+      setState(() => _copyIndex = (_copyIndex + 1) % _copies.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _rotationTimer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final copy = _copies[_copyIndex];
+    return SizedBox(
+      height: 20,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 280),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        child: Text(
+          copy,
+          key: ValueKey(copy),
+          maxLines: 1,
+          softWrap: false,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 12,
+            fontFamily: 'Z Labs RoundPix 12px M CN',
+            fontFamilyFallback: _fontFallbacks,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
       ),
     );
   }

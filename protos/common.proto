@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package bobobeads.v1;
+
+option go_package = "github.com/zhaojiabo/bobobeads_server/internal/pb";
+
+// Kept in sync with bobobeads_server/pkg/proto/common.proto.
+// Regenerate with `tool/generate_protos.sh`.
+
+// 客户端设备信息。
+message Device {
+  string ip = 1;
+  string user_agent = 2;
+  string idfa = 3;
+  string idfa_md5 = 4;
+  string imei = 5;
+  string imei_md5 = 6;
+  string oaid = 7;
+  string oaid_md5 = 8;
+  string android_id = 9;
+  // 0-手机；1-平板；2-PC；3-互联网电视。
+  int32 device_type = 10;
+  string brand = 11;
+  string model = 12;
+  // 1-Android；2-iOS。
+  int32 os = 13;
+  string osv = 14;
+  // 0-未识别；1-wifi；2-2G；3-3G；4-4G；5-5G。
+  int32 network = 15;
+  // 0-未知；1-移动；2-联通；3-电信。
+  int32 operator = 16;
+  int32 width = 17;
+  int32 height = 18;
+  // 0-未知；1-竖屏；2-横屏。
+  int32 orientation = 20;
+
+  message Geo {
+    double lat = 1;
+    double lon = 2;
+  }
+  Geo geo = 21;
+
+  repeated string installed_app = 22;
+
+  message CAID {
+    string ver = 1;
+    string caid = 2;
+  }
+  repeated CAID caids = 23;
+
+  string boot_mark = 24;
+  string update_mark = 25;
+  string mac = 26;
+  string android_id_md5 = 27;
+  string ipv6 = 28;
+
+  message UserInfo {
+    int32 age = 1;
+    int32 gender = 2;
+  }
+  UserInfo user_info = 29;
+  string birth_time = 30;
+  string boot_time = 31;
+  string update_time = 32;
+  string idfv = 33;
+  string idfv_md5 = 34;
+  Language language = 35;
+  string timezone = 36;
+}
+
+enum Language {
+  CHINESE = 0;
+  ENGLISH = 1;
+  RUSSIAN = 2;
+  VIETNAMESE = 3;
+  PORTUGUESE = 4;
+  INDONESIAN = 5;
+  MALAY = 6;
+  THAI = 7;
+  FILIPINO = 8;
+}
+
+message RequestHeader {
+  string token = 1;
+  string platform = 2;
+  string app_version = 3;
+  string device_id = 4;
+  string language = 5;
+  Device device = 6;
+  string guest_credential = 7;
+}
+
+message ResponseHeader {
+  int32 code = 1;
+  string message = 2;
+  string trace_id = 3;
+}
+
+message PageRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+message PageResponse {
+  int32 total = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  bool has_more = 4;
+}
+
+enum Platform {
+  PLATFORM_UNKNOWN = 0;
+  PLATFORM_IOS = 1;
+  PLATFORM_ANDROID = 2;
+  PLATFORM_MINIPROGRAM = 3;
+  PLATFORM_WEB = 4;
+}
