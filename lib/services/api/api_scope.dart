@@ -25,6 +25,7 @@ class BackendServices {
   final GenerationRepository generations;
   final GenerationCompletionService generationCompletion;
   final WorkRepository works;
+  final FinishedProductRepository finishedProducts;
   final CreditRepository credits;
   final SystemRepository system;
   final StyleThumbnailCache styleThumbnails;
@@ -39,6 +40,7 @@ class BackendServices {
     required this.generations,
     required this.generationCompletion,
     required this.works,
+    required this.finishedProducts,
     required this.credits,
     required this.system,
     required this.styleThumbnails,
@@ -85,6 +87,11 @@ class BackendServices {
         store: sessionStore,
       ),
       works: WorkRepository(apiClient: client, auth: auth),
+      finishedProducts: FinishedProductRepository(
+        apiClient: client,
+        auth: auth,
+        media: media,
+      ),
       credits: CreditRepository(apiClient: client, auth: auth),
       system: SystemRepository(client),
       styleThumbnails:

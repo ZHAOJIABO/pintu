@@ -22,8 +22,6 @@ const _controlBackground = Color(0xFFEEF0F6);
 const _switchTrack = Color(0xFFDEE2ED);
 const _loadingRabbitIconAsset = 'assets/figma_style/loading_rabbit_icon.png';
 const _brandUnlimitedValue = '__unlimited__';
-const _saturationMin = 0;
-const _saturationMax = 100;
 
 const _sizeOptions = <ProductTemplate>[
   ProductTemplate(
@@ -99,7 +97,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late bool _smoothing = widget.draft.smoothingEnabled;
   late bool _removeBackground = widget.draft.removeBackground;
   bool _denoise = false;
-  int _saturation = 100;
+  late int _saturation = _clampSaturation(widget.draft.saturation);
   bool _generating = false;
 
   ProductTemplate get _customTemplate =>
@@ -142,8 +140,15 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         .toInt();
   }
 
-  int _clampSaturation(int value) =>
-      value.clamp(_saturationMin, _saturationMax).toInt();
+  int _clampSaturation(int value) => value
+      .clamp(ImageService.minSaturation, ImageService.maxSaturation)
+      .toInt();
+
+  void _setSaturation(int value) {
+    final nextSaturation = _clampSaturation(value);
+    if (nextSaturation == _saturation) return;
+    setState(() => _saturation = nextSaturation);
+  }
 
   ProductTemplate _initialTemplate() {
     final selected = widget.draft.selectedTemplate;
@@ -173,6 +178,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       colorLimit: _limit,
       smoothingEnabled: _smoothing,
       removeBackground: _removeBackground,
+      saturation: _saturation,
     );
 
     setState(() => _generating = true);
@@ -246,6 +252,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                         child: _ImagePreviewStage(
                           imageBytes: _previewImage,
                           aspectRatio: _previewAspectRatio,
+                          saturation: _saturation,
                           loading: _generating,
                         ),
                       ),
@@ -286,23 +293,13 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                             setState(() => _denoise = !_denoise);
                           },
                           onSaturationDecrease: () {
-                            setState(
-                              () => _saturation = _clampSaturation(
-                                _saturation - 10,
-                              ),
-                            );
+                            _setSaturation(_saturation - 10);
                           },
                           onSaturationIncrease: () {
-                            setState(
-                              () => _saturation = _clampSaturation(
-                                _saturation + 10,
-                              ),
-                            );
+                            _setSaturation(_saturation + 10);
                           },
                           onSaturationChanged: (value) {
-                            setState(
-                              () => _saturation = _clampSaturation(value),
-                            );
+                            _setSaturation(value);
                           },
                           onBrandSelected: (value) {
                             setState(() {
@@ -381,11 +378,13 @@ class _ImagePreviewStage extends StatelessWidget {
 
   final Uint8List imageBytes;
   final double aspectRatio;
+  final int saturation;
   final bool loading;
 
   const _ImagePreviewStage({
     required this.imageBytes,
     required this.aspectRatio,
+    required this.saturation,
     required this.loading,
   });
 
@@ -430,11 +429,7 @@ class _ImagePreviewStage extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        Image.memory(
-                          imageBytes,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                        ),
+                        _previewImage(),
                         if (loading) const _ParameterLoadingOverlay(),
                       ],
                     ),
@@ -445,6 +440,22 @@ class _ImagePreviewStage extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _previewImage() {
+    final image = Image.memory(
+      imageBytes,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+    );
+    if (saturation == ImageService.maxSaturation) return image;
+
+    return ColorFiltered(
+      colorFilter: ColorFilter.matrix(
+        ImageService.saturationColorMatrix(saturation),
+      ),
+      child: image,
     );
   }
 
@@ -1155,13 +1166,17 @@ class _SaturationValueInputState extends State<_SaturationValueInput> {
   void _handleChanged(String text) {
     final parsed = int.tryParse(text);
     if (parsed == null) return;
-    final clamped = parsed.clamp(_saturationMin, _saturationMax).toInt();
+    final clamped = parsed
+        .clamp(ImageService.minSaturation, ImageService.maxSaturation)
+        .toInt();
     widget.onChanged(clamped);
   }
 
   void _commit() {
     final parsed = int.tryParse(_controller.text) ?? widget.value;
-    final clamped = parsed.clamp(_saturationMin, _saturationMax).toInt();
+    final clamped = parsed
+        .clamp(ImageService.minSaturation, ImageService.maxSaturation)
+        .toInt();
     widget.onChanged(clamped);
     final nextText = '$clamped';
     if (_controller.text != nextText) {

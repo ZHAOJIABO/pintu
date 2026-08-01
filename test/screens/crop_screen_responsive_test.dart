@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/draft_project.dart';
+import 'package:bobobeads/models/product_template.dart';
 import 'package:bobobeads/screens/crop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,4 +49,24 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('finished product crop shows its focused guidance', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CropScreen(
+          draft: DraftProject(originalImageBytes: portraitImagePng()),
+          returnCroppedImage: true,
+          ratioOptions: const [CropAspectRatio.square],
+          cropHint: '请保留拼豆成品周围的一点边缘',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('请保留拼豆成品周围的一点边缘'), findsOneWidget);
+    expect(find.text('1:1'), findsOneWidget);
+    expect(find.text('9:16'), findsNothing);
+  });
 }

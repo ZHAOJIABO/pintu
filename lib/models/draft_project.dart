@@ -26,6 +26,7 @@ class DraftProject {
   final ColorLimit colorLimit;
   final bool smoothingEnabled;
   final bool removeBackground;
+  final int saturation;
 
   const DraftProject({
     required this.originalImageBytes,
@@ -40,6 +41,7 @@ class DraftProject {
     this.colorLimit = ColorLimit.unlimited,
     this.smoothingEnabled = true,
     this.removeBackground = true,
+    this.saturation = 100,
   });
 
   Uint8List get imageForGeneration =>
@@ -83,6 +85,7 @@ class DraftProject {
     ColorLimit? colorLimit,
     bool? smoothingEnabled,
     bool? removeBackground,
+    int? saturation,
   }) {
     return DraftProject(
       originalImageBytes: originalImageBytes ?? this.originalImageBytes,
@@ -97,6 +100,7 @@ class DraftProject {
       colorLimit: colorLimit ?? this.colorLimit,
       smoothingEnabled: smoothingEnabled ?? this.smoothingEnabled,
       removeBackground: removeBackground ?? this.removeBackground,
+      saturation: saturation ?? this.saturation,
     );
   }
 
@@ -115,5 +119,6 @@ class DraftProject {
     'colorLimit': colorLimit.name,
     'smoothingEnabled': smoothingEnabled,
     'removeBackground': removeBackground,
+    'saturation': saturation,
   };
 }

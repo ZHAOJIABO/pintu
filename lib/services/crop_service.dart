@@ -5,6 +5,8 @@ import 'package:image/image.dart' as img;
 import '../models/product_template.dart';
 
 class CropService {
+  static const _finishedProductMaxSide = 1600;
+
   Future<Uint8List> cropToAspectRatio(
     Uint8List bytes,
     CropAspectRatio ratio,
@@ -92,5 +94,30 @@ class CropService {
     }
 
     return Uint8List.fromList(img.encodePng(cropped));
+  }
+
+  Future<Uint8List> exportFinishedProduct(Uint8List croppedBytes) async {
+    final decoded = img.decodeImage(croppedBytes);
+    if (decoded == null) {
+      throw const FormatException('Image could not be decoded');
+    }
+
+    var normalized = img.bakeOrientation(decoded);
+    final longestSide = normalized.width > normalized.height
+        ? normalized.width
+        : normalized.height;
+    if (longestSide > _finishedProductMaxSide) {
+      normalized = img.copyResize(
+        normalized,
+        width: normalized.width >= normalized.height
+            ? _finishedProductMaxSide
+            : null,
+        height: normalized.height > normalized.width
+            ? _finishedProductMaxSide
+            : null,
+        interpolation: img.Interpolation.average,
+      );
+    }
+    return Uint8List.fromList(img.encodeJpg(normalized, quality: 85));
   }
 }

@@ -43,12 +43,15 @@ class PatternGenerationService {
     if (!draft.removeBackground) {
       debugPrint('[BackgroundRemoval] disabled by the generation parameter.');
     }
-    final pixels = await imageService.resizeAndGetPixels(
+    var pixels = await imageService.resizeAndGetPixels(
       imageBytes,
       width,
       height,
       alphaThreshold: draft.removeBackground ? 128 : null,
     );
+    if (draft.saturation != ImageService.maxSaturation) {
+      pixels = imageService.adjustSaturation(pixels, draft.saturation);
+    }
     if (draft.removeBackground) {
       final transparentCount = _countTransparentPixels(pixels);
       debugPrint(

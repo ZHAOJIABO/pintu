@@ -523,6 +523,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('75'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('parameter-preview-frame')),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(
         find.byKey(const ValueKey('parameter-saturation-increase')),
       );

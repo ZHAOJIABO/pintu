@@ -4,7 +4,14 @@ import 'package:image_picker/image_picker.dart';
 import '../algorithms/color_reducer.dart';
 
 class ImageService {
+  static const _finishedProductImageSource = ImageSource.camera;
+  static const minSaturation = 0;
+  static const maxSaturation = 100;
+
   final ImagePicker _picker = ImagePicker();
+
+  bool get finishedProductUsesCamera =>
+      _finishedProductImageSource == ImageSource.camera;
 
   Future<XFile?> pickImage({ImageSource source = ImageSource.gallery}) async {
     return await _picker.pickImage(
@@ -13,6 +20,97 @@ class ImageService {
       maxHeight: 800,
     );
   }
+
+  Future<XFile?> pickFinishedProductPhoto() {
+    return _picker.pickImage(
+      source: _finishedProductImageSource,
+      preferredCameraDevice: CameraDevice.rear,
+      maxWidth: 2048,
+      maxHeight: 2048,
+      imageQuality: 95,
+      requestFullMetadata: false,
+    );
+  }
+
+  /// Returns a color matrix that adjusts saturation using the same scale as
+  /// the parameter page: 0 is grayscale and 100 preserves the source colors.
+  static List<double> saturationColorMatrix(int saturation) {
+    _validateSaturation(saturation);
+
+    final factor = saturation / maxSaturation;
+    final inverseFactor = 1 - factor;
+    const redLuminance = 0.213;
+    const greenLuminance = 0.715;
+    const blueLuminance = 0.072;
+
+    return [
+      redLuminance * inverseFactor + factor,
+      greenLuminance * inverseFactor,
+      blueLuminance * inverseFactor,
+      0,
+      0,
+      redLuminance * inverseFactor,
+      greenLuminance * inverseFactor + factor,
+      blueLuminance * inverseFactor,
+      0,
+      0,
+      redLuminance * inverseFactor,
+      greenLuminance * inverseFactor,
+      blueLuminance * inverseFactor + factor,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ];
+  }
+
+  /// Applies the parameter-page saturation scale to packed RGBA pixels.
+  Uint8List adjustSaturation(Uint8List rgbaPixels, int saturation) {
+    _validateSaturation(saturation);
+    if (rgbaPixels.lengthInBytes % 4 != 0) {
+      throw ArgumentError.value(
+        rgbaPixels.lengthInBytes,
+        'rgbaPixels.lengthInBytes',
+        'must be divisible by 4',
+      );
+    }
+    if (saturation == maxSaturation) {
+      return Uint8List.fromList(rgbaPixels);
+    }
+
+    final matrix = saturationColorMatrix(saturation);
+    final adjusted = Uint8List.fromList(rgbaPixels);
+    for (var offset = 0; offset < adjusted.lengthInBytes; offset += 4) {
+      final red = rgbaPixels[offset];
+      final green = rgbaPixels[offset + 1];
+      final blue = rgbaPixels[offset + 2];
+      adjusted[offset] = _clampColor(
+        matrix[0] * red + matrix[1] * green + matrix[2] * blue,
+      );
+      adjusted[offset + 1] = _clampColor(
+        matrix[5] * red + matrix[6] * green + matrix[7] * blue,
+      );
+      adjusted[offset + 2] = _clampColor(
+        matrix[10] * red + matrix[11] * green + matrix[12] * blue,
+      );
+    }
+    return adjusted;
+  }
+
+  static void _validateSaturation(int saturation) {
+    if (saturation < minSaturation || saturation > maxSaturation) {
+      throw ArgumentError.value(
+        saturation,
+        'saturation',
+        'must be between $minSaturation and $maxSaturation',
+      );
+    }
+  }
+
+  static int _clampColor(double value) => value.round().clamp(0, 255);
 
   Future<Uint8List> resizeAndGetPixels(
     Uint8List imageBytes,

@@ -168,7 +168,19 @@ void main() {
         ),
       ),
     );
-    final services = BackendServices(store: store);
+    final services = BackendServices(
+      store: store,
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/api/v1/finished-products');
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            'items': const [],
+          }),
+          200,
+        );
+      }),
+    );
 
     await tester.pumpWidget(
       BackendScope(
@@ -209,6 +221,7 @@ void main() {
             'expiresIn': 3600,
             'user': {'userId': 'guest-1'},
           },
+          '/api/v1/finished-products' => {'items': const []},
           '/api/v1/works' => {
             'data': {
               'works': [
@@ -343,6 +356,7 @@ void main() {
             'expiresIn': 3600,
             'user': {'userId': 'guest-1'},
           },
+          '/api/v1/finished-products' => {'items': const []},
           '/api/v1/templates/favorites' => {
             'templates': [
               {

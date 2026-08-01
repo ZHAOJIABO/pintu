@@ -286,7 +286,13 @@ void main() {
       painter.labelBand + 24.5 * painter.cellSize,
       painter.labelBand + 24.5 * painter.cellSize,
     );
-    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    final gesture = await tester.startGesture(
+      tester.getTopLeft(canvas) + firstCellCenter,
+    );
+    await tester.pump();
+    await gesture.moveBy(Offset(painter.cellSize, 0));
+    await tester.pump();
+    await gesture.up();
     await tester.pump();
 
     expect(_editorPainter(tester).pixels.take(4), [233, 0, 48, 255]);

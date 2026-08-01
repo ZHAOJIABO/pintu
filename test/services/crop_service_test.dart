@@ -54,4 +54,17 @@ void main() {
     expect(decoded.getPixel(0, 0).r.toInt(), 80);
     expect(decoded.getPixel(1, 0).r.toInt(), 40);
   });
+
+  test('exportFinishedProduct writes a bounded JPEG export', () async {
+    final source = img.Image(width: 2400, height: 1200);
+
+    final exported = await CropService().exportFinishedProduct(
+      Uint8List.fromList(img.encodePng(source)),
+    );
+
+    final decoded = img.decodeJpg(exported)!;
+    expect(decoded.width, 1600);
+    expect(decoded.height, 800);
+    expect(exported.take(2), [0xFF, 0xD8]);
+  });
 }

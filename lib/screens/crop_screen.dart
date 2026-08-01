@@ -16,8 +16,17 @@ const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 
 class CropScreen extends StatefulWidget {
   final DraftProject draft;
+  final bool returnCroppedImage;
+  final List<CropAspectRatio>? ratioOptions;
+  final String? cropHint;
 
-  const CropScreen({super.key, required this.draft});
+  const CropScreen({
+    super.key,
+    required this.draft,
+    this.returnCroppedImage = false,
+    this.ratioOptions,
+    this.cropHint,
+  });
 
   @override
   State<CropScreen> createState() => _CropScreenState();
@@ -54,9 +63,15 @@ class _CropScreenState extends State<CropScreen>
   Offset _reboundStartOffset = Offset.zero;
   Offset _reboundTargetOffset = Offset.zero;
 
+  List<CropAspectRatio> get _availableRatioOptions =>
+      widget.ratioOptions ?? _ratioOptions;
+
   @override
   void initState() {
     super.initState();
+    if (widget.ratioOptions case final options? when options.isNotEmpty) {
+      _ratio = options.first;
+    }
     _reboundController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
@@ -139,7 +154,7 @@ class _CropScreenState extends State<CropScreen>
   }
 
   double _maxImageScale(Size cropSize) {
-    final largestRequiredScale = _ratioOptions
+    final largestRequiredScale = _availableRatioOptions
         .map((ratio) => _minImageScale(_cropFrameSize(ratio)))
         .fold(_minImageScale(cropSize), math.max);
     return largestRequiredScale * 8;
@@ -226,6 +241,10 @@ class _CropScreenState extends State<CropScreen>
         flipped: _flipped,
       );
       if (!mounted) return;
+      if (widget.returnCroppedImage) {
+        Navigator.of(context).pop(cropped);
+        return;
+      }
       final nextDraft = widget.draft.copyWith(
         croppedImageBytes: cropped,
         cropAspectRatio: _ratio,
@@ -294,7 +313,7 @@ class _CropScreenState extends State<CropScreen>
                             height: _bottomBarHeight,
                             child: _CropToolbar(
                               selectedRatio: _ratio,
-                              ratioOptions: _ratioOptions,
+                              ratioOptions: _availableRatioOptions,
                               flipped: _flipped,
                               cropping: _cropping,
                               onFlip: _toggleFlip,
@@ -411,6 +430,36 @@ class _CropScreenState extends State<CropScreen>
                       ),
                     ),
                   ),
+                  if (widget.cropHint case final hint? when hint.isNotEmpty)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: IgnorePointer(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              hint,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontFamily: _roundFontFamily,
+                                fontFamilyFallback: _fontFallbacks,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

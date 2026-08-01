@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -6,8 +7,14 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../services/camera_permission_service.dart';
+import '../services/crop_service.dart';
+import '../services/image_service.dart';
+import '../models/draft_project.dart';
+import '../models/product_template.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
+import 'crop_screen.dart';
 import 'result_screen.dart';
 
 const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
@@ -40,8 +47,7 @@ double _patternsContentHeightForItemCount(int itemCount) {
 
 /// Figma “我的”页面。
 ///
-/// 成品区暂时展示设计稿中的加载占位状态；后续接入作品接口时可直接
-/// 用真实缩略图替换 [_WorksPlaceholder]，无需改变页面布局。
+/// 成品区支持展示、加载失败重试和记录拼豆成品。
 class MyScreen extends StatelessWidget {
   const MyScreen({super.key});
 
@@ -176,23 +182,136 @@ class _ScaledDesignSurface extends StatelessWidget {
   }
 }
 
-class _MyDesignCanvas extends StatelessWidget {
+class _MyDesignCanvas extends StatefulWidget {
   const _MyDesignCanvas();
 
-  void _showComingSoon(BuildContext context, String message) {
+  @override
+  State<_MyDesignCanvas> createState() => _MyDesignCanvasState();
+}
+
+class _MyDesignCanvasState extends State<_MyDesignCanvas> {
+  final ImageService _imageService = ImageService();
+  final CropService _cropService = CropService();
+  final CameraPermissionService _cameraPermission =
+      const CameraPermissionService();
+  BackendServices? _services;
+  List<FinishedProductItem> _finishedProducts = const [];
+  Object? _finishedProductsError;
+  bool _loadingFinishedProducts = false;
+  bool _recording = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final services = BackendScope.maybeOf(context);
+    if (identical(services, _services)) return;
+    _services = services;
+    if (services != null) {
+      _loadFinishedProducts(services);
+    }
+  }
+
+  Future<void> _loadFinishedProducts(BackendServices services) async {
+    setState(() {
+      _loadingFinishedProducts = true;
+      _finishedProductsError = null;
+    });
+    try {
+      final page = await services.finishedProducts.listFinishedProducts();
+      if (!mounted || !identical(_services, services)) return;
+      setState(() => _finishedProducts = page.items);
+    } catch (error) {
+      if (!mounted || !identical(_services, services)) return;
+      setState(() => _finishedProductsError = error);
+    } finally {
+      if (mounted && identical(_services, services)) {
+        setState(() => _loadingFinishedProducts = false);
+      }
+    }
+  }
+
+  void _showMessage(String message, {SnackBarAction? action}) {
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ).showSnackBar(SnackBar(content: Text(message), action: action));
+  }
+
+  Future<void> _recordFinishedProduct() async {
+    final services = _services;
+    if (services == null || _recording) {
+      if (services == null) _showMessage('服务暂未连接，请稍后重试');
+      return;
+    }
+
+    setState(() => _recording = true);
+    try {
+      if (_imageService.finishedProductUsesCamera) {
+        final permission = await _cameraPermission.requestCameraPermission();
+        if (!mounted) return;
+        if (permission != CameraPermissionResult.granted) {
+          final permanentlyDenied =
+              permission == CameraPermissionResult.permanentlyDenied;
+          _showMessage(
+            permanentlyDenied ? '请在系统设置中允许相机权限后再记录成品' : '需要相机权限才能记录成品',
+            action: permanentlyDenied
+                ? SnackBarAction(
+                    label: '去设置',
+                    onPressed: () => _cameraPermission.openSettings(),
+                  )
+                : null,
+          );
+          return;
+        }
+      }
+
+      final photo = await _imageService.pickFinishedProductPhoto();
+      if (photo == null || !mounted) return;
+      final bytes = await photo.readAsBytes();
+      if (!mounted) return;
+      final cropped = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(
+          builder: (_) => CropScreen(
+            draft: DraftProject(
+              originalImageBytes: bytes,
+              imageSource: DraftImageSource.photo,
+            ),
+            returnCroppedImage: true,
+            ratioOptions: const [CropAspectRatio.square],
+            cropHint: '请保留拼豆成品周围的一点边缘',
+          ),
+        ),
+      );
+      if (cropped == null || !mounted) return;
+
+      final export = await _cropService.exportFinishedProduct(cropped);
+      final requestId = 'finished-${DateTime.now().microsecondsSinceEpoch}';
+      final item = await services.finishedProducts.uploadAndCreate(
+        bytes: export,
+        clientRequestId: requestId,
+      );
+      if (!mounted || !identical(_services, services)) return;
+      setState(() {
+        _finishedProducts = [item, ..._finishedProducts];
+        _finishedProductsError = null;
+      });
+      _showMessage('已记录到我的成品');
+    } on ArgumentError {
+      if (mounted) _showMessage('照片文件过大，请调整裁切区域后重试');
+    } catch (_) {
+      if (mounted) _showMessage('记录失败，请检查网络后重试');
+    } finally {
+      if (mounted) setState(() => _recording = false);
+    }
   }
 
   Future<void> _showCurrentUserId(BuildContext context) async {
-    final services = BackendScope.maybeOf(context);
+    final services = _services;
     if (services == null) return;
 
     final userId = (await services.store.readSession())?.user.userId;
     if (!context.mounted || userId == null || userId.isEmpty) return;
 
-    _showComingSoon(context, userId);
+    _showMessage(userId);
   }
 
   @override
@@ -275,7 +394,14 @@ class _MyDesignCanvas extends StatelessWidget {
             top: 283 + _mainContentVerticalOffset,
             left: 12,
             child: _WorksSection(
-              onRecordTap: () => _showComingSoon(context, '记录功能即将开放'),
+              items: _finishedProducts,
+              loading: _loadingFinishedProducts,
+              error: _finishedProductsError,
+              recording: _recording,
+              onRetry: _services == null
+                  ? null
+                  : () => _loadFinishedProducts(_services!),
+              onRecordTap: _recordFinishedProduct,
             ),
           ),
         ],
@@ -1288,9 +1414,21 @@ class _PatternPreview extends StatelessWidget {
 }
 
 class _WorksSection extends StatelessWidget {
+  final List<FinishedProductItem> items;
+  final bool loading;
+  final Object? error;
+  final bool recording;
+  final VoidCallback? onRetry;
   final VoidCallback onRecordTap;
 
-  const _WorksSection({required this.onRecordTap});
+  const _WorksSection({
+    required this.items,
+    required this.loading,
+    required this.error,
+    required this.recording,
+    required this.onRetry,
+    required this.onRecordTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1329,19 +1467,80 @@ class _WorksSection extends StatelessWidget {
               ],
             ),
           ),
-          const Positioned(
+          Positioned(
             top: 36,
-            child: _WorksPlaceholder(key: ValueKey('my-works-placeholder')),
+            child: _FinishedProductGallery(
+              items: items,
+              loading: loading,
+              error: error,
+              onRetry: onRetry,
+            ),
           ),
-          const Positioned(top: 410, left: 163.875, child: _PageIndicator()),
+          if (items.length > 1)
+            const Positioned(top: 410, left: 163.875, child: _PageIndicator()),
           Positioned(
             top: 422,
             left: 103,
-            child: _RecordButton(onTap: onRecordTap),
+            child: _RecordButton(onTap: onRecordTap, loading: recording),
           ),
         ],
       ),
     );
+  }
+}
+
+class _FinishedProductGallery extends StatelessWidget {
+  final List<FinishedProductItem> items;
+  final bool loading;
+  final Object? error;
+  final VoidCallback? onRetry;
+
+  const _FinishedProductGallery({
+    required this.items,
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading && items.isEmpty) {
+      return Semantics(
+        label: '正在加载我的成品',
+        child: const _WorksPlaceholder(key: ValueKey('my-works-loading')),
+      );
+    }
+    if (items.isNotEmpty) {
+      return SizedBox(
+        width: 366,
+        height: 366,
+        child: PageView.builder(
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.network(
+                item.displayUrl,
+                key: ValueKey('finished-product-${item.finishedProductId}'),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const _WorksPlaceholder(),
+              ),
+            );
+          },
+        ),
+      );
+    }
+    if (error != null) {
+      return SizedBox(
+        width: 366,
+        height: 366,
+        child: Center(
+          child: TextButton(onPressed: onRetry, child: const Text('加载失败，点击重试')),
+        ),
+      );
+    }
+    return const _WorksPlaceholder(key: ValueKey('my-works-placeholder'));
   }
 }
 
@@ -1468,17 +1667,19 @@ class _PageIndicator extends StatelessWidget {
 }
 
 class _RecordButton extends StatelessWidget {
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool loading;
 
-  const _RecordButton({required this.onTap});
+  const _RecordButton({this.onTap, this.loading = false});
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
+      enabled: !loading,
       label: '记录一下',
       child: GestureDetector(
-        onTap: onTap,
+        onTap: loading ? null : onTap,
         child: Container(
           width: 160,
           height: 44,
@@ -1487,17 +1688,26 @@ class _RecordButton extends StatelessWidget {
             color: Colors.black,
             borderRadius: BorderRadius.all(Radius.circular(22)),
           ),
-          child: Text(
-            '记录一下',
-            style: TextStyle(
-              color: Colors.white,
-              fontFamily: _roundFontFamily,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              height: 1.1,
-              fontFamilyFallback: _fontFallbacks,
-            ),
-          ),
+          child: loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                )
+              : Text(
+                  '记录一下',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontFamily: _roundFontFamily,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    height: 1.1,
+                    fontFamilyFallback: _fontFallbacks,
+                  ),
+                ),
         ),
       ),
     );

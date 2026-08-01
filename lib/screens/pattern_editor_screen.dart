@@ -300,7 +300,9 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   }
 
   void _finishStroke() {
-    _historyService.record(_activeStroke);
+    if (_activeStroke.isNotEmpty) {
+      setState(() => _historyService.record(_activeStroke));
+    }
     _activeStroke = <CellChange>[];
     _lastEditedCell = null;
   }

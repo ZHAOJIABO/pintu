@@ -839,6 +839,38 @@ class WorkDetail {
   const WorkDetail({required this.work, required this.patternData});
 }
 
+class FinishedProductItem {
+  final String finishedProductId;
+  final String imageUrl;
+  final String thumbnailUrl;
+  final int createdAt;
+
+  const FinishedProductItem({
+    required this.finishedProductId,
+    required this.imageUrl,
+    required this.thumbnailUrl,
+    required this.createdAt,
+  });
+
+  factory FinishedProductItem.fromJson(JsonMap json) {
+    return FinishedProductItem(
+      finishedProductId: _stringValue(json['finishedProductId']),
+      imageUrl: _stringValue(json['imageUrl']),
+      thumbnailUrl: _stringValue(json['thumbnailUrl']),
+      createdAt: _intValue(json['createdAt']),
+    );
+  }
+
+  String get displayUrl => thumbnailUrl.isNotEmpty ? thumbnailUrl : imageUrl;
+}
+
+class FinishedProductPage {
+  final List<FinishedProductItem> items;
+  final String? nextCursor;
+
+  const FinishedProductPage({required this.items, this.nextCursor});
+}
+
 class CreditBalance {
   final int balance;
   final int dailyFreeRemaining;

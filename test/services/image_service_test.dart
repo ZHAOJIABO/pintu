@@ -182,6 +182,73 @@ void main() {
     expect(updated.removeBackground, isFalse);
     expect(updated.toJson()['removeBackground'], isFalse);
   });
+
+  test(
+    'saturation adjustment desaturates RGB pixels without changing alpha',
+    () {
+      final adjusted = ImageService().adjustSaturation(
+        Uint8List.fromList([255, 0, 0, 127]),
+        0,
+      );
+
+      expect(adjusted, [54, 54, 54, 127]);
+    },
+  );
+
+  test('draft preserves saturation for generation', () {
+    final updated = draft(removeBackground: false).copyWith(saturation: 60);
+
+    expect(updated.saturation, 60);
+    expect(updated.toJson()['saturation'], 60);
+  });
+
+  test(
+    'pattern generation applies the draft saturation to its pixels',
+    () async {
+      final imageService = _TrackingImageService();
+      await PatternGenerationService(imageService: imageService).generate(
+        draft: draft(removeBackground: false).copyWith(saturation: 45),
+        palette: testPalette(),
+      );
+
+      expect(imageService.appliedSaturation, 45);
+    },
+  );
+
+  test(
+    'pattern generation matches the saturation-adjusted palette color',
+    () async {
+      final gray = PaletteEntry(
+        name: 'Gray',
+        ref: 'G',
+        symbol: 'G',
+        color: BeadColor.fromInt(54, 54, 54, 255),
+        prefix: 'T',
+      );
+
+      final pattern =
+          await PatternGenerationService(imageService: ImageService()).generate(
+            draft: draft(removeBackground: false).copyWith(saturation: 0),
+            palette: Palette(
+              name: 'test',
+              entries: [testPalette().entries.first, gray],
+            ),
+          );
+
+      expect(pattern.usage, containsPair('G', 48));
+      expect(pattern.usage, isNot(contains('R')));
+    },
+  );
+}
+
+class _TrackingImageService extends ImageService {
+  int? appliedSaturation;
+
+  @override
+  Uint8List adjustSaturation(Uint8List rgbaPixels, int saturation) {
+    appliedSaturation = saturation;
+    return super.adjustSaturation(rgbaPixels, saturation);
+  }
 }
 
 class _FakeBackgroundRemovalService implements BackgroundRemovalService {

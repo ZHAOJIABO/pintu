@@ -246,6 +246,7 @@ class MediaRepository {
     required String fileName,
     required String contentType,
     required String purpose,
+    String? clientRequestId,
   }) async {
     await auth.ensureSignedIn();
     final data = await apiClient.post(
@@ -254,6 +255,8 @@ class MediaRepository {
         'file_name': fileName,
         'content_type': contentType,
         'purpose': purpose,
+        if (clientRequestId != null && clientRequestId.isNotEmpty)
+          'client_request_id': clientRequestId,
       },
     );
     return UploadToken.fromJson(data);
@@ -290,11 +293,13 @@ class MediaRepository {
     required String fileName,
     required String contentType,
     required String purpose,
+    String? clientRequestId,
   }) async {
     final token = await createUploadToken(
       fileName: fileName,
       contentType: contentType,
       purpose: purpose,
+      clientRequestId: clientRequestId,
     );
     await uploadToObjectStorage(token: token, bytes: bytes);
     return reportUpload(fileKey: token.fileKey, fileSize: bytes.length);
@@ -302,6 +307,81 @@ class MediaRepository {
 
   Future<Uint8List> downloadBytes(String url) {
     return apiClient.getBytes(url);
+  }
+}
+
+class FinishedProductRepository {
+  static const _endpoint = '/api/v1/finished-products';
+
+  final ApiClient apiClient;
+  final AuthSessionController auth;
+  final MediaRepository media;
+
+  const FinishedProductRepository({
+    required this.apiClient,
+    required this.auth,
+    required this.media,
+  });
+
+  Future<FinishedProductPage> listFinishedProducts({
+    String? cursor,
+    int limit = 12,
+  }) async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get(
+      _endpoint,
+      query: {
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+        'limit': limit,
+      },
+    );
+    return FinishedProductPage(
+      items: _mapList(data['items'], FinishedProductItem.fromJson),
+      nextCursor: _nullableString(data['nextCursor']),
+    );
+  }
+
+  Future<FinishedProductItem> uploadAndCreate({
+    required Uint8List bytes,
+    required String clientRequestId,
+  }) async {
+    final token = await media.createUploadToken(
+      fileName: 'finished-product.jpg',
+      contentType: 'image/jpeg',
+      purpose: 'finished_product',
+      clientRequestId: clientRequestId,
+    );
+    if (token.maxFileSize > 0 && bytes.length > token.maxFileSize) {
+      throw ArgumentError.value(
+        bytes.length,
+        'bytes',
+        'The finished-product export exceeds the upload limit.',
+      );
+    }
+    await media.uploadToObjectStorage(token: token, bytes: bytes);
+    final uploaded = await media.reportUpload(
+      fileKey: token.fileKey,
+      fileSize: bytes.length,
+    );
+    await auth.ensureSignedIn();
+    final data = await apiClient.post(
+      _endpoint,
+      body: {
+        'media_file_key': uploaded.fileKey,
+        'client_request_id': clientRequestId,
+      },
+    );
+    final itemJson = _map(data['item']);
+    if (itemJson == null) {
+      throw const FormatException('Finished-product response is missing item.');
+    }
+    final item = FinishedProductItem.fromJson(itemJson);
+    if (item.finishedProductId.isEmpty || item.displayUrl.isEmpty) {
+      throw const FormatException(
+        'Finished-product response is missing required fields.',
+      );
+    }
+    return item;
   }
 }
 
@@ -561,6 +641,11 @@ JsonMap? _map(Object? value) {
   if (value is Map<String, dynamic>) return value;
   if (value is Map) return value.cast<String, dynamic>();
   return null;
+}
+
+String? _nullableString(Object? value) {
+  final result = value?.toString();
+  return result == null || result.isEmpty ? null : result;
 }
 
 List<T> _mapList<T>(Object? value, T Function(JsonMap json) decode) {

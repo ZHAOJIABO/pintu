@@ -27,7 +27,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>We need access to your camera to take photos for bead pattern conversion.</string>
+	<string>用于拍摄并记录你的拼豆成品。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>需要访问相册来保存生成的拼豆图纸。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
