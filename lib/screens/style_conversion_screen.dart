@@ -43,7 +43,6 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
   bool _stylesLoading = true;
   String? _stylesError;
   bool _didResolveServices = false;
-  bool _didTryResume = false;
   final _styleScrollController = ScrollController();
 
   Uint8List get _displayImage => _convertedImage ?? _sourceImage;
@@ -97,39 +96,12 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
           ),
         );
       });
-      if (!_didTryResume) {
-        _didTryResume = true;
-        await _resumePendingTask();
-      }
     } catch (_) {
       if (!mounted || !identical(services, _services)) return;
       setState(() {
         _stylesLoading = false;
         _stylesError = '风格加载失败，请重试';
       });
-    }
-  }
-
-  Future<void> _resumePendingTask() async {
-    final transfer = _styleTransfer;
-    final services = _services;
-    if (transfer == null || services == null) return;
-
-    setState(() => _converting = true);
-    try {
-      final task = await transfer.resumePendingTask();
-      if (task == null) return;
-      if (!mounted || !identical(services, _services)) return;
-      setState(() => _selectedStyleId = task.styleId);
-      await _handleTerminalTask(task, services);
-    } on StyleGenerationStillRunningException {
-      _showMessage('仍在生成中，可稍后在历史记录里查看');
-    } catch (_) {
-      _showMessage('生成状态查询失败，可稍后重试');
-    } finally {
-      if (mounted && identical(services, _services)) {
-        setState(() => _converting = false);
-      }
     }
   }
 
@@ -142,15 +114,12 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
       return;
     }
 
-    final isNewStyle =
-        _selectedStyleId != null && _selectedStyleId != style.styleId;
     setState(() {
       _selectedStyleId = style.styleId;
       _converting = true;
     });
 
     try {
-      if (isNewStyle) await transfer.startNewAttempt();
       final task = await transfer.submitAndWait(
         styleId: style.styleId,
         imageBytes: _sourceImage,
@@ -215,7 +184,10 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParameterConfigScreen(draft: nextDraft),
+        builder: (_) => ParameterConfigScreen(
+          draft: nextDraft,
+          showAiImageSaveAction: true,
+        ),
       ),
     );
   }

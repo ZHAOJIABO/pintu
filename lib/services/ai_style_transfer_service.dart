@@ -5,8 +5,9 @@ import 'api/api_repositories.dart';
 import 'api/api_session_store.dart';
 
 /// Coordinates the multi-request AI style transfer flow without exposing it to
-/// presentation widgets. A pending task is retained so it can be polled again
-/// after the app returns to the foreground.
+/// presentation widgets. Every submission is an independent task; the backend
+/// allows several to run concurrently and rejects the request once its own
+/// limit is reached.
 class AiStyleTransferService {
   final MediaRepository media;
   final AIGenerationRepository generations;
@@ -17,11 +18,6 @@ class AiStyleTransferService {
     required this.generations,
     required this.store,
   });
-
-  Future<void> startNewAttempt() async {
-    await store.clearPendingStyleClientRequestId();
-    await store.clearPendingAiTaskId();
-  }
 
   Future<AIGenerationItem> submitAndWait({
     required String styleId,
@@ -54,20 +50,11 @@ class AiStyleTransferService {
     if (created.taskId.isEmpty) {
       throw const FormatException('风格转换响应缺少 taskId');
     }
-    await store.savePendingAiTaskId(created.taskId);
-    return _waitForTerminalTask(created.taskId);
-  }
-
-  Future<AIGenerationItem?> resumePendingTask() async {
-    final taskId = await store.readPendingAiTaskId();
-    if (taskId == null) return null;
-    return _waitForTerminalTask(taskId);
-  }
-
-  Future<AIGenerationItem> _waitForTerminalTask(String taskId) async {
-    final task = await generations.waitForStyleGeneration(taskId);
-    await store.clearPendingAiTaskId();
+    // The idempotency key only has to cover the create call itself, so that a
+    // lost response cannot be retried into a second charge. Holding it any
+    // longer would make the next submission dedupe onto this task.
     await store.clearPendingStyleClientRequestId();
-    return task;
+    await store.markAiTaskUnseen(created.taskId);
+    return generations.waitForStyleGeneration(created.taskId);
   }
 }

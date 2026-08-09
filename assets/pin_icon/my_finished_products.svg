@@ -1,0 +1,15 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Frame">
+<g id="Union">
+<path d="M2.67188 11.2002H13.334V9.06738H15.4727V11.2002H13.3389V13.333H2.66699V11.2002H0.533203V9.06738H2.67188V11.2002Z" fill="black"/>
+<path d="M6.93848 6.93359H2.66699V4.80078H6.93848V6.93359Z" fill="black"/>
+<path d="M13.3389 6.93359H9.06738V4.80078H13.3389V6.93359Z" fill="black"/>
+<path d="M6.93848 4.80078H2.66699V2.66699H6.93848V4.80078Z" fill="black"/>
+<path d="M13.3389 4.80078H9.06738V2.66699H13.3389V4.80078Z" fill="black"/>
+</g>
+<g id="Union_2">
+<path d="M2.67188 13.333H0.533203V11.2002H2.67188V13.333Z" fill="#BFBFBF"/>
+<path d="M15.4727 13.333H13.334V11.2002H15.4727V13.333Z" fill="#BFBFBF"/>
+</g>
+</g>
+</svg>

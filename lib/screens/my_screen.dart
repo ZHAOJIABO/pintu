@@ -1,21 +1,26 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../services/api/api_session_store.dart';
 import '../services/camera_permission_service.dart';
 import '../services/crop_service.dart';
-import '../services/image_service.dart';
-import '../models/draft_project.dart';
-import '../models/product_template.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
-import 'crop_screen.dart';
+import '../models/draft_project.dart';
+import 'finished_product_camera_screen.dart';
+import 'parameter_config_screen.dart';
 import 'result_screen.dart';
+import 'settings_screen.dart';
+import 'upload_screen.dart';
 
 const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -190,13 +195,11 @@ class _MyDesignCanvas extends StatefulWidget {
 }
 
 class _MyDesignCanvasState extends State<_MyDesignCanvas> {
-  final ImageService _imageService = ImageService();
   final CropService _cropService = CropService();
   final CameraPermissionService _cameraPermission =
       const CameraPermissionService();
   BackendServices? _services;
   List<FinishedProductItem> _finishedProducts = const [];
-  Object? _finishedProductsError;
   bool _loadingFinishedProducts = false;
   bool _recording = false;
 
@@ -212,17 +215,13 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
   }
 
   Future<void> _loadFinishedProducts(BackendServices services) async {
-    setState(() {
-      _loadingFinishedProducts = true;
-      _finishedProductsError = null;
-    });
+    setState(() => _loadingFinishedProducts = true);
     try {
       final page = await services.finishedProducts.listFinishedProducts();
       if (!mounted || !identical(_services, services)) return;
       setState(() => _finishedProducts = page.items);
-    } catch (error) {
+    } catch (_) {
       if (!mounted || !identical(_services, services)) return;
-      setState(() => _finishedProductsError = error);
     } finally {
       if (mounted && identical(_services, services)) {
         setState(() => _loadingFinishedProducts = false);
@@ -245,55 +244,41 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
 
     setState(() => _recording = true);
     try {
-      if (_imageService.finishedProductUsesCamera) {
-        final permission = await _cameraPermission.requestCameraPermission();
-        if (!mounted) return;
-        if (permission != CameraPermissionResult.granted) {
-          final permanentlyDenied =
-              permission == CameraPermissionResult.permanentlyDenied;
-          _showMessage(
-            permanentlyDenied ? '请在系统设置中允许相机权限后再记录成品' : '需要相机权限才能记录成品',
-            action: permanentlyDenied
-                ? SnackBarAction(
-                    label: '去设置',
-                    onPressed: () => _cameraPermission.openSettings(),
-                  )
-                : null,
-          );
-          return;
-        }
+      final permission = await _cameraPermission.requestCameraPermission();
+      if (!mounted) return;
+      if (permission != CameraPermissionResult.granted) {
+        final permanentlyDenied =
+            permission == CameraPermissionResult.permanentlyDenied;
+        _showMessage(
+          permanentlyDenied ? '请在系统设置中允许相机权限后再记录成品' : '需要相机权限才能记录成品',
+          action: permanentlyDenied
+              ? SnackBarAction(
+                  label: '去设置',
+                  onPressed: () => _cameraPermission.openSettings(),
+                )
+              : null,
+        );
+        return;
       }
 
-      final photo = await _imageService.pickFinishedProductPhoto();
-      if (photo == null || !mounted) return;
-      final bytes = await photo.readAsBytes();
-      if (!mounted) return;
-      final cropped = await Navigator.of(context).push<Uint8List>(
-        MaterialPageRoute(
-          builder: (_) => CropScreen(
-            draft: DraftProject(
-              originalImageBytes: bytes,
-              imageSource: DraftImageSource.photo,
+      final backgroundRemovedPhoto = await Navigator.of(context)
+          .push<Uint8List>(
+            MaterialPageRoute(
+              builder: (_) => const FinishedProductCameraScreen(),
             ),
-            returnCroppedImage: true,
-            ratioOptions: const [CropAspectRatio.square],
-            cropHint: '请保留拼豆成品周围的一点边缘',
-          ),
-        ),
-      );
-      if (cropped == null || !mounted) return;
+          );
+      if (backgroundRemovedPhoto == null || !mounted) return;
 
-      final export = await _cropService.exportFinishedProduct(cropped);
+      final export = await _cropService.exportFinishedProduct(
+        backgroundRemovedPhoto,
+      );
       final requestId = 'finished-${DateTime.now().microsecondsSinceEpoch}';
       final item = await services.finishedProducts.uploadAndCreate(
         bytes: export,
         clientRequestId: requestId,
       );
       if (!mounted || !identical(_services, services)) return;
-      setState(() {
-        _finishedProducts = [item, ..._finishedProducts];
-        _finishedProductsError = null;
-      });
+      setState(() => _finishedProducts = [item, ..._finishedProducts]);
       _showMessage('已记录到我的成品');
     } on ArgumentError {
       if (mounted) _showMessage('照片文件过大，请调整裁切区域后重试');
@@ -302,16 +287,6 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
     } finally {
       if (mounted) setState(() => _recording = false);
     }
-  }
-
-  Future<void> _showCurrentUserId(BuildContext context) async {
-    final services = _services;
-    if (services == null) return;
-
-    final userId = (await services.store.readSession())?.user.userId;
-    if (!context.mounted || userId == null || userId.isEmpty) return;
-
-    _showMessage(userId);
   }
 
   @override
@@ -342,7 +317,9 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
               button: true,
               label: '设置',
               child: InkResponse(
-                onTap: () => _showCurrentUserId(context),
+                onTap: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
                 radius: 24,
                 child: Center(
                   child: Image.asset(
@@ -396,11 +373,7 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
             child: _WorksSection(
               items: _finishedProducts,
               loading: _loadingFinishedProducts,
-              error: _finishedProductsError,
               recording: _recording,
-              onRetry: _services == null
-                  ? null
-                  : () => _loadFinishedProducts(_services!),
               onRecordTap: _recordFinishedProduct,
             ),
           ),
@@ -445,22 +418,37 @@ class _MyLibraryScreen extends StatefulWidget {
 }
 
 class _MyLibraryScreenState extends State<_MyLibraryScreen> {
+  static const _taskPollingInterval = Duration(seconds: 1);
+  static const _recentCreationsPageSize = 20;
+
   BackendServices? _backendServices;
   List<TemplateItem> _templates = const [];
   List<TemplateItem> _blindBoxHistory = const [];
-  List<TemplateItem> _recentFavorites = const [];
+  List<AIGenerationItem> _recentCreations = const [];
+  Set<String> _newCreationIds = const {};
+  Set<String> _seenCreationIds = const {};
+  Set<String> _retryingCreationIds = const {};
+  final Map<String, String> _retryClientRequestIds = {};
   List<WorkItem> _works = const [];
   String _categoryName = '全部';
   int _requestVersion = 0;
   int _blindBoxHistoryRequestVersion = 0;
-  int _recentFavoritesRequestVersion = 0;
+  int _recentCreationsRequestVersion = 0;
   int _worksRequestVersion = 0;
+  Timer? _taskPollingTimer;
+  bool _taskPollInFlight = false;
   late _LibraryTab _selectedTab;
 
   @override
   void initState() {
     super.initState();
     _selectedTab = widget.initialTab;
+  }
+
+  @override
+  void dispose() {
+    _taskPollingTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -473,7 +461,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     if (services != null) {
       if (_selectedTab == _LibraryTab.patterns) {
         _loadWorks(services);
-        _loadRecentFavorites(services);
+        _loadRecentCreations(services);
       } else {
         _loadFavorites(services);
         _loadBlindBoxHistory(services);
@@ -496,19 +484,177 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     }
   }
 
-  Future<void> _loadRecentFavorites(BackendServices services) async {
-    final requestVersion = ++_recentFavoritesRequestVersion;
+  Future<void> _loadRecentCreations(BackendServices services) async {
+    final requestVersion = ++_recentCreationsRequestVersion;
     try {
-      // 收藏接口第 1 页由服务端按最近收藏时间倒序返回，只展示前三条。
-      final result = await services.templates.listFavorites(pageSize: 3);
+      final firstPage = await services.aiGenerations.listStyleGenerations(
+        pageSize: _recentCreationsPageSize,
+      );
       if (!mounted ||
           !identical(services, _backendServices) ||
-          requestVersion != _recentFavoritesRequestVersion) {
+          requestVersion != _recentCreationsRequestVersion ||
+          _selectedTab != _LibraryTab.patterns) {
         return;
       }
-      setState(() => _recentFavorites = result.items.take(3).toList());
+      setState(() => _recentCreations = firstPage.items);
+      unawaited(_loadNewCreationIds(services));
+      _syncTaskPolling();
+      if (firstPage.page.hasMore) {
+        unawaited(
+          _loadRemainingRecentCreations(
+            services,
+            requestVersion: requestVersion,
+            firstPage: firstPage,
+          ),
+        );
+      }
     } catch (_) {
       // 网络不可用时保留设计稿占位内容，后续进入页面或切换页签时可重试。
+    }
+  }
+
+  Future<void> _loadRemainingRecentCreations(
+    BackendServices services, {
+    required int requestVersion,
+    required PagedResult<AIGenerationItem> firstPage,
+  }) async {
+    var page = firstPage.page.page;
+    var hasMore = firstPage.page.hasMore;
+    try {
+      while (hasMore) {
+        final nextPage = await services.aiGenerations.listStyleGenerations(
+          page: ++page,
+          pageSize: _recentCreationsPageSize,
+        );
+        if (!mounted ||
+            !identical(services, _backendServices) ||
+            requestVersion != _recentCreationsRequestVersion ||
+            _selectedTab != _LibraryTab.patterns) {
+          return;
+        }
+        setState(() {
+          _recentCreations = _mergeRecentCreations(
+            _recentCreations,
+            nextPage.items,
+          );
+        });
+        unawaited(_loadNewCreationIds(services));
+        _syncTaskPolling();
+        hasMore = nextPage.page.hasMore;
+      }
+    } catch (_) {
+      // 首屏已可用；后台续页失败不影响当前已展示的最近创作。
+    }
+  }
+
+  List<AIGenerationItem> _mergeRecentCreations(
+    List<AIGenerationItem> current,
+    List<AIGenerationItem> incoming,
+  ) {
+    final tasksById = <String, AIGenerationItem>{
+      for (final task in current) task.taskId: task,
+    };
+    for (final task in incoming) {
+      tasksById[task.taskId] = task;
+    }
+    return tasksById.values.toList();
+  }
+
+  Future<void> _loadNewCreationIds(BackendServices services) async {
+    final unseenIds = await services.store.readUnseenAiTaskIds();
+    if (!mounted || !identical(services, _backendServices)) return;
+    setState(() {
+      final succeededTaskIds = _recentCreations
+          .where((task) => task.isSucceeded)
+          .map((task) => task.taskId)
+          .toSet();
+      _newCreationIds = {
+        ..._newCreationIds.where(succeededTaskIds.contains),
+        ...succeededTaskIds.where((taskId) => unseenIds.contains(taskId)),
+      }..removeAll(_seenCreationIds);
+    });
+  }
+
+  void _syncTaskPolling() {
+    final hasProcessingTask = _recentCreations.any((task) => task.isProcessing);
+    if (!hasProcessingTask) {
+      _taskPollingTimer?.cancel();
+      _taskPollingTimer = null;
+      return;
+    }
+    _taskPollingTimer ??= Timer.periodic(_taskPollingInterval, (_) {
+      unawaited(_pollProcessingTasks());
+    });
+  }
+
+  Future<void> _pollProcessingTasks() async {
+    if (_taskPollInFlight) return;
+    final services = _backendServices;
+    if (services == null) return;
+    final processingTasks = _recentCreations
+        .where((task) => task.isProcessing && task.taskId.isNotEmpty)
+        .toList();
+    if (processingTasks.isEmpty) {
+      _syncTaskPolling();
+      return;
+    }
+
+    _taskPollInFlight = true;
+    try {
+      final updates = await Future.wait(
+        processingTasks.map((task) async {
+          try {
+            final updatedTask = await services.aiGenerations.getStyleGeneration(
+              task.taskId,
+            );
+            if (kDebugMode) {
+              debugPrint(
+                '[AI progress] taskId=${updatedTask.taskId} '
+                'status=${updatedTask.status} '
+                'progress=${updatedTask.progress}% '
+                'startedAt=${updatedTask.startedAt}',
+              );
+            }
+            return MapEntry(task.taskId, updatedTask);
+          } catch (error) {
+            if (kDebugMode) {
+              debugPrint(
+                '[AI progress] taskId=${task.taskId} polling failed: $error',
+              );
+            }
+            // Keep the existing task visible and retry it at the next tick.
+            return null;
+          }
+        }),
+      );
+      if (!mounted || !identical(services, _backendServices)) return;
+      final tasksById = <String, AIGenerationItem>{
+        for (final update in updates)
+          if (update != null) update.key: update.value,
+      };
+      if (tasksById.isEmpty) return;
+      setState(() {
+        _recentCreations = _recentCreations
+            .map((task) => tasksById[task.taskId] ?? task)
+            .toList();
+        _newCreationIds = {
+          ..._newCreationIds,
+          for (final task in tasksById.values)
+            if (task.isSucceeded) task.taskId,
+        };
+        _seenCreationIds = {..._seenCreationIds}
+          ..removeAll(
+            tasksById.values
+                .where((task) => task.isSucceeded)
+                .map((task) => task.taskId),
+          );
+      });
+      for (final task in tasksById.values.where((task) => task.isSucceeded)) {
+        unawaited(services.store.markAiTaskUnseen(task.taskId));
+      }
+      _syncTaskPolling();
+    } finally {
+      _taskPollInFlight = false;
     }
   }
 
@@ -615,6 +761,140 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     }
   }
 
+  Future<void> _openCreationTask(AIGenerationItem task) async {
+    final services = _backendServices;
+    if (services == null || !task.isSucceeded || task.outputImageUrl.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _newCreationIds = {..._newCreationIds}..remove(task.taskId);
+      _seenCreationIds = {..._seenCreationIds, task.taskId};
+    });
+    unawaited(services.store.markAiTaskSeen(task.taskId));
+
+    try {
+      final outputImage = await services.media.downloadBytes(
+        task.outputImageUrl,
+      );
+      if (!mounted || !identical(services, _backendServices)) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => ParameterConfigScreen(
+            popToPreviousOnBack: true,
+            showAiImageSaveAction: true,
+            draft: DraftProject(
+              originalImageBytes: outputImage,
+              croppedImageBytes: outputImage,
+              styledImageBytes: outputImage,
+            ),
+          ),
+        ),
+      );
+    } catch (_) {
+      // The read marker remains cleared even if the image cannot be reloaded.
+    }
+  }
+
+  Future<void> _retryCreationTask(AIGenerationItem task) async {
+    if (!task.isRetryable || _retryingCreationIds.contains(task.taskId)) return;
+    if (task.hasSourceReadFailure) {
+      _showMessage('原图读取失败，请重新选择图片');
+      await Navigator.of(
+        context,
+      ).push<void>(MaterialPageRoute(builder: (_) => const UploadScreen()));
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('重新生成'),
+        content: const Text('重新生成会再次扣除积分，原失败任务的积分已退回。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('重新生成'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final services = _backendServices;
+    if (services == null) return;
+    final clientRequestId = _retryClientRequestIds.putIfAbsent(
+      task.taskId,
+      RequestId.generate,
+    );
+    setState(() {
+      _retryingCreationIds = {..._retryingCreationIds, task.taskId};
+    });
+
+    try {
+      final created = await services.aiGenerations.retryStyleGeneration(
+        task.taskId,
+        clientRequestId: clientRequestId,
+      );
+      if (created.taskId.isEmpty) {
+        throw const FormatException('重新生成响应缺少 taskId');
+      }
+      if (!mounted || !identical(services, _backendServices)) return;
+
+      final retriedTask = AIGenerationItem(
+        taskId: created.taskId,
+        styleId: task.styleId,
+        styleName: task.styleName,
+        inputImageUrl: task.inputImageUrl,
+        outputImageUrl: '',
+        status: created.status,
+        creditsDeducted: created.creditsDeducted,
+        errorMessage: '',
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        completedAt: 0,
+      );
+      setState(() {
+        _recentCreations = [
+          retriedTask,
+          ..._recentCreations.where(
+            (existingTask) => existingTask.taskId != retriedTask.taskId,
+          ),
+        ];
+        _retryClientRequestIds.remove(task.taskId);
+      });
+      _syncTaskPolling();
+      _showMessage(
+        created.duplicated
+            ? '重新生成已提交，正在继续处理'
+            : '已重新生成，已扣除 ${created.creditsDeducted} 积分',
+      );
+    } on ApiException catch (error) {
+      if (mounted && identical(services, _backendServices)) {
+        _showMessage(error.message.isEmpty ? '重新生成失败，请稍后重试' : error.message);
+      }
+    } catch (_) {
+      if (mounted && identical(services, _backendServices)) {
+        _showMessage('重新生成失败，请稍后重试');
+      }
+    } finally {
+      if (mounted && identical(services, _backendServices)) {
+        setState(() {
+          _retryingCreationIds = {..._retryingCreationIds}..remove(task.taskId);
+        });
+      }
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   void _selectTab(_LibraryTab tab) {
     if (_selectedTab == tab) return;
     setState(() => _selectedTab = tab);
@@ -622,8 +902,11 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     if (services != null) {
       if (tab == _LibraryTab.patterns) {
         _loadWorks(services);
-        _loadRecentFavorites(services);
+        _loadRecentCreations(services);
       } else {
+        _recentCreationsRequestVersion++;
+        _taskPollingTimer?.cancel();
+        _taskPollingTimer = null;
         _loadFavorites(services);
         _loadBlindBoxHistory(services);
       }
@@ -710,14 +993,17 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
                               child: _MyPatternsContent(
                                 templates: _templates,
                                 blindBoxHistory: _blindBoxHistory,
-                                recentFavorites: _recentFavorites,
+                                recentCreations: _recentCreations,
+                                newCreationIds: _newCreationIds,
+                                retryingCreationIds: _retryingCreationIds,
                                 works: _works,
                                 categoryName: _categoryName,
                                 onFilter: _openFilterDialog,
                                 onTemplateTap: _openTemplate,
                                 onBlindBoxHistoryTap: _openTemplate,
-                                onRecentFavoriteTap: _openTemplate,
                                 onWorkTap: _openWork,
+                                onCreationTap: _openCreationTask,
+                                onCreationRetry: _retryCreationTask,
                                 selectedTab: _selectedTab,
                                 onTabSelected: _selectTab,
                               ),
@@ -740,28 +1026,34 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
 class _MyPatternsContent extends StatelessWidget {
   final List<TemplateItem> templates;
   final List<TemplateItem> blindBoxHistory;
-  final List<TemplateItem> recentFavorites;
+  final List<AIGenerationItem> recentCreations;
+  final Set<String> newCreationIds;
+  final Set<String> retryingCreationIds;
   final List<WorkItem> works;
   final String categoryName;
   final VoidCallback onFilter;
   final ValueChanged<String> onTemplateTap;
   final ValueChanged<String> onBlindBoxHistoryTap;
-  final ValueChanged<String> onRecentFavoriteTap;
   final ValueChanged<String> onWorkTap;
+  final ValueChanged<AIGenerationItem> onCreationTap;
+  final ValueChanged<AIGenerationItem> onCreationRetry;
   final _LibraryTab selectedTab;
   final ValueChanged<_LibraryTab> onTabSelected;
 
   const _MyPatternsContent({
     required this.templates,
     required this.blindBoxHistory,
-    required this.recentFavorites,
+    required this.recentCreations,
+    required this.newCreationIds,
+    required this.retryingCreationIds,
     required this.works,
     required this.categoryName,
     required this.onFilter,
     required this.onTemplateTap,
     required this.onBlindBoxHistoryTap,
-    required this.onRecentFavoriteTap,
     required this.onWorkTap,
+    required this.onCreationTap,
+    required this.onCreationRetry,
     required this.selectedTab,
     required this.onTabSelected,
   });
@@ -783,9 +1075,12 @@ class _MyPatternsContent extends StatelessWidget {
           _LibraryPreviewCard(
             selectedTab: selectedTab,
             blindBoxHistory: blindBoxHistory,
-            recentFavorites: recentFavorites,
+            recentCreations: recentCreations,
+            newCreationIds: newCreationIds,
+            retryingCreationIds: retryingCreationIds,
             onBlindBoxHistoryTap: onBlindBoxHistoryTap,
-            onRecentFavoriteTap: onRecentFavoriteTap,
+            onCreationTap: onCreationTap,
+            onCreationRetry: onCreationRetry,
           ),
           const SizedBox(height: 32),
           HomePatternGallery(
@@ -973,28 +1268,28 @@ class _PatternTab extends StatelessWidget {
 class _LibraryPreviewCard extends StatelessWidget {
   final _LibraryTab selectedTab;
   final List<TemplateItem> blindBoxHistory;
-  final List<TemplateItem> recentFavorites;
+  final List<AIGenerationItem> recentCreations;
+  final Set<String> newCreationIds;
+  final Set<String> retryingCreationIds;
   final ValueChanged<String> onBlindBoxHistoryTap;
-  final ValueChanged<String> onRecentFavoriteTap;
+  final ValueChanged<AIGenerationItem> onCreationTap;
+  final ValueChanged<AIGenerationItem> onCreationRetry;
 
   const _LibraryPreviewCard({
     required this.selectedTab,
     required this.blindBoxHistory,
-    required this.recentFavorites,
+    required this.recentCreations,
+    required this.newCreationIds,
+    required this.retryingCreationIds,
     required this.onBlindBoxHistoryTap,
-    required this.onRecentFavoriteTap,
+    required this.onCreationTap,
+    required this.onCreationRetry,
   });
 
   @override
   Widget build(BuildContext context) {
     final isFavorites = selectedTab == _LibraryTab.favorites;
-    final previewTemplates = isFavorites ? blindBoxHistory : recentFavorites;
-    final previewKeyPrefix = isFavorites
-        ? 'blind-box-history-preview'
-        : 'recent-favorite-preview';
-    final onPreviewTap = isFavorites
-        ? onBlindBoxHistoryTap
-        : onRecentFavoriteTap;
+    final previewTemplates = blindBoxHistory;
     return Container(
       width: 366,
       height: 194,
@@ -1023,7 +1318,7 @@ class _LibraryPreviewCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                isFavorites ? '盲盒图纸' : '最近收藏',
+                isFavorites ? '盲盒图纸' : '最近创作',
                 style: const TextStyle(
                   color: Colors.black,
                   fontFamily: _roundFontFamily,
@@ -1038,16 +1333,28 @@ class _LibraryPreviewCard extends StatelessWidget {
           Expanded(
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              itemCount: previewTemplates.isEmpty ? 3 : previewTemplates.length,
+              itemCount: isFavorites
+                  ? (previewTemplates.isEmpty ? 3 : previewTemplates.length)
+                  : (recentCreations.isEmpty ? 3 : recentCreations.length),
               separatorBuilder: (_, _) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
+                if (!isFavorites && recentCreations.isNotEmpty) {
+                  final task = recentCreations[index];
+                  return _RecentCreationPreview(
+                    task: task,
+                    isNew: newCreationIds.contains(task.taskId),
+                    isRetrying: retryingCreationIds.contains(task.taskId),
+                    onTap: () => onCreationTap(task),
+                    onRetry: () => onCreationRetry(task),
+                  );
+                }
                 if (previewTemplates.isEmpty) {
                   return const _RecentPatternPreview();
                 }
                 return _RecentPatternPreview(
                   template: previewTemplates[index],
-                  keyPrefix: previewKeyPrefix,
-                  onTap: onPreviewTap,
+                  keyPrefix: 'blind-box-history-preview',
+                  onTap: onBlindBoxHistoryTap,
                 );
               },
             ),
@@ -1110,6 +1417,321 @@ class _RecentPatternPreview extends StatelessWidget {
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.medium,
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A task in the user's creation history. Running tasks mirror the Figma
+/// treatment: a dimmed source image with a small, centered progress bar.
+class _RecentCreationPreview extends StatelessWidget {
+  final AIGenerationItem task;
+  final bool isNew;
+  final bool isRetrying;
+  final VoidCallback? onTap;
+  final VoidCallback? onRetry;
+
+  const _RecentCreationPreview({
+    required this.task,
+    this.isNew = false,
+    this.isRetrying = false,
+    this.onTap,
+    this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final imageUrl = task.isSucceeded
+        ? task.outputImageUrl
+        : task.inputImageUrl;
+    final isProcessing = task.isProcessing;
+    final isRetryable = task.isRetryable;
+
+    return Semantics(
+      button: task.isSucceeded || (isRetryable && onRetry != null),
+      label: _taskSemanticLabel(task),
+      child: GestureDetector(
+        onTap: task.isSucceeded ? onTap : null,
+        child: SizedBox(
+          key: ValueKey('recent-creation-preview-${task.taskId}'),
+          width: 130,
+          height: 130,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(color: Color(0xFFD1D1D1)),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _CreationTaskImage(imageUrl: imageUrl),
+                if (isProcessing) ...[
+                  const DecoratedBox(
+                    decoration: BoxDecoration(color: Color(0x66000000)),
+                  ),
+                  Center(
+                    child: _CreationProgressBar(
+                      key: ValueKey('recent-creation-progress-${task.taskId}'),
+                      progress: _processingProgress(task),
+                    ),
+                  ),
+                ],
+                if (isRetryable)
+                  _FailedCreationOverlay(
+                    taskId: task.taskId,
+                    isSourceReadFailure: task.hasSourceReadFailure,
+                    isRetrying: isRetrying,
+                    onRetry: onRetry,
+                  ),
+                if (isNew)
+                  Positioned(
+                    top: 0,
+                    right: 0,
+                    child: _NewCreationBadge(taskId: task.taskId),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FailedCreationOverlay extends StatelessWidget {
+  final String taskId;
+  final bool isSourceReadFailure;
+  final bool isRetrying;
+  final VoidCallback? onRetry;
+
+  const _FailedCreationOverlay({
+    required this.taskId,
+    required this.isSourceReadFailure,
+    required this.isRetrying,
+    this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(color: Color(0x66000000)),
+      child: Center(
+        child: SizedBox(
+          width: 68,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                isSourceReadFailure ? '原图读取失败' : '生成失败',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: _roundFontFamily,
+                  fontFamilyFallback: _fontFallbacks,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  height: 1,
+                ),
+              ),
+              SizedBox(height: 8),
+              GestureDetector(
+                key: ValueKey('recent-creation-retry-$taskId'),
+                onTap: isRetrying ? null : onRetry,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.all(Radius.circular(17)),
+                  ),
+                  child: SizedBox(
+                    width: 58,
+                    height: 24,
+                    child: Center(
+                      child: Text(
+                        isRetrying
+                            ? '提交中'
+                            : (isSourceReadFailure ? '重新选图' : '重试'),
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontFamily: _roundFontFamily,
+                          fontFamilyFallback: _fontFallbacks,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NewCreationBadge extends StatelessWidget {
+  final String taskId;
+
+  const _NewCreationBadge({required this.taskId});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      key: ValueKey('recent-creation-new-badge-$taskId'),
+      width: 30,
+      height: 30,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 4.85,
+            top: 4.96,
+            child: Transform.rotate(
+              angle: 0.22986,
+              child: SvgPicture.asset(
+                'assets/pin_icon/recent_creation_new_star.svg',
+                width: 20.3,
+                height: 20.08,
+              ),
+            ),
+          ),
+          Positioned(
+            left: 1.5,
+            top: 8,
+            child: Transform.rotate(
+              angle: 0.00986,
+              child: const _NewCreationTextGraphic(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NewCreationTextGraphic extends StatelessWidget {
+  static const _width = 25.813;
+  static const _height = 12.35;
+
+  const _NewCreationTextGraphic();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: _width,
+      height: _height,
+      child: _NewCreationTextAsset(),
+    );
+  }
+}
+
+class _NewCreationTextAsset extends StatelessWidget {
+  const _NewCreationTextAsset();
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/pin_icon/recent_creation_new_text.png',
+      width: _NewCreationTextGraphic._width,
+      height: _NewCreationTextGraphic._height,
+      fit: BoxFit.fill,
+    );
+  }
+}
+
+String _taskSemanticLabel(AIGenerationItem task) {
+  if (task.isProcessing) return '正在创作';
+  return switch (task.status) {
+    AIGenerationItem.succeeded => '已完成创作',
+    AIGenerationItem.failed => '创作失败',
+    AIGenerationItem.cancelled => '已取消创作',
+    AIGenerationItem.expired => '创作已超时',
+    _ => '创作已结束',
+  };
+}
+
+double _processingProgress(AIGenerationItem task) {
+  return (task.progress.clamp(0, 100) / 100).toDouble();
+}
+
+class _CreationTaskImage extends StatelessWidget {
+  final String imageUrl;
+
+  const _CreationTaskImage({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    if (imageUrl.isEmpty) return const SizedBox.expand();
+    final uri = Uri.tryParse(imageUrl);
+    final isNetworkImage =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+    const fallback = 'assets/figma_home/gallery_pattern_3.png';
+    final thumbnailCacheSize = math.max(
+      1,
+      (130 * MediaQuery.devicePixelRatioOf(context)).round(),
+    );
+
+    if (!isNetworkImage) {
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, _, _) => Image.asset(fallback, fit: BoxFit.cover),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Image.asset(fallback, fit: BoxFit.cover),
+        CachedNetworkImage(
+          imageUrl: imageUrl,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.medium,
+          memCacheWidth: thumbnailCacheSize,
+          memCacheHeight: thumbnailCacheSize,
+          fadeInDuration: const Duration(milliseconds: 120),
+          placeholder: (_, _) => const SizedBox.expand(),
+          errorWidget: (_, _, _) => const SizedBox.expand(),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreationProgressBar extends StatelessWidget {
+  final double progress;
+
+  const _CreationProgressBar({super.key, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: 50,
+        height: 6,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.90),
+                  borderRadius: BorderRadius.circular(63),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              width: 50 * progress,
+              height: 6,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFE73C9),
+                  borderRadius: BorderRadius.circular(63),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1416,17 +2038,13 @@ class _PatternPreview extends StatelessWidget {
 class _WorksSection extends StatelessWidget {
   final List<FinishedProductItem> items;
   final bool loading;
-  final Object? error;
   final bool recording;
-  final VoidCallback? onRetry;
   final VoidCallback onRecordTap;
 
   const _WorksSection({
     required this.items,
     required this.loading,
-    required this.error,
     required this.recording,
-    required this.onRetry,
     required this.onRecordTap,
   });
 
@@ -1445,10 +2063,10 @@ class _WorksSection extends StatelessWidget {
                 Transform.translate(
                   offset: const Offset(0, 1),
                   child: SvgPicture.asset(
-                    'assets/figma_home/gallery_title_rabbit.svg',
-                    key: const ValueKey('my-works-title-rabbit'),
-                    width: 18,
-                    height: 18,
+                    'assets/pin_icon/my_finished_products.svg',
+                    key: const ValueKey('my-finished-products-title-icon'),
+                    width: 16,
+                    height: 16,
                     fit: BoxFit.contain,
                   ),
                 ),
@@ -1469,15 +2087,8 @@ class _WorksSection extends StatelessWidget {
           ),
           Positioned(
             top: 36,
-            child: _FinishedProductGallery(
-              items: items,
-              loading: loading,
-              error: error,
-              onRetry: onRetry,
-            ),
+            child: _FinishedProductGallery(items: items, loading: loading),
           ),
-          if (items.length > 1)
-            const Positioned(top: 410, left: 163.875, child: _PageIndicator()),
           Positioned(
             top: 422,
             left: 103,
@@ -1489,106 +2100,162 @@ class _WorksSection extends StatelessWidget {
   }
 }
 
-class _FinishedProductGallery extends StatelessWidget {
+class _FinishedProductGallery extends StatefulWidget {
   final List<FinishedProductItem> items;
   final bool loading;
-  final Object? error;
-  final VoidCallback? onRetry;
 
-  const _FinishedProductGallery({
-    required this.items,
-    required this.loading,
-    required this.error,
-    required this.onRetry,
-  });
+  const _FinishedProductGallery({required this.items, required this.loading});
 
   @override
-  Widget build(BuildContext context) {
-    if (loading && items.isEmpty) {
-      return Semantics(
-        label: '正在加载我的成品',
-        child: const _WorksPlaceholder(key: ValueKey('my-works-loading')),
-      );
-    }
-    if (items.isNotEmpty) {
-      return SizedBox(
-        width: 366,
-        height: 366,
-        child: PageView.builder(
-          itemCount: items.length,
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Image.network(
-                item.displayUrl,
-                key: ValueKey('finished-product-${item.finishedProductId}'),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const _WorksPlaceholder(),
-              ),
-            );
-          },
-        ),
-      );
-    }
-    if (error != null) {
-      return SizedBox(
-        width: 366,
-        height: 366,
-        child: Center(
-          child: TextButton(onPressed: onRetry, child: const Text('加载失败，点击重试')),
-        ),
-      );
-    }
-    return const _WorksPlaceholder(key: ValueKey('my-works-placeholder'));
-  }
+  State<_FinishedProductGallery> createState() =>
+      _FinishedProductGalleryState();
 }
 
-class _WorksPlaceholder extends StatelessWidget {
-  const _WorksPlaceholder({super.key});
+class _FinishedProductGalleryState extends State<_FinishedProductGallery> {
+  static const _itemsPerPage = 9;
+  final PageController _pageController = PageController();
+  var _currentPage = 0;
+
+  int get _pageCount => widget.items.length ~/ _itemsPerPage + 1;
+
+  @override
+  void didUpdateWidget(covariant _FinishedProductGallery oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final lastPage = _pageCount - 1;
+    if (_currentPage <= lastPage) return;
+    _currentPage = lastPage;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(lastPage);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 366,
-      height: 366,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.all(8),
-      child: CustomPaint(
-        painter: const _DashedRoundedRectPainter(),
-        child: const SizedBox.expand(child: _PlaceholderDots()),
+    return Semantics(
+      label: widget.loading && widget.items.isEmpty ? '正在加载我的成品' : '我的成品列表',
+      child: SizedBox(
+        key: const ValueKey('my-works-placeholder'),
+        width: 366,
+        height: 366,
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pageController,
+              itemCount: _pageCount,
+              onPageChanged: (page) => setState(() => _currentPage = page),
+              itemBuilder: (context, page) => _FinishedProductBoard(
+                items: widget.items,
+                page: page,
+                itemsPerPage: _itemsPerPage,
+              ),
+            ),
+            if (_pageCount > 1)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 20,
+                child: Center(
+                  child: _PageIndicator(
+                    pageCount: _pageCount,
+                    currentPage: _currentPage,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _PlaceholderDots extends StatelessWidget {
-  const _PlaceholderDots();
+class _FinishedProductBoard extends StatelessWidget {
+  final List<FinishedProductItem> items;
+  final int page;
+  final int itemsPerPage;
+
+  const _FinishedProductBoard({
+    required this.items,
+    required this.page,
+    required this.itemsPerPage,
+  });
 
   @override
   Widget build(BuildContext context) {
-    const dotCenters = [64.0, 175.0, 286.0];
-    const rowCenters = [64.0, 175.0, 286.0];
-
-    return Stack(
-      children: [
-        for (final y in rowCenters)
-          for (final x in dotCenters)
-            Positioned(
-              left: x - 6,
-              top: y - 6,
-              child: const DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color(0xFFD9D9D9),
-                  shape: BoxShape.circle,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: CustomPaint(
+          painter: const _DashedRoundedRectPainter(),
+          child: Stack(
+            children: [
+              for (var index = 0; index < itemsPerPage; index++)
+                _FinishedProductSlot(
+                  item: page * itemsPerPage + index < items.length
+                      ? items[page * itemsPerPage + index]
+                      : null,
+                  index: index,
                 ),
-                child: SizedBox(width: 12, height: 12),
-              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FinishedProductSlot extends StatelessWidget {
+  final FinishedProductItem? item;
+  final int index;
+
+  const _FinishedProductSlot({required this.item, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    final product = item;
+    const centers = [64.0, 175.0, 286.0];
+    final row = index ~/ 3;
+    final column = index % 3;
+    return Positioned(
+      left: centers[column] - 48,
+      top: centers[row] - 48,
+      width: 96,
+      height: 96,
+      child: product == null
+          ? const Center(child: _FinishedProductEmptySlot())
+          : Image.network(
+              product.displayUrl,
+              key: ValueKey('finished-product-${product.finishedProductId}'),
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) =>
+                  const Center(child: _FinishedProductEmptySlot()),
             ),
-      ],
+    );
+  }
+}
+
+class _FinishedProductEmptySlot extends StatelessWidget {
+  const _FinishedProductEmptySlot();
+
+  @override
+  Widget build(BuildContext context) {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        color: Color(0xFFD9D9D9),
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox.square(dimension: 12),
     );
   }
 }
@@ -1628,39 +2295,44 @@ class _DashedRoundedRectPainter extends CustomPainter {
 }
 
 class _PageIndicator extends StatelessWidget {
-  const _PageIndicator();
+  final int pageCount;
+  final int currentPage;
+
+  const _PageIndicator({required this.pageCount, required this.currentPage});
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(
-      width: 38.25,
-      height: 4,
+    return Semantics(
+      label: '第 ${currentPage + 1} 页，共 $pageCount 页',
       child: Row(
+        key: const ValueKey('finished-product-page-indicator'),
+        mainAxisSize: MainAxisSize.min,
         children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.all(Radius.circular(3)),
-            ),
-            child: SizedBox(width: 18.25, height: 4),
-          ),
-          SizedBox(width: 4),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Color(0x14000000),
-              borderRadius: BorderRadius.all(Radius.circular(3)),
-            ),
-            child: SizedBox(width: 6, height: 4),
-          ),
-          SizedBox(width: 4),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Color(0x14000000),
-              borderRadius: BorderRadius.all(Radius.circular(3)),
-            ),
-            child: SizedBox(width: 6, height: 4),
-          ),
+          for (var page = 0; page < pageCount; page++) ...[
+            if (page > 0) const SizedBox(width: 4),
+            _PageMarker(selected: page == currentPage),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _PageMarker extends StatelessWidget {
+  final bool selected;
+
+  const _PageMarker({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: selected ? 18 : 6,
+      height: 4,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: selected ? Colors.black : const Color(0x1F000000),
+          borderRadius: BorderRadius.circular(1),
+        ),
       ),
     );
   }

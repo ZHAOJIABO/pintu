@@ -11,6 +11,7 @@ import '../navigation/home_navigation.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
+import '../services/pattern_export_service.dart';
 import '../services/pattern_generation_service.dart';
 import '../services/project_storage_service.dart';
 import 'result_screen.dart';
@@ -73,8 +74,15 @@ const _colorLimitOptions = <ColorLimit>[
 
 class ParameterConfigScreen extends StatefulWidget {
   final DraftProject draft;
+  final bool popToPreviousOnBack;
+  final bool showAiImageSaveAction;
 
-  const ParameterConfigScreen({super.key, required this.draft});
+  const ParameterConfigScreen({
+    super.key,
+    required this.draft,
+    this.popToPreviousOnBack = false,
+    this.showAiImageSaveAction = false,
+  });
 
   @override
   State<ParameterConfigScreen> createState() => _ParameterConfigScreenState();
@@ -85,6 +93,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   final ProjectStorageService _projectStorageService = ProjectStorageService();
   late final PatternGenerationService _generationService =
       PatternGenerationService(imageService: ImageService());
+  final PatternExportService _imageExportService = const PatternExportService();
 
   late final Uint8List _previewImage = widget.draft.imageForGeneration;
   late final double _previewAspectRatio = _decodeImageAspectRatio(
@@ -99,6 +108,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   bool _denoise = false;
   late int _saturation = _clampSaturation(widget.draft.saturation);
   bool _generating = false;
+  bool _savingAiImage = false;
 
   ProductTemplate get _customTemplate =>
       _sizeOptions.firstWhere((template) => template.custom);
@@ -148,6 +158,29 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     final nextSaturation = _clampSaturation(value);
     if (nextSaturation == _saturation) return;
     setState(() => _saturation = nextSaturation);
+  }
+
+  Future<void> _saveAiGeneratedImage() async {
+    final image = widget.draft.styledImageBytes;
+    if (_savingAiImage || image == null || image.isEmpty) return;
+
+    setState(() => _savingAiImage = true);
+    try {
+      await _imageExportService.saveImageBytesToPhotoLibrary(image);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('AI 图片已保存')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingAiImage = false);
+    }
   }
 
   ProductTemplate _initialTemplate() {
@@ -246,7 +279,14 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 
                   return Column(
                     children: [
-                      const _ParameterNavigationBar(),
+                      _ParameterNavigationBar(
+                        popToPrevious: widget.popToPreviousOnBack,
+                        showSaveAction:
+                            widget.showAiImageSaveAction &&
+                            widget.draft.styledImageBytes?.isNotEmpty == true,
+                        saving: _savingAiImage,
+                        onSave: _saveAiGeneratedImage,
+                      ),
                       SizedBox(
                         height: stageHeight,
                         child: _ImagePreviewStage(
@@ -329,7 +369,17 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 }
 
 class _ParameterNavigationBar extends StatelessWidget {
-  const _ParameterNavigationBar();
+  final bool popToPrevious;
+  final bool showSaveAction;
+  final bool saving;
+  final VoidCallback onSave;
+
+  const _ParameterNavigationBar({
+    required this.popToPrevious,
+    required this.showSaveAction,
+    required this.saving,
+    required this.onSave,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -339,13 +389,26 @@ class _ParameterNavigationBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => returnToHome(context),
-              child: const SizedBox(
-                width: 24,
-                height: 40,
-                child: Icon(Icons.chevron_left, color: Colors.black, size: 30),
+            SizedBox(
+              width: 44,
+              height: 40,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: popToPrevious
+                    ? () => Navigator.of(context).maybePop()
+                    : () => returnToHome(context),
+                child: const Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 24,
+                    height: 40,
+                    child: Icon(
+                      Icons.chevron_left,
+                      color: Colors.black,
+                      size: 30,
+                    ),
+                  ),
+                ),
               ),
             ),
             const Expanded(
@@ -361,7 +424,28 @@ class _ParameterNavigationBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 24, height: 40),
+            SizedBox(
+              width: 44,
+              height: 40,
+              child: showSaveAction
+                  ? TextButton(
+                      onPressed: saving ? null : onSave,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Text(
+                        saving ? '保存中' : '保存',
+                        style: const TextStyle(
+                          fontFamily: _roundFontFamily,
+                          fontFamilyFallback: _fontFallbacks,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),

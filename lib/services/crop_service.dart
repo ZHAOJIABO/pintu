@@ -118,6 +118,18 @@ class CropService {
         interpolation: img.Interpolation.average,
       );
     }
+    if (_hasTransparency(normalized)) {
+      return Uint8List.fromList(img.encodePng(normalized));
+    }
     return Uint8List.fromList(img.encodeJpg(normalized, quality: 85));
+  }
+
+  bool _hasTransparency(img.Image image) {
+    for (var y = 0; y < image.height; y++) {
+      for (var x = 0; x < image.width; x++) {
+        if (image.getPixel(x, y).a.toInt() < 255) return true;
+      }
+    }
+    return false;
   }
 }

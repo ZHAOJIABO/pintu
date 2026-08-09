@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../models/color.dart';
 import '../models/generated_pattern.dart';
@@ -23,6 +24,7 @@ const _pageBackground = Color(0xFFEEF0F6);
 const _chartBorder = PatternChartPainter.defaultBorderColor;
 const _chartMinorGrid = PatternChartPainter.defaultMinorGridColor;
 const _chartMajorGrid = PatternChartPainter.defaultMajorGridColor;
+const _patternSaveIconAsset = 'assets/pin_icon/pattern_save.svg';
 
 typedef WatermarkPngBytesLoader = Future<Uint8List?> Function();
 
@@ -286,7 +288,7 @@ class _ResultNavigationBar extends StatelessWidget {
               child: const SizedBox(
                 width: 24,
                 height: 44,
-                child: Center(child: _PixelPrinterIcon()),
+                child: Center(child: _PatternSaveIcon()),
               ),
             ),
           ],
@@ -296,64 +298,16 @@ class _ResultNavigationBar extends StatelessWidget {
   }
 }
 
-class _PixelPrinterIcon extends StatelessWidget {
-  const _PixelPrinterIcon();
+class _PatternSaveIcon extends StatelessWidget {
+  const _PatternSaveIcon();
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      size: const Size(24, 24),
-      painter: _PixelPrinterPainter(),
+    return Padding(
+      padding: const EdgeInsets.all(8 / 3),
+      child: SvgPicture.asset(_patternSaveIconAsset),
     );
   }
-}
-
-class _PixelPrinterPainter extends CustomPainter {
-  const _PixelPrinterPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final scale = size.width / 24;
-    final dot = 1.538 * scale;
-    final paint = Paint()..color = Colors.black;
-
-    void draw(double x, double y, [double width = 1, double height = 1]) {
-      canvas.drawRect(
-        Rect.fromLTWH(x * scale, y * scale, dot * width, dot * height),
-        paint,
-      );
-    }
-
-    for (var x = 6.62; x <= 15.86; x += 1.538) {
-      draw(x, 2);
-      draw(x, 20.46);
-    }
-    for (final y in [3.54, 5.08, 18.92]) {
-      draw(6.62, y);
-      draw(15.86, y);
-    }
-    for (var x = 3.54; x <= 18.93; x += 1.538) {
-      draw(x, 6.62);
-    }
-    for (final y in [8.15, 9.69, 11.23, 12.77, 14.31, 15.85]) {
-      draw(2, y);
-      draw(20.46, y);
-    }
-    for (var x = 6.62; x <= 15.86; x += 1.538) {
-      draw(x, 14.31);
-    }
-    for (final x in [6.62, 15.86]) {
-      draw(x, 15.85);
-      draw(x, 17.38);
-    }
-    for (final x in [3.54, 5.08, 17.38, 18.93]) {
-      draw(x, 17.38);
-    }
-    draw(11.23, 10.33, 4, 1);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _PatternChartFrame extends StatelessWidget {

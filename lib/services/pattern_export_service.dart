@@ -42,6 +42,12 @@ class PatternExportService {
       pattern,
       watermarkPngBytes: watermarkPngBytes,
     );
+    await saveImageBytesToPhotoLibrary(bytes);
+  }
+
+  /// Saves an already-rendered image, such as an AI style-transfer result.
+  Future<void> saveImageBytesToPhotoLibrary(Uint8List bytes) async {
+    if (bytes.isEmpty) throw ArgumentError.value(bytes, 'bytes');
     await _photoLibraryChannel.invokeMethod<void>('savePng', bytes);
   }
 

@@ -18,7 +18,7 @@ class ApiSessionStore {
   static const _guestCredentialFileSuffix = '.guest_credential';
   static const _sessionKey = 'session';
   static const _pendingStyleClientRequestIdKey = 'pendingStyleClientRequestId';
-  static const _pendingAiTaskIdKey = 'pendingAiTaskId';
+  static const _unseenAiTaskIdsKey = 'unseenAiTaskIds';
   static const _pendingGenerationClientRequestIdKey =
       'pendingGenerationClientRequestId';
   static const _pendingGenerationIdKey = 'pendingGenerationId';
@@ -200,18 +200,55 @@ class ApiSessionStore {
     return _remove(_pendingStyleClientRequestIdKey);
   }
 
-  Future<void> savePendingAiTaskId(String taskId) {
-    return _writeString(_pendingAiTaskIdKey, taskId);
+  Future<Set<String>> readUnseenAiTaskIds() async {
+    try {
+      final data = await _read();
+      final ids = data[_unseenAiTaskIdsKey];
+      if (ids is! List) return const {};
+      return ids
+          .map((id) => id.toString())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      // The badge is an optional local convenience; do not block history.
+      return const {};
+    }
   }
 
-  Future<String?> readPendingAiTaskId() async {
-    final data = await _read();
-    final taskId = data[_pendingAiTaskIdKey]?.toString();
-    return taskId == null || taskId.isEmpty ? null : taskId;
+  Future<void> markAiTaskUnseen(String taskId) async {
+    if (taskId.isEmpty) return;
+    try {
+      final data = await _read();
+      final ids =
+          ((data[_unseenAiTaskIdsKey] as List?) ?? const [])
+              .map((id) => id.toString())
+              .where((id) => id.isNotEmpty)
+              .toSet()
+            ..add(taskId);
+      data[_unseenAiTaskIdsKey] = ids.toList();
+      await _write(data);
+    } catch (_) {
+      // The task itself remains valid when local badge storage is unavailable.
+    }
   }
 
-  Future<void> clearPendingAiTaskId() {
-    return _remove(_pendingAiTaskIdKey);
+  Future<void> markAiTaskSeen(String taskId) async {
+    if (taskId.isEmpty) return;
+    try {
+      final data = await _read();
+      final ids = ((data[_unseenAiTaskIdsKey] as List?) ?? const [])
+          .map((id) => id.toString())
+          .where((id) => id.isNotEmpty && id != taskId)
+          .toList();
+      if (ids.isEmpty) {
+        data.remove(_unseenAiTaskIdsKey);
+      } else {
+        data[_unseenAiTaskIdsKey] = ids;
+      }
+      await _write(data);
+    } catch (_) {
+      // The task itself remains valid when local badge storage is unavailable.
+    }
   }
 
   Future<String> readOrCreatePendingGenerationClientRequestId() {

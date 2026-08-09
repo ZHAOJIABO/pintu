@@ -1,14 +1,18 @@
 import 'dart:convert';
 
 import 'package:bobobeads/screens/my_screen.dart';
+import 'package:bobobeads/screens/parameter_config_screen.dart';
+import 'package:bobobeads/screens/settings_screen.dart';
 import 'package:bobobeads/screens/upload_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _NavigationObserver extends NavigatorObserver {
   int pushCount = 0;
@@ -31,6 +35,20 @@ class _NavigationObserver extends NavigatorObserver {
 }
 
 void main() {
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
+  const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
+  setUpAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, (call) async {
+          return '/tmp/bobobeads_test_image_cache';
+        });
+  });
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProviderChannel, null);
+  });
+
   const viewports = [Size(375, 667), Size(390, 844), Size(430, 932)];
 
   for (final viewport in viewports) {
@@ -56,7 +74,7 @@ void main() {
       expect(find.text('我的成品'), findsOneWidget);
       expect(find.bySemanticsLabel('更多成品'), findsNothing);
       expect(
-        find.byKey(const ValueKey('my-works-title-rabbit')),
+        find.byKey(const ValueKey('my-finished-products-title-icon')),
         findsOneWidget,
       );
       expect(find.text('记录一下'), findsOneWidget);
@@ -133,10 +151,17 @@ void main() {
     await tester.pumpAndSettle();
 
     final myScrollView = find.byType(SingleChildScrollView);
+    final myScrollable = find.descendant(
+      of: myScrollView,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      ),
+    );
     await tester.drag(myScrollView, const Offset(0, -100));
     await tester.pumpAndSettle();
     final myScrollOffset = tester
-        .state<ScrollableState>(find.byType(Scrollable))
+        .state<ScrollableState>(myScrollable)
         .position
         .pixels;
     expect(myScrollOffset, greaterThan(0));
@@ -147,12 +172,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels,
+      tester.state<ScrollableState>(myScrollable).position.pixels,
       closeTo(myScrollOffset, 0.01),
     );
   });
 
-  testWidgets('点击设置显示当前用户的 userId', (tester) async {
+  testWidgets('点击设置会进入设置页并显示当前用户的 ID', (tester) async {
     final store = _MemoryApiSessionStore();
     await store.saveSession(
       const AuthSession(
@@ -193,7 +218,10 @@ void main() {
     await tester.tap(find.bySemanticsLabel('设置'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
     expect(find.text('current-user-42'), findsOneWidget);
+    expect(find.text('分享有礼'), findsNothing);
   });
 
   testWidgets('点击我的图纸会进入图纸页', (tester) async {
@@ -207,13 +235,23 @@ void main() {
     expect(find.byKey(const ValueKey('my-pattern-gallery')), findsOneWidget);
   });
 
-  testWidgets('点击我的图纸会请求我的作品列表', (tester) async {
+  testWidgets('点击我的图纸会请求作品和全部最近创作任务', (tester) async {
     final requests = <http.Request>[];
     final services = BackendServices(
       baseUrl: 'http://example.test',
       store: _MemoryApiSessionStore(),
       httpClient: MockClient((request) async {
         requests.add(request);
+        if (request.url.host == 'cdn.example.test') {
+          final image = await rootBundle.load(
+            'assets/figma_home/gallery_pattern_1.png',
+          );
+          return http.Response.bytes(
+            image.buffer.asUint8List(image.offsetInBytes, image.lengthInBytes),
+            200,
+            headers: const {'content-type': 'image/png'},
+          );
+        }
         final body = switch (request.url.path) {
           '/api/v1/auth/guest' => {
             'accessToken': 'access-token',
@@ -233,20 +271,45 @@ void main() {
               'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
             },
           },
-          '/api/v1/templates/favorites' => {
-            'templates': [
+          '/api/v1/ai/style-generations'
+              when request.url.queryParameters['page.page'] == '2' =>
+            {
+              'tasks': [
+                {
+                  'taskId': 'creation-older',
+                  'status': 2,
+                  'outputImageUrl': 'assets/figma_home/gallery_pattern_1.png',
+                },
+              ],
+              'page': {'total': 3, 'page': 2, 'pageSize': 50, 'hasMore': false},
+            },
+          '/api/v1/ai/style-generations' => {
+            'tasks': [
               {
-                'templateId': 'favorite-newest',
-                'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
-                'isFavorited': true,
+                'taskId': 'creation-complete',
+                'status': 2,
+                'inputImageUrl': 'assets/figma_home/gallery_pattern_1.png',
+                'outputImageUrl': 'assets/figma_home/gallery_pattern_2.png',
               },
               {
-                'templateId': 'favorite-older',
-                'thumbnailUrl': 'assets/figma_home/gallery_pattern_2.png',
-                'isFavorited': true,
+                'taskId': 'creation-running',
+                'status': 1,
+                'progress': 52,
+                'startedAt': '1785209431',
+                'inputImageUrl': 'assets/figma_home/gallery_pattern_3.png',
               },
             ],
-            'page': {'total': 2, 'page': 1, 'pageSize': 3, 'hasMore': false},
+            'page': {'total': 3, 'page': 1, 'pageSize': 50, 'hasMore': true},
+          },
+          '/api/v1/ai/style-generations/creation-running' => {
+            'task': {
+              'taskId': 'creation-running',
+              'status': 2,
+              'progress': 100,
+              'startedAt': '1785209431',
+              'outputImageUrl': 'https://cdn.example.test/creation-running.png',
+              'completedAt': '1785209432',
+            },
           },
           '/api/v1/templates' => {
             'templates': const [],
@@ -272,35 +335,83 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('my-patterns-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 500)),
+    );
     await tester.pumpAndSettle();
 
     final worksRequest = requests.singleWhere(
       (request) => request.url.path == '/api/v1/works',
     );
     expect(worksRequest.method, 'GET');
-    final recentFavoritesRequest = requests.singleWhere(
-      (request) => request.url.path == '/api/v1/templates/favorites',
-    );
-    expect(recentFavoritesRequest.url.queryParameters, {
-      'page.page': '1',
-      'page.pageSize': '3',
-    });
-    final newestFavorite = find.byKey(
-      const ValueKey('recent-favorite-preview-favorite-newest'),
-    );
-    final olderFavorite = find.byKey(
-      const ValueKey('recent-favorite-preview-favorite-older'),
-    );
-    expect(newestFavorite, findsOneWidget);
-    expect(olderFavorite, findsOneWidget);
+    final recentCreationsRequests = requests
+        .where((request) => request.url.path == '/api/v1/ai/style-generations')
+        .toList();
     expect(
-      tester.getTopLeft(newestFavorite).dx,
-      lessThan(tester.getTopLeft(olderFavorite).dx),
+      recentCreationsRequests.map((request) => request.url.queryParameters),
+      [
+        {'page.page': '1', 'page.pageSize': '20'},
+        {'page.page': '2', 'page.pageSize': '20'},
+      ],
     );
+    final completeCreation = find.byKey(
+      const ValueKey('recent-creation-preview-creation-complete'),
+    );
+    final runningCreation = find.byKey(
+      const ValueKey('recent-creation-preview-creation-running'),
+    );
+    expect(completeCreation, findsOneWidget);
+    expect(runningCreation, findsOneWidget);
+    expect(
+      tester.getTopLeft(completeCreation).dx,
+      lessThan(tester.getTopLeft(runningCreation).dx),
+    );
+    expect(
+      find.byKey(const ValueKey('recent-creation-progress-creation-running')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('正在创作'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      requests.any(
+        (request) =>
+            request.url.path == '/api/v1/ai/style-generations/creation-running',
+      ),
+      isTrue,
+    );
+    expect(
+      find.byKey(const ValueKey('recent-creation-progress-creation-running')),
+      findsNothing,
+    );
+    expect(find.bySemanticsLabel('已完成创作'), findsWidgets);
+    final newBadge = find.byKey(
+      const ValueKey('recent-creation-new-badge-creation-running'),
+    );
+    expect(newBadge, findsOneWidget);
     expect(
       find.byKey(const ValueKey('gallery-thumbnail-work-001')),
       findsOneWidget,
     );
+    await tester.tap(runningCreation);
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(newBadge, findsNothing);
+    expect(find.byType(ParameterConfigScreen), findsOneWidget);
+    expect(find.text('保存'), findsOneWidget);
+    final parameterScreen = tester.widget<ParameterConfigScreen>(
+      find.byType(ParameterConfigScreen),
+    );
+    expect(parameterScreen.draft.croppedImageBytes, isNotEmpty);
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(find.byType(MyPatternsScreen), findsOneWidget);
   });
 
   testWidgets('点击我的收藏会进入收藏页', (tester) async {
@@ -308,6 +419,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('my-favorites-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(MyFavoritesScreen), findsOneWidget);
@@ -325,7 +439,7 @@ void main() {
       tester.getTopLeft(patternsTab).dx,
       lessThan(tester.getTopLeft(favoritesTab).dx),
     );
-    expect(find.text('最近收藏'), findsOneWidget);
+    expect(find.text('最近创作'), findsOneWidget);
 
     await tester.tap(favoritesTab);
     await tester.pumpAndSettle();
@@ -400,6 +514,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('my-favorites-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
     await tester.pumpAndSettle();
 
     final favoritesRequest = requests.singleWhere(
@@ -453,7 +570,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('最近收藏'), findsOneWidget);
+      expect(find.text('最近创作'), findsOneWidget);
       expect(find.byKey(const ValueKey('my-pattern-gallery')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });

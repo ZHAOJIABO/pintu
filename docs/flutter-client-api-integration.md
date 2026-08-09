@@ -979,6 +979,28 @@ GET /api/v1/ai/style-generations/{taskId}
 - failed/expired：停止轮询，展示错误。
 - App 退出后，可以通过 `ListStyleGenerations` 恢复任务列表。
 
+### 7.15.1 重试失败的 AI 风格转换任务
+
+```http
+POST /api/v1/ai/style-generations/{taskId}/retry
+Authorization: Bearer <accessToken>
+```
+
+请求体：
+
+```json
+{
+  "clientRequestId": "uuid-v4"
+}
+```
+
+`taskId` 是原失败（`status=3`）或已过期（`status=5`）的任务 ID；响应格式与创建风格转换任务一致。响应中的 `taskId` 是新的任务 ID，客户端必须用它轮询，并在最近创作中保留原失败记录。
+
+- 每次用户点击“重新生成”创建一个新的 `clientRequestId`；同一次弱网重发必须复用它。`duplicated=true` 表示服务端已接受过该请求，直接轮询响应中的新任务 ID。
+- 这是一次新的扣费。原失败任务已自动退款，提交前需要明确提示用户重试会重新扣费；成功后以 `creditsDeducted` 展示实际扣除积分。
+- 仅 `failed` 与 `expired` 可以调用；处理中或成功任务继续按现有流程处理。
+- 当 `errorMessage` 精确为“原图读取失败”时，不调用重试接口，直接引导用户重新选择原图。
+
 ### 7.16 我的 AI 风格转换记录
 
 ```http

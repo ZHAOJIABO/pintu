@@ -364,8 +364,10 @@ void main() {
                 'taskId': 'style-task-1',
                 'styleId': '2',
                 'status': 2,
+                'progress': 100,
                 'outputImageUrl': 'https://cdn.example.test/output.png',
                 'createdAt': '1785209431',
+                'startedAt': '1785209431',
                 'completedAt': '1785209432',
               },
             },
@@ -396,8 +398,9 @@ void main() {
       );
 
       expect(task.isSucceeded, isTrue);
+      expect(task.progress, 100);
       expect(task.createdAt, 1785209431);
-      expect(await store.readPendingAiTaskId(), isNull);
+      expect(task.startedAt, 1785209431);
       final uploadToken = requests.firstWhere(
         (request) => request.url.path == '/api/v1/media/upload-token',
       );
@@ -426,8 +429,106 @@ void main() {
         'input_file_key': 'style_input/style-input.png',
         'client_request_id': isA<String>(),
       });
+      final submittedRequestId =
+          (jsonDecode(submission.body) as Map)['client_request_id'] as String;
+      expect(
+        await store.readOrCreatePendingStyleClientRequestId(),
+        isNot(submittedRequestId),
+      );
     },
   );
+
+  test(
+    'AI style generation retry submits the original task and request ID',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_style_retry_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+      final store = ApiSessionStore(
+        fileProvider: () async => File('${temporaryDirectory.path}/session'),
+      );
+      late http.Request retryRequest;
+      late final AuthSessionController auth;
+      late final ApiClient client;
+      client = ApiClient(
+        baseUrl: 'http://api.example.test',
+        tokenProvider: store.readAccessToken,
+        deviceIdProvider: store.readOrCreateDeviceId,
+        onUnauthorized: () => auth.refreshOrGuestLogin(),
+        httpClient: MockClient((request) async {
+          if (request.url.path == '/api/v1/auth/guest') {
+            return _jsonResponse({
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'expiresIn': 3600,
+              'user': {'userId': 'guest-1'},
+            });
+          }
+          retryRequest = request;
+          return _jsonResponse({
+            'taskId': 'new-style-task',
+            'status': 0,
+            'creditsDeducted': 2,
+            'remainingBalance': 8,
+            'duplicated': true,
+          });
+        }),
+      );
+      auth = AuthSessionController(
+        store: store,
+        repository: AuthRepository(client),
+      );
+      final repository = AIGenerationRepository(apiClient: client, auth: auth);
+
+      final result = await repository.retryStyleGeneration(
+        'failed-style-task',
+        clientRequestId: '9552664c-f171-4b2d-8b06-d27d0e6e2eab',
+      );
+
+      expect(retryRequest.method, 'POST');
+      expect(
+        retryRequest.url.path,
+        '/api/v1/ai/style-generations/failed-style-task/retry',
+      );
+      expect(retryRequest.headers['Authorization'], 'Bearer access-token');
+      expect(jsonDecode(retryRequest.body), {
+        'clientRequestId': '9552664c-f171-4b2d-8b06-d27d0e6e2eab',
+      });
+      expect(result.taskId, 'new-style-task');
+      expect(result.duplicated, isTrue);
+    },
+  );
+
+  test('only failed or expired style tasks can be retried', () {
+    AIGenerationItem task({required int status, String errorMessage = ''}) {
+      return AIGenerationItem(
+        taskId: 'task-$status',
+        styleId: '',
+        styleName: '',
+        inputImageUrl: '',
+        outputImageUrl: '',
+        status: status,
+        creditsDeducted: 0,
+        errorMessage: errorMessage,
+        createdAt: 0,
+        completedAt: 0,
+      );
+    }
+
+    expect(task(status: AIGenerationItem.failed).isRetryable, isTrue);
+    expect(task(status: AIGenerationItem.expired).isRetryable, isTrue);
+    expect(task(status: AIGenerationItem.pending).isRetryable, isFalse);
+    expect(task(status: AIGenerationItem.running).isRetryable, isFalse);
+    expect(task(status: AIGenerationItem.succeeded).isRetryable, isFalse);
+    expect(
+      task(
+        status: AIGenerationItem.failed,
+        errorMessage: '原图读取失败',
+      ).hasSourceReadFailure,
+      isTrue,
+    );
+  });
 
   test(
     'ApiClient retries once after unauthorized handler refreshes token',

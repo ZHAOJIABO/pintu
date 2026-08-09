@@ -623,7 +623,9 @@ class AIGenerationItem {
   final int status;
   final int creditsDeducted;
   final String errorMessage;
+  final int progress;
   final int createdAt;
+  final int startedAt;
   final int completedAt;
 
   const AIGenerationItem({
@@ -635,7 +637,9 @@ class AIGenerationItem {
     required this.status,
     required this.creditsDeducted,
     required this.errorMessage,
+    this.progress = 0,
     required this.createdAt,
+    this.startedAt = 0,
     required this.completedAt,
   });
 
@@ -643,6 +647,9 @@ class AIGenerationItem {
   bool get isProcessing => status < succeeded;
   bool get isSucceeded => status == succeeded;
   bool get isFinished => status >= succeeded;
+  bool get isQueued => isProcessing && startedAt == 0;
+  bool get isRetryable => status == failed || status == expired;
+  bool get hasSourceReadFailure => errorMessage.trim() == '原图读取失败';
 
   factory AIGenerationItem.fromJson(JsonMap json) {
     return AIGenerationItem(
@@ -654,7 +661,9 @@ class AIGenerationItem {
       status: _intValue(json['status']),
       creditsDeducted: _intValue(json['creditsDeducted']),
       errorMessage: _stringValue(json['errorMessage']),
+      progress: _intValue(json['progress']),
       createdAt: _intValue(json['createdAt']),
+      startedAt: _intValue(json['startedAt']),
       completedAt: _intValue(json['completedAt']),
     );
   }

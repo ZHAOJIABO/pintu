@@ -345,9 +345,15 @@ class FinishedProductRepository {
     required Uint8List bytes,
     required String clientRequestId,
   }) async {
+    final isPng =
+        bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47;
     final token = await media.createUploadToken(
-      fileName: 'finished-product.jpg',
-      contentType: 'image/jpeg',
+      fileName: isPng ? 'finished-product.png' : 'finished-product.jpg',
+      contentType: isPng ? 'image/png' : 'image/jpeg',
       purpose: 'finished_product',
       clientRequestId: clientRequestId,
     );
@@ -414,6 +420,32 @@ class AIGenerationRepository {
     return AIGenerationCreateResult.fromJson(data);
   }
 
+  /// Starts a new attempt from a failed or expired style-generation task.
+  ///
+  /// [taskId] identifies the original task. The returned task ID belongs to
+  /// the new attempt and must be used for all subsequent polling.
+  Future<AIGenerationCreateResult> retryStyleGeneration(
+    String taskId, {
+    required String clientRequestId,
+  }) async {
+    if (taskId.isEmpty) {
+      throw ArgumentError.value(taskId, 'taskId', 'must not be empty');
+    }
+    if (clientRequestId.isEmpty) {
+      throw ArgumentError.value(
+        clientRequestId,
+        'clientRequestId',
+        'must not be empty',
+      );
+    }
+    await auth.ensureSignedIn();
+    final data = await apiClient.post(
+      '/api/v1/ai/style-generations/${Uri.encodeComponent(taskId)}/retry',
+      body: {'clientRequestId': clientRequestId},
+    );
+    return AIGenerationCreateResult.fromJson(data);
+  }
+
   Future<AIGenerationItem> getStyleGeneration(String taskId) async {
     await auth.ensureSignedIn();
     final data = await apiClient.get(
@@ -435,6 +467,23 @@ class AIGenerationRepository {
       items: _mapList(data['tasks'], AIGenerationItem.fromJson),
       page: PageResponse.fromJson(_map(data['page'])),
     );
+  }
+
+  /// Fetches every style-generation task belonging to the signed-in user.
+  ///
+  /// The response contains every task status, and pagination must be driven by
+  /// `page.hasMore` rather than the item count.
+  Future<List<AIGenerationItem>> listAllStyleGenerations({
+    int pageSize = 50,
+  }) async {
+    final items = <AIGenerationItem>[];
+    var page = 1;
+    while (true) {
+      final result = await listStyleGenerations(page: page, pageSize: pageSize);
+      items.addAll(result.items);
+      if (!result.page.hasMore) return items;
+      page++;
+    }
   }
 
   Future<AIGenerationItem> waitForStyleGeneration(

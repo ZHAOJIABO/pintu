@@ -730,7 +730,6 @@ void main() {
 class _MemoryApiSessionStore extends ApiSessionStore {
   AuthSession? _session;
   String? _pendingStyleRequestId;
-  String? _pendingAiTaskId;
 
   @override
   Future<String> readOrCreateDeviceId() async => 'device-1';
@@ -754,18 +753,5 @@ class _MemoryApiSessionStore extends ApiSessionStore {
   @override
   Future<void> clearPendingStyleClientRequestId() async {
     _pendingStyleRequestId = null;
-  }
-
-  @override
-  Future<void> savePendingAiTaskId(String taskId) async {
-    _pendingAiTaskId = taskId;
-  }
-
-  @override
-  Future<String?> readPendingAiTaskId() async => _pendingAiTaskId;
-
-  @override
-  Future<void> clearPendingAiTaskId() async {
-    _pendingAiTaskId = null;
   }
 }
