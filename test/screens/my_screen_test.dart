@@ -414,6 +414,88 @@ void main() {
     expect(find.byType(MyPatternsScreen), findsOneWidget);
   });
 
+  testWidgets('重试创作失败后仍会重新加载最近创作任务', (tester) async {
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path ==
+            '/api/v1/ai/style-generations/failed-creation/retry') {
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 9001, 'message': 'retry failed'},
+            }),
+            200,
+          );
+        }
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'user-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' => {
+            'data': {
+              'works': const [],
+              'page': {'total': 0, 'page': 1, 'pageSize': 20, 'hasMore': false},
+            },
+          },
+          '/api/v1/ai/style-generations' => {
+            'tasks': [
+              {
+                'taskId': 'failed-creation',
+                'status': AIGenerationItem.failed,
+                'inputImageUrl': '',
+              },
+            ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('my-patterns-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('recent-creation-retry-failed-creation')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.pumpAndSettle();
+
+    final listRequests = requests
+        .where((request) => request.url.path == '/api/v1/ai/style-generations')
+        .toList();
+    expect(listRequests, hasLength(2));
+    expect(
+      listRequests.map((request) => request.url.queryParameters),
+      everyElement({'page.page': '1', 'page.pageSize': '20'}),
+    );
+  });
+
   testWidgets('点击我的收藏会进入收藏页', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MyScreen()));
     await tester.pumpAndSettle();

@@ -834,6 +834,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     setState(() {
       _retryingCreationIds = {..._retryingCreationIds, task.taskId};
     });
+    unawaited(_loadRecentCreations(services));
 
     try {
       final created = await services.aiGenerations.retryStyleGeneration(
