@@ -13,11 +13,13 @@ const _pageBackground = Color(0xFFEEF0F6);
 class BeadModeScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final bool editingEnabled;
+  final String? workId;
 
   const BeadModeScreen({
     super.key,
     required this.pattern,
     this.editingEnabled = true,
+    this.workId,
   });
 
   @override
@@ -36,7 +38,10 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
   Future<void> _openEditor() async {
     final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
-      MaterialPageRoute(builder: (_) => PatternEditorScreen(pattern: _pattern)),
+      MaterialPageRoute(
+        builder: (_) =>
+            PatternEditorScreen(pattern: _pattern, workId: widget.workId),
+      ),
     );
     if (!mounted || editedPattern == null) return;
 

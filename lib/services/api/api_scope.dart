@@ -25,6 +25,7 @@ class BackendServices {
   final GenerationRepository generations;
   final GenerationCompletionService generationCompletion;
   final WorkRepository works;
+  final TemplateSubmissionRepository templateSubmissions;
   final FinishedProductRepository finishedProducts;
   final CreditRepository credits;
   final SystemRepository system;
@@ -40,6 +41,7 @@ class BackendServices {
     required this.generations,
     required this.generationCompletion,
     required this.works,
+    required this.templateSubmissions,
     required this.finishedProducts,
     required this.credits,
     required this.system,
@@ -87,6 +89,10 @@ class BackendServices {
         store: sessionStore,
       ),
       works: WorkRepository(apiClient: client, auth: auth),
+      templateSubmissions: TemplateSubmissionRepository(
+        apiClient: client,
+        auth: auth,
+      ),
       finishedProducts: FinishedProductRepository(
         apiClient: client,
         auth: auth,

@@ -622,6 +622,21 @@ class WorkRepository {
     );
   }
 
+  /// Persists edits made to an existing user work.
+  ///
+  /// The server owns the derived counts and preview metadata, so the editor
+  /// submits only the updated [PatternData] source of truth.
+  Future<void> updateWork({
+    required String workId,
+    required PatternData patternData,
+  }) async {
+    await auth.ensureSignedIn();
+    await apiClient.put(
+      '/api/v1/works/${Uri.encodeComponent(workId)}',
+      body: {'patternData': patternData.toJson()},
+    );
+  }
+
   Future<String> saveWork({
     required String title,
     required String originalImageUrl,
@@ -643,6 +658,52 @@ class WorkRepository {
       },
     );
     return data['workId']?.toString() ?? '';
+  }
+}
+
+class TemplateSubmissionRepository {
+  final ApiClient apiClient;
+  final AuthSessionController auth;
+
+  const TemplateSubmissionRepository({
+    required this.apiClient,
+    required this.auth,
+  });
+
+  Future<TemplateSubmissionItem> submit({
+    required String workId,
+    required String title,
+    required String description,
+    required String clientRequestId,
+  }) async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.post(
+      '/api/v1/template-submissions',
+      body: {
+        'workId': workId,
+        'title': title,
+        'description': description,
+        'clientRequestId': clientRequestId,
+      },
+    );
+    final payload = _map(data['data']) ?? data;
+    return TemplateSubmissionItem.fromJson(_map(payload['item']) ?? const {});
+  }
+
+  Future<TemplateSubmissionPage> list({int limit = 20, String? cursor}) async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get(
+      '/api/v1/template-submissions',
+      query: {
+        'limit': limit,
+        if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      },
+    );
+    final payload = _map(data['data']) ?? data;
+    return TemplateSubmissionPage(
+      items: _mapList(payload['items'], TemplateSubmissionItem.fromJson),
+      nextCursor: payload['nextCursor']?.toString() ?? '',
+    );
   }
 }
 

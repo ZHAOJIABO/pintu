@@ -17,11 +17,8 @@ const _cameraCropCornerAsset = 'assets/pin_icon/camera_crop_corner.svg';
 
 /// Figma “记录一下”拍照页。
 ///
-/// 拍摄和图库选择都会将原图交给调用方继续裁切和上传；拍摄后的预览可重来。
-///
-/// 成品上传暂不执行端侧去背景，避免模拟器和不支持 Vision 的设备在确认
-/// 成品时进入无效的处理流程。恢复该能力时，将 [enableBackgroundRemoval] 设为
-/// `true` 即可。
+/// 拍摄或从图库选择后，先预览原图；第一次点对号执行去背景，第二次点对号
+/// 上传去背景后的图片。拍摄后的预览可重来。
 class FinishedProductCameraScreen extends StatefulWidget {
   final BackgroundRemovalService backgroundRemovalService;
   final bool enableBackgroundRemoval;
@@ -29,7 +26,7 @@ class FinishedProductCameraScreen extends StatefulWidget {
   const FinishedProductCameraScreen({
     super.key,
     this.backgroundRemovalService = const PlatformBackgroundRemovalService(),
-    this.enableBackgroundRemoval = false,
+    this.enableBackgroundRemoval = true,
   });
 
   @override
@@ -318,18 +315,38 @@ class _CoverCameraPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final previewAspectRatio = controller.value.aspectRatio;
-        final screenAspectRatio = constraints.maxWidth / constraints.maxHeight;
-        final scale = previewAspectRatio / screenAspectRatio;
+        final scale = portraitCameraPreviewScale(
+          cameraAspectRatio: controller.value.aspectRatio,
+          viewportSize: constraints.biggest,
+        );
         return ClipRect(
           child: Transform.scale(
-            scale: scale < 1 ? 1 / scale : scale,
+            scale: scale,
             child: Center(child: CameraPreview(controller)),
           ),
         );
       },
     );
   }
+}
+
+/// [CameraPreview] 在竖屏时以 [cameraAspectRatio] 的倒数布局；这里必须使用
+/// 同一比例计算全屏 cover 缩放，避免重复按横向比例放大预览。
+@visibleForTesting
+double portraitCameraPreviewScale({
+  required double cameraAspectRatio,
+  required Size viewportSize,
+}) {
+  if (cameraAspectRatio <= 0 ||
+      viewportSize.width <= 0 ||
+      viewportSize.height <= 0) {
+    return 1;
+  }
+
+  final previewAspectRatio = 1 / cameraAspectRatio;
+  final viewportAspectRatio = viewportSize.width / viewportSize.height;
+  final scale = previewAspectRatio / viewportAspectRatio;
+  return scale < 1 ? 1 / scale : scale;
 }
 
 class _SquareCameraGuide extends StatelessWidget {

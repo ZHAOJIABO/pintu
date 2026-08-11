@@ -848,6 +848,81 @@ class WorkDetail {
   const WorkDetail({required this.work, required this.patternData});
 }
 
+class TemplateSubmissionItem {
+  static const int pendingStatus = 0;
+  static const int approvedStatus = 1;
+  static const int rejectedStatus = 2;
+
+  final String submissionId;
+  final String workId;
+  final String title;
+  final String description;
+  final int status;
+  final String reviewReason;
+  final String templateId;
+  final String boardSpec;
+  final int width;
+  final int height;
+  final int beadCount;
+  final int colorCount;
+  final String previewUrl;
+  final String thumbnailUrl;
+  final int createdAt;
+  final int reviewedAt;
+
+  const TemplateSubmissionItem({
+    required this.submissionId,
+    required this.workId,
+    required this.title,
+    required this.description,
+    required this.status,
+    required this.reviewReason,
+    required this.templateId,
+    required this.boardSpec,
+    required this.width,
+    required this.height,
+    required this.beadCount,
+    required this.colorCount,
+    required this.previewUrl,
+    required this.thumbnailUrl,
+    required this.createdAt,
+    required this.reviewedAt,
+  });
+
+  bool get isPending => status == pendingStatus;
+
+  String get displayImageUrl =>
+      thumbnailUrl.isNotEmpty ? thumbnailUrl : previewUrl;
+
+  factory TemplateSubmissionItem.fromJson(JsonMap json) {
+    return TemplateSubmissionItem(
+      submissionId: _stringValue(json['submissionId']),
+      workId: _stringValue(json['workId']),
+      title: _stringValue(json['title']),
+      description: _stringValue(json['description']),
+      status: _intValue(json['status']),
+      reviewReason: _stringValue(json['reviewReason']),
+      templateId: _stringValue(json['templateId']),
+      boardSpec: _stringValue(json['boardSpec']),
+      width: _intValue(json['width']),
+      height: _intValue(json['height']),
+      beadCount: _intValue(json['beadCount']),
+      colorCount: _intValue(json['colorCount']),
+      previewUrl: _stringValue(json['previewUrl']),
+      thumbnailUrl: _stringValue(json['thumbnailUrl']),
+      createdAt: _intValue(json['createdAt']),
+      reviewedAt: _intValue(json['reviewedAt']),
+    );
+  }
+}
+
+class TemplateSubmissionPage {
+  final List<TemplateSubmissionItem> items;
+  final String nextCursor;
+
+  const TemplateSubmissionPage({required this.items, required this.nextCursor});
+}
+
 class FinishedProductItem {
   final String finishedProductId;
   final String imageUrl;

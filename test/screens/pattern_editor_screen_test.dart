@@ -1,13 +1,19 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/color.dart';
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
+import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/screens/pattern_editor_screen.dart';
+import 'package:bobobeads/services/api/api_scope.dart';
+import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -301,6 +307,103 @@ void main() {
     await tester.pump();
 
     expect(_editorPainter(tester).pixels.take(4), [0, 0, 0, 255]);
+  });
+
+  testWidgets('saving an edited work updates its PatternData through the API', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://api.example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final response = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/works/work-001' => <String, Object?>{},
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...response,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _pattern(),
+            workId: 'work-001',
+            showBrushGuide: false,
+            showPaletteGuide: false,
+          ),
+        ),
+      ),
+    );
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+
+    final saveButton = find.widgetWithText(TextButton, '保存');
+    expect(tester.widget<TextButton>(saveButton).onPressed, isNotNull);
+    await tester.tap(saveButton);
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(
+      requests.map((request) => '${request.method} ${request.url.path}'),
+      contains('PUT /api/v1/works/work-001'),
+    );
+    final updateRequest = requests.singleWhere(
+      (request) => request.url.path == '/api/v1/works/work-001',
+    );
+    expect(updateRequest.method, 'PUT');
+    expect(jsonDecode(updateRequest.body), {
+      'patternData': {
+        'width': 2,
+        'height': 2,
+        'boardSpec': '2x2',
+        'pixels': [2, 2, 2, 2],
+        'colorPalette': [
+          {
+            'index': 1,
+            'hex': '#000000',
+            'brand': 'MARD',
+            'code': 'H7',
+            'name': '黑色',
+          },
+          {
+            'index': 2,
+            'hex': '#e90030',
+            'brand': 'MARD',
+            'code': 'F5',
+            'name': '红色',
+          },
+        ],
+        'schemaVersion': 1,
+      },
+    });
   });
 
   testWidgets('editor uses the bead-mode board without rulers or a cursor', (
@@ -707,6 +810,24 @@ double _paletteGuideStepOpacity(WidgetTester tester, int index) {
     matching: find.byType(AnimatedOpacity),
   );
   return tester.widget<AnimatedOpacity>(opacity).opacity;
+}
+
+class _MemoryApiSessionStore extends ApiSessionStore {
+  AuthSession? _session;
+
+  @override
+  Future<String> readOrCreateDeviceId() async => 'device-1';
+
+  @override
+  Future<String> readOrCreateGuestCredential() async => 'guest-credential';
+
+  @override
+  Future<AuthSession?> readSession() async => _session;
+
+  @override
+  Future<void> saveSession(AuthSession session) async {
+    _session = session;
+  }
 }
 
 GeneratedPattern _pattern() {

@@ -752,8 +752,10 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
       if (!mounted || !identical(services, _backendServices)) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
-          builder: (_) =>
-              ResultScreen(pattern: detail.patternData.toGeneratedPattern()),
+          builder: (_) => ResultScreen(
+            pattern: detail.patternData.toGeneratedPattern(),
+            workId: detail.work.workId,
+          ),
         ),
       );
     } catch (_) {

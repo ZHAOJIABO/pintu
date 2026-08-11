@@ -218,6 +218,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 
     try {
       final backendServices = BackendScope.maybeOf(context);
+      String? workId;
       if (backendServices != null) {
         await backendServices.generationCompletion.startNewAttempt();
       }
@@ -230,9 +231,9 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       await _projectStorageService.saveGeneratedPattern(pattern);
       if (!mounted) return;
       if (backendServices != null) {
-        await backendServices.generationCompletion.completeGeneratedPattern(
-          pattern,
-        );
+        final completed = await backendServices.generationCompletion
+            .completeGeneratedPattern(pattern);
+        workId = completed.workId;
       }
       if (!mounted) return;
 
@@ -240,8 +241,11 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) =>
-              ResultScreen(pattern: pattern, showGeneratedHint: true),
+          builder: (_) => ResultScreen(
+            pattern: pattern,
+            workId: workId,
+            showGeneratedHint: true,
+          ),
         ),
       );
     } catch (error) {

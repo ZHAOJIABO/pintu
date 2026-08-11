@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_scope.dart';
+import 'upload_pattern_screen.dart';
 
 const _settingsBackground = Color(0xFFF0F0F4);
 const _settingsFontFamily = 'Alimama FangYuanTi VF';
@@ -106,6 +107,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 23),
+                      _SettingsGroup(
+                        rows: [
+                          _SettingsRowData(
+                            rowKey: const ValueKey('settings-upload-pattern'),
+                            iconAsset:
+                                'assets/pin_icon/settings_upload_pattern.svg',
+                            title: '我要传图纸',
+                            trailing: _SettingsChevron(),
+                            onTap: () => Navigator.of(context).push<void>(
+                              MaterialPageRoute(
+                                builder: (_) => UploadPatternScreen(
+                                  services: BackendScope.maybeOf(context),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -192,16 +212,20 @@ class _SettingsGroup extends StatelessWidget {
 }
 
 class _SettingsRowData {
+  final Key? rowKey;
   final String iconAsset;
   final Size? iconContentSize;
   final String title;
   final Widget trailing;
+  final VoidCallback? onTap;
 
   const _SettingsRowData({
+    this.rowKey,
     required this.iconAsset,
     this.iconContentSize,
     required this.title,
     required this.trailing,
+    this.onTap,
   });
 }
 
@@ -212,33 +236,42 @@ class _SettingsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
-          children: [
-            _SettingsSvgIcon(
-              asset: data.iconAsset,
-              size: 16,
-              contentSize: data.iconContentSize,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                data.title,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontFamily: _settingsFontFamily,
-                  fontFamilyFallback: _settingsFontFallbacks,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  height: 16 / 15,
+    return Semantics(
+      button: data.onTap != null,
+      label: data.onTap == null ? null : data.title,
+      child: InkWell(
+        onTap: data.onTap,
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        child: SizedBox(
+          key: data.rowKey,
+          height: 40,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                _SettingsSvgIcon(
+                  asset: data.iconAsset,
+                  size: 16,
+                  contentSize: data.iconContentSize,
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    data.title,
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontFamily: _settingsFontFamily,
+                      fontFamilyFallback: _settingsFontFallbacks,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      height: 16 / 15,
+                    ),
+                  ),
+                ),
+                data.trailing,
+              ],
             ),
-            data.trailing,
-          ],
+          ),
         ),
       ),
     );

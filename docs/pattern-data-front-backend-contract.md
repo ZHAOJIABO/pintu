@@ -241,6 +241,7 @@ GET /api/v1/templates/{templateId}
 | 完成生成 | `POST /api/v1/generation/{generationId}/complete` | 请求的 `patternData` |
 | 直接保存作品 | `POST /api/v1/works` | 请求的 `patternData` |
 | 查询作品详情 | `GET /api/v1/works/{workId}` | 响应的 `patternData` |
+| 修改已有作品 | `PUT /api/v1/works/{workId}` | 请求的 `patternData` |
 | 保存草稿 | `POST /api/v1/works/drafts` | 请求的 `patternData` |
 
 ### 7.3 外部图纸接入

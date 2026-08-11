@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -12,6 +13,8 @@ import '../models/color.dart';
 import '../models/editable_pattern.dart';
 import '../models/generated_pattern.dart';
 import '../models/palette.dart';
+import '../services/api/api_models.dart';
+import '../services/api/api_scope.dart';
 import '../services/editor_history_service.dart';
 import '../services/pattern_edit_service.dart';
 import '../widgets/bead_board_preview.dart';
@@ -80,6 +83,7 @@ const _brushGuideSteps = <_BrushGuideStep>[
 
 class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
+  final String? workId;
   final bool showBrushGuide;
   final bool showPaletteGuide;
   final PatternEditorPanel initialPanel;
@@ -87,6 +91,7 @@ class PatternEditorScreen extends StatefulWidget {
   const PatternEditorScreen({
     super.key,
     required this.pattern,
+    this.workId,
     this.showBrushGuide = true,
     this.showPaletteGuide = true,
     this.initialPanel = PatternEditorPanel.brush,
@@ -118,6 +123,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   bool _showPaletteGuide = false;
   bool _showPaletteGuideCompletion = false;
   int _paletteGuideStep = -1;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -438,12 +444,49 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     _selectPaletteColor(color);
   }
 
-  void _confirm() {
+  Future<void> _save() async {
+    if (_saving) return;
+    if (listEquals(_pixels, widget.pattern.pixels)) {
+      Navigator.pop(context, widget.pattern);
+      return;
+    }
+
     final edited = _editService.applyEditedPixels(
       pattern: widget.pattern,
       pixels: _pixels,
     );
+
+    final workId = widget.workId;
+    if (workId != null && workId.isNotEmpty) {
+      final services = BackendScope.maybeOf(context);
+      if (services == null) {
+        _showSaveFailure();
+        return;
+      }
+
+      setState(() => _saving = true);
+      try {
+        await services.works.updateWork(
+          workId: workId,
+          patternData: PatternData.fromGeneratedPattern(edited),
+        );
+      } catch (_) {
+        if (mounted) {
+          setState(() => _saving = false);
+          _showSaveFailure();
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
     Navigator.pop(context, edited);
+  }
+
+  void _showSaveFailure() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
   }
 
   String get _selectedColorRef => _colorRefFor(_selectedColor);
@@ -570,7 +613,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                     panel: _panel,
                     onBack: () => Navigator.maybePop(context),
                     onPanelChanged: _onPanelChanged,
-                    onSave: _confirm,
+                    onSave: _saving ? null : () => unawaited(_save()),
                   ),
                   Expanded(
                     child: BeadBoardPreview(
@@ -647,7 +690,7 @@ class _EditorNavigationBar extends StatelessWidget {
   final _EditorPanel panel;
   final VoidCallback onBack;
   final ValueChanged<_EditorPanel> onPanelChanged;
-  final VoidCallback onSave;
+  final VoidCallback? onSave;
 
   const _EditorNavigationBar({
     required this.panel,

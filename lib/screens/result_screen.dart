@@ -31,6 +31,7 @@ typedef WatermarkPngBytesLoader = Future<Uint8List?> Function();
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final TemplateItem? template;
+  final String? workId;
   final bool showGeneratedHint;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
@@ -39,6 +40,7 @@ class ResultScreen extends StatefulWidget {
     super.key,
     required this.pattern,
     this.template,
+    this.workId,
     this.showGeneratedHint = false,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
@@ -72,6 +74,7 @@ class _ResultScreenState extends State<ResultScreen> {
         builder: (_) => BeadModeScreen(
           pattern: _pattern,
           editingEnabled: _template == null,
+          workId: widget.workId,
         ),
       ),
     );
@@ -80,7 +83,10 @@ class _ResultScreenState extends State<ResultScreen> {
   Future<void> _openEditor() async {
     final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
-      MaterialPageRoute(builder: (_) => PatternEditorScreen(pattern: _pattern)),
+      MaterialPageRoute(
+        builder: (_) =>
+            PatternEditorScreen(pattern: _pattern, workId: widget.workId),
+      ),
     );
     if (!mounted || editedPattern == null) return;
 

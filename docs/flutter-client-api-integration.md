@@ -21,7 +21,7 @@
 | 官方图纸收藏 | `POST/DELETE /api/v1/templates/{templateId}/favorite`、`GET /api/v1/templates/favorites` |
 | 图片上传 | `POST /api/v1/media/upload-token`、OSS `PUT`、`POST /api/v1/media/report-upload` |
 | AI 风格转换 | `GET /api/v1/ai/styles`、`POST /api/v1/ai/style-generations`、`GET /api/v1/ai/style-generations/{taskId}` |
-| 拼豆图纸生成记录 | `POST /api/v1/generation/create`、`POST /api/v1/generation/{generationId}/complete`、`GET /api/v1/works` |
+| 拼豆图纸生成记录 | `POST /api/v1/generation/create`、`POST /api/v1/generation/{generationId}/complete`、`GET/PUT /api/v1/works/{workId}` |
 
 ## 2. 服务地址
 
@@ -1253,7 +1253,36 @@ POST /api/v1/works
 
 首期推荐生成类入口仍走 `generation/create -> complete`，这样服务端能统一处理免费额度、积分和幂等。
 
-### 7.24 草稿
+### 7.24 修改作品图纸
+
+图纸编辑页的画笔和色板操作保存后，客户端必须提交完整的最新
+`patternData`，不能只更新页面内存状态：
+
+```http
+PUT /api/v1/works/{workId}
+```
+
+```json
+{
+  "patternData": {
+    "width": 3,
+    "height": 3,
+    "boardSpec": "3x3",
+    "pixels": [1, 1, 0, 1, 2, 1, 0, 1, 1],
+    "colorPalette": [
+      {"index": 1, "hex": "#FF0000", "name": "红色"},
+      {"index": 2, "hex": "#FFFFFF", "name": "白色"}
+    ],
+    "schemaVersion": 1
+  }
+}
+```
+
+服务端应校验 `PatternData`，重新计算颜色数和拼豆数，并更新同一
+`workId` 的图纸记录。客户端仅在接口成功后退出编辑页；失败时保留当前
+编辑内容供用户重试。
+
+### 7.25 草稿
 
 保存草稿：
 
@@ -1278,7 +1307,7 @@ POST /api/v1/works/drafts
 GET /api/v1/works/drafts?page.page=1&page.pageSize=20
 ```
 
-### 7.25 积分余额
+### 7.26 积分余额
 
 ```http
 GET /api/v1/credits/balance
@@ -1297,7 +1326,7 @@ GET /api/v1/credits/balance
 
 当前 `dailyFreeRemaining` 未计算填充，客户端不要强依赖它。
 
-### 7.26 积分流水
+### 7.27 积分流水
 
 ```http
 GET /api/v1/credits/transactions?page.page=1&page.pageSize=20
@@ -1322,7 +1351,7 @@ GET /api/v1/credits/transactions?page.page=1&page.pageSize=20
 }
 ```
 
-### 7.27 系统配置和基础数据
+### 7.28 系统配置和基础数据
 
 App 启动可以预拉：
 
