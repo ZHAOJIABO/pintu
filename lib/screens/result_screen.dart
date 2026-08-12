@@ -32,6 +32,8 @@ class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final TemplateItem? template;
   final String? workId;
+  final String? boardSpec;
+  final bool isEditingLocked;
   final bool showGeneratedHint;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
@@ -41,6 +43,8 @@ class ResultScreen extends StatefulWidget {
     required this.pattern,
     this.template,
     this.workId,
+    this.boardSpec,
+    this.isEditingLocked = false,
     this.showGeneratedHint = false,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
@@ -57,6 +61,8 @@ class _ResultScreenState extends State<ResultScreen> {
   bool _exporting = false;
   bool _updatingFavorite = false;
 
+  bool get _editingEnabled => _template == null && !widget.isEditingLocked;
+
   @override
   void initState() {
     super.initState();
@@ -68,29 +74,39 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _openBeadMode() async {
-    await Navigator.push<void>(
+    final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
       MaterialPageRoute(
         builder: (_) => BeadModeScreen(
           pattern: _pattern,
-          editingEnabled: _template == null,
+          editingEnabled: _editingEnabled,
           workId: widget.workId,
+          boardSpec: widget.boardSpec,
         ),
       ),
     );
+    if (!mounted || editedPattern == null) return;
+    setState(() => _pattern = editedPattern);
   }
 
   Future<void> _openEditor() async {
     final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            PatternEditorScreen(pattern: _pattern, workId: widget.workId),
+        builder: (_) => PatternEditorScreen(
+          pattern: _pattern,
+          workId: widget.workId,
+          boardSpec: widget.boardSpec,
+        ),
       ),
     );
     if (!mounted || editedPattern == null) return;
 
     setState(() => _pattern = editedPattern);
+  }
+
+  void _showEditingLockedMessage() {
+    _showToast('投稿审核中，审核完成后即可修改');
   }
 
   Future<void> _toggleTemplateFavorite() async {
@@ -201,11 +217,12 @@ class _ResultScreenState extends State<ResultScreen> {
             _BottomActionBar(
               onStart: _openBeadMode,
               secondaryLabel: _template == null
-                  ? '编辑'
+                  ? (widget.isEditingLocked ? '审核中' : '编辑')
                   : (_template!.isFavorited ? '已收藏' : '收藏'),
               onSecondary: _template == null
-                  ? _openEditor
+                  ? (_editingEnabled ? _openEditor : _showEditingLockedMessage)
                   : (_updatingFavorite ? null : _toggleTemplateFavorite),
+              secondaryEnabled: _template != null || _editingEnabled,
             ),
           ],
         ),
@@ -555,11 +572,13 @@ class _BottomActionBar extends StatelessWidget {
   final VoidCallback onStart;
   final String secondaryLabel;
   final VoidCallback? onSecondary;
+  final bool secondaryEnabled;
 
   const _BottomActionBar({
     required this.onStart,
     required this.secondaryLabel,
     required this.onSecondary,
+    this.secondaryEnabled = true,
   });
 
   @override
@@ -590,6 +609,7 @@ class _BottomActionBar extends StatelessWidget {
                   key: const ValueKey('result-secondary-action'),
                   label: secondaryLabel,
                   onTap: onSecondary,
+                  enabled: secondaryEnabled,
                   filled: true,
                 ),
               ),
@@ -604,19 +624,24 @@ class _BottomActionBar extends StatelessWidget {
 class _ResultActionButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
+  final bool enabled;
   final bool filled;
 
   const _ResultActionButton({
     super.key,
     required this.label,
     required this.onTap,
+    this.enabled = true,
     required this.filled,
   });
 
   @override
   Widget build(BuildContext context) {
     final textColor = filled ? Colors.white : Colors.black;
-    final backgroundColor = filled ? Colors.black : Colors.white;
+    final isEnabled = enabled && onTap != null;
+    final backgroundColor = filled
+        ? (isEnabled ? Colors.black : const Color(0xFF9EA3AE))
+        : Colors.white;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -645,7 +670,7 @@ class _ResultActionButton extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: onTap == null
+                color: !isEnabled
                     ? textColor.withValues(alpha: 0.55)
                     : textColor,
                 fontSize: 18,

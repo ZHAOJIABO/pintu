@@ -216,6 +216,7 @@ class TemplateCategory {
 class TemplateItem {
   final String templateId;
   final String title;
+  final String authorName;
   final String previewUrl;
   final String thumbnailUrl;
   final String description;
@@ -234,6 +235,7 @@ class TemplateItem {
   const TemplateItem({
     required this.templateId,
     required this.title,
+    this.authorName = '',
     required this.previewUrl,
     required this.thumbnailUrl,
     required this.description,
@@ -254,6 +256,7 @@ class TemplateItem {
     return TemplateItem(
       templateId: _stringValue(json['templateId']),
       title: _stringValue(json['title']),
+      authorName: _stringValue(json['authorName']),
       previewUrl: _stringValue(json['previewUrl']),
       thumbnailUrl: _stringValue(json['thumbnailUrl']),
       description: _stringValue(json['description']),
@@ -275,6 +278,7 @@ class TemplateItem {
     return TemplateItem(
       templateId: templateId,
       title: title,
+      authorName: authorName,
       previewUrl: previewUrl,
       thumbnailUrl: thumbnailUrl,
       description: description,
@@ -290,6 +294,12 @@ class TemplateItem {
       favoriteCount: favoriteCount ?? this.favoriteCount,
       isFavorited: isFavorited ?? this.isFavorited,
     );
+  }
+
+  /// 首页图纸卡片的署名；服务端未返回署名时使用产品默认署名。
+  String get displayAuthorName {
+    final trimmedName = authorName.trim();
+    return trimmedName.isEmpty ? 'pintoo' : trimmedName;
   }
 }
 

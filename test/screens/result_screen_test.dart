@@ -274,6 +274,38 @@ void main() {
     expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
   });
 
+  testWidgets('pending submission keeps the work viewable but locks editing', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(pattern: _pattern(), isEditingLocked: true),
+      ),
+    );
+
+    expect(find.text('审核中'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('result-secondary-action')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pattern-editor-screen')), findsNothing);
+    expect(find.text('投稿审核中，审核完成后即可修改'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('立即开拼'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BeadBoardPreview), findsOneWidget);
+    expect(find.byKey(const ValueKey('bead-mode-edit-button')), findsNothing);
+  });
+
   testWidgets('官方模板图纸仅提供开拼和收藏，并可切换收藏状态', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;

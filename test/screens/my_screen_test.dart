@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+// import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _NavigationObserver extends NavigatorObserver {
   int pushCount = 0;
@@ -493,6 +493,105 @@ void main() {
     expect(
       listRequests.map((request) => request.url.queryParameters),
       everyElement({'page.page': '1', 'page.pageSize': '20'}),
+    );
+  });
+
+  testWidgets('重试成功后立即用新任务替换失败创作', (tester) async {
+    var retrySubmitted = false;
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        if (request.url.path ==
+            '/api/v1/ai/style-generations/failed-creation/retry') {
+          retrySubmitted = true;
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              'taskId': 'retried-creation',
+              'status': AIGenerationItem.running,
+              'creditsDeducted': 1,
+              'remainingBalance': 9,
+              'duplicated': false,
+            }),
+            200,
+          );
+        }
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'user-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' => {
+            'data': {
+              'works': const [],
+              'page': {'total': 0, 'page': 1, 'pageSize': 20, 'hasMore': false},
+            },
+          },
+          '/api/v1/ai/style-generations' => {
+            'tasks': retrySubmitted
+                ? [
+                    {
+                      'taskId': 'retried-creation',
+                      'status': AIGenerationItem.running,
+                      'inputImageUrl': '',
+                    },
+                  ]
+                : [
+                    {
+                      'taskId': 'failed-creation',
+                      'status': AIGenerationItem.failed,
+                      'inputImageUrl': '',
+                    },
+                  ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          '/api/v1/ai/style-generations/retried-creation' => {
+            'task': {
+              'taskId': 'retried-creation',
+              'status': AIGenerationItem.running,
+              'inputImageUrl': '',
+            },
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('my-patterns-shortcut')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('recent-creation-retry-failed-creation')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '重新生成'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('recent-creation-preview-failed-creation')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('recent-creation-preview-retried-creation')),
+      findsOneWidget,
     );
   });
 

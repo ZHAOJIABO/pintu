@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../../models/generated_pattern.dart';
-import '../pattern_export_service.dart';
+import '../pattern_image_upload_service.dart';
 import 'api_models.dart';
 import 'api_repositories.dart';
 import 'api_session_store.dart';
@@ -14,14 +14,14 @@ class GenerationCompletionService {
   final MediaRepository media;
   final GenerationRepository generations;
   final ApiSessionStore store;
-  final PatternExportService exportService;
+  final PatternImageUploadService patternImageUploader;
   final GenerationDiagnosticLogger? diagnosticLogger;
 
   const GenerationCompletionService({
     required this.media,
     required this.generations,
     required this.store,
-    this.exportService = const PatternExportService(),
+    this.patternImageUploader = const PatternImageUploadService(),
     this.diagnosticLogger,
   });
 
@@ -65,14 +65,14 @@ class GenerationCompletionService {
       final sourceUrl =
           originalImageUrl ??
           await _uploadOriginalImage(pattern.draft.imageForGeneration);
-      final previewUrl = await _uploadPatternPreview(pattern);
-      final thumbnailUrl = await _uploadPatternThumbnail(pattern);
+      final uploadedPatternImages = await patternImageUploader
+          .uploadEditedPattern(media: media, pattern: pattern);
       final result = await generations.completeGeneration(
         generationId: generationId,
         title: title ?? _defaultTitle(),
         originalImageUrl: sourceUrl,
-        patternImageUrl: previewUrl,
-        thumbnailUrl: thumbnailUrl,
+        patternImageUrl: uploadedPatternImages.patternImageUrl,
+        thumbnailUrl: uploadedPatternImages.thumbnailUrl,
         patternData: patternData,
         beadCount: beadCount,
         colorCount: colorCount,
@@ -176,28 +176,6 @@ class GenerationCompletionService {
       purpose: 'original',
     );
     return _requiredUrl(uploaded, '原图');
-  }
-
-  Future<String> _uploadPatternPreview(GeneratedPattern pattern) async {
-    final bytes = await exportService.exportChartPngBytes(pattern);
-    final uploaded = await media.uploadBytes(
-      bytes: bytes,
-      fileName: 'pattern-preview.png',
-      contentType: 'image/png',
-      purpose: 'pattern',
-    );
-    return _requiredUrl(uploaded, '图纸预览图');
-  }
-
-  Future<String> _uploadPatternThumbnail(GeneratedPattern pattern) async {
-    final bytes = await exportService.exportChartThumbnailPngBytes(pattern);
-    final uploaded = await media.uploadBytes(
-      bytes: bytes,
-      fileName: 'pattern-thumbnail.png',
-      contentType: 'image/png',
-      purpose: 'pattern',
-    );
-    return _requiredUrl(uploaded, '图纸缩略图');
   }
 
   String _requiredUrl(UploadedMedia media, String label) {

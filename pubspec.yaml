@@ -2,7 +2,7 @@ name: bobobeads
 description: "Convert images into bead patterns for perler bead art."
 publish_to: 'none'
 
-version: 1.0.0+9
+version: 1.0.0+12
 
 environment:
   sdk: ^3.11.0-113.0.dev
@@ -29,7 +29,7 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
   protoc_plugin: ^25.0.0
-  sqflite_common_ffi: ^2.3.4
+  # sqflite_common_ffi: ^2.3.4
 
 flutter:
   uses-material-design: true

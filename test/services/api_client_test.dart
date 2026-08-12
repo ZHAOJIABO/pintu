@@ -9,6 +9,7 @@ import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/services/ai_style_transfer_service.dart';
 import 'package:bobobeads/services/api/api_client.dart';
 import 'package:bobobeads/services/api/generation_completion_service.dart';
+import 'package:bobobeads/services/pattern_image_upload_service.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_repositories.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
@@ -1321,7 +1322,9 @@ void main() {
         media: MediaRepository(apiClient: client, auth: auth),
         generations: GenerationRepository(apiClient: client, auth: auth),
         store: store,
-        exportService: const _FakePatternExportService(),
+        patternImageUploader: const PatternImageUploadService(
+          exportService: _FakePatternExportService(),
+        ),
         diagnosticLogger: diagnostics.add,
       );
 

@@ -9,6 +9,8 @@ import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/screens/pattern_editor_screen.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/services/pattern_image_upload_service.dart';
+import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -309,102 +311,128 @@ void main() {
     expect(_editorPainter(tester).pixels.take(4), [0, 0, 0, 255]);
   });
 
-  testWidgets('saving an edited work updates its PatternData through the API', (
-    tester,
-  ) async {
-    _setViewport(tester, const Size(390, 844));
-    final requests = <http.Request>[];
-    final services = BackendServices(
-      baseUrl: 'http://api.example.test',
-      store: _MemoryApiSessionStore(),
-      httpClient: MockClient((request) async {
-        requests.add(request);
-        final response = switch (request.url.path) {
-          '/api/v1/auth/guest' => {
-            'accessToken': 'access-token',
-            'refreshToken': 'refresh-token',
-            'expiresIn': 3600,
-            'user': {'userId': 'guest-1'},
-          },
-          '/api/v1/works/work-001' => <String, Object?>{},
-          _ => throw StateError('Unexpected request: ${request.url}'),
-        };
-        return http.Response(
-          jsonEncode({
-            'header': {'code': 0, 'message': 'success'},
-            ...response,
-          }),
-          200,
-        );
-      }),
-    );
+  testWidgets(
+    'saving an edited work uploads a rendered chart before updating it',
+    (tester) async {
+      _setViewport(tester, const Size(390, 844));
+      final requests = <http.Request>[];
+      final services = BackendServices(
+        baseUrl: 'http://api.example.test',
+        store: _MemoryApiSessionStore(),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          final response = switch (request.url.path) {
+            '/api/v1/auth/guest' => {
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'expiresIn': 3600,
+              'user': {'userId': 'guest-1'},
+            },
+            '/api/v1/media/upload-token' => _uploadTokenFor(request),
+            '/api/v1/media/report-upload' => _uploadedMediaFor(request),
+            '/pattern-preview.png' ||
+            '/pattern-thumbnail.png' => <String, Object?>{},
+            '/api/v1/works/64' => <String, Object?>{},
+            _ => throw StateError('Unexpected request: ${request.url}'),
+          };
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              ...response,
+            }),
+            200,
+          );
+        }),
+      );
 
-    await tester.pumpWidget(
-      BackendScope(
-        services: services,
-        child: MaterialApp(
-          home: PatternEditorScreen(
-            pattern: _pattern(),
-            workId: 'work-001',
-            showBrushGuide: false,
-            showPaletteGuide: false,
+      await tester.pumpWidget(
+        BackendScope(
+          services: services,
+          child: MaterialApp(
+            home: PatternEditorScreen(
+              pattern: _pattern(),
+              workId: '64',
+              boardSpec: '29x29',
+              showBrushGuide: false,
+              showPaletteGuide: false,
+              patternImageUploader: _testPatternImageUploader,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
-    final painter = _editorPainter(tester);
-    final firstCellCenter = Offset(
-      painter.labelBand + 24.5 * painter.cellSize,
-      painter.labelBand + 24.5 * painter.cellSize,
-    );
-    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
-    await tester.pump();
+      final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+      final painter = _editorPainter(tester);
+      final firstCellCenter = Offset(
+        painter.labelBand + 24.5 * painter.cellSize,
+        painter.labelBand + 24.5 * painter.cellSize,
+      );
+      await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+      await tester.pump();
 
-    final saveButton = find.widgetWithText(TextButton, '保存');
-    expect(tester.widget<TextButton>(saveButton).onPressed, isNotNull);
-    await tester.tap(saveButton);
-    await tester.pump();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 100)),
-    );
-    await tester.pump();
+      final saveButton = find.widgetWithText(TextButton, '保存');
+      expect(tester.widget<TextButton>(saveButton).onPressed, isNotNull);
+      await tester.tap(saveButton);
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
 
-    expect(
-      requests.map((request) => '${request.method} ${request.url.path}'),
-      contains('PUT /api/v1/works/work-001'),
-    );
-    final updateRequest = requests.singleWhere(
-      (request) => request.url.path == '/api/v1/works/work-001',
-    );
-    expect(updateRequest.method, 'PUT');
-    expect(jsonDecode(updateRequest.body), {
-      'patternData': {
-        'width': 2,
-        'height': 2,
-        'boardSpec': '2x2',
-        'pixels': [2, 2, 2, 2],
-        'colorPalette': [
-          {
-            'index': 1,
-            'hex': '#000000',
-            'brand': 'MARD',
-            'code': 'H7',
-            'name': '黑色',
-          },
-          {
-            'index': 2,
-            'hex': '#e90030',
-            'brand': 'MARD',
-            'code': 'F5',
-            'name': '红色',
-          },
+      expect(
+        requests.map((request) => '${request.method} ${request.url.path}'),
+        [
+          'POST /api/v1/auth/guest',
+          'POST /api/v1/media/upload-token',
+          'POST /api/v1/media/upload-token',
+          'PUT /pattern-preview.png',
+          'PUT /pattern-thumbnail.png',
+          'POST /api/v1/media/report-upload',
+          'POST /api/v1/media/report-upload',
+          'PUT /api/v1/works/64',
         ],
-        'schemaVersion': 1,
-      },
-    });
-  });
+      );
+      final uploadTokenRequest = requests.firstWhere(
+        (request) => request.url.path == '/api/v1/media/upload-token',
+      );
+      expect(jsonDecode(uploadTokenRequest.body), {
+        'file_name': 'pattern-preview.png',
+        'content_type': 'image/png',
+        'purpose': 'pattern',
+      });
+      final updateRequest = requests.singleWhere(
+        (request) => request.url.path == '/api/v1/works/64',
+      );
+      expect(updateRequest.method, 'PUT');
+      expect(jsonDecode(updateRequest.body), {
+        'patternImageUrl': 'https://cdn.example.test/pattern-preview.png',
+        'thumbnailUrl': 'https://cdn.example.test/pattern-thumbnail.png',
+        'patternData': {
+          'width': 2,
+          'height': 2,
+          'boardSpec': '29x29',
+          'pixels': [2, 2, 2, 2],
+          'colorPalette': [
+            {
+              'index': 1,
+              'hex': '#000000',
+              'brand': 'MARD',
+              'code': 'H7',
+              'name': '黑色',
+            },
+            {
+              'index': 2,
+              'hex': '#e90030',
+              'brand': 'MARD',
+              'code': 'F5',
+              'name': '红色',
+            },
+          ],
+          'schemaVersion': 1,
+        },
+      });
+    },
+  );
 
   testWidgets('editor uses the bead-mode board without rulers or a cursor', (
     tester,
@@ -679,6 +707,297 @@ void main() {
     expect(_editorPainter(tester).pixels.sublist(4, 8), [76, 175, 80, 255]);
   });
 
+  testWidgets(
+    'saving a palette edit updates the existing work through the API',
+    (tester) async {
+      _setViewport(tester, const Size(390, 844));
+      final requests = <http.Request>[];
+      final services = BackendServices(
+        baseUrl: 'http://api.example.test',
+        store: _MemoryApiSessionStore(),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          final response = switch (request.url.path) {
+            '/api/v1/auth/guest' => {
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'expiresIn': 3600,
+              'user': {'userId': 'guest-1'},
+            },
+            '/api/v1/media/upload-token' => _uploadTokenFor(request),
+            '/api/v1/media/report-upload' => _uploadedMediaFor(request),
+            '/pattern-preview.png' ||
+            '/pattern-thumbnail.png' => <String, Object?>{},
+            '/api/v1/works/64' => <String, Object?>{},
+            _ => throw StateError('Unexpected request: ${request.url}'),
+          };
+          return http.Response(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              ...response,
+            }),
+            200,
+          );
+        }),
+      );
+
+      await tester.pumpWidget(
+        BackendScope(
+          services: services,
+          child: MaterialApp(
+            home: PatternEditorScreen(
+              pattern: _colorPickerPattern(),
+              workId: '64',
+              boardSpec: '29x29',
+              showBrushGuide: false,
+              showPaletteGuide: false,
+              patternImageUploader: _testPatternImageUploader,
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('色板'));
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('editor-palette-usage-option-A2')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('editor-color-replacement-all-option-B1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(TextButton, '保存'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+
+      final updateRequest = requests.singleWhere(
+        (request) => request.url.path == '/api/v1/works/64',
+      );
+      expect(updateRequest.method, 'PUT');
+      final body = jsonDecode(updateRequest.body) as Map<String, dynamic>;
+      expect(
+        body['patternImageUrl'],
+        'https://cdn.example.test/pattern-preview.png',
+      );
+      expect(
+        body['thumbnailUrl'],
+        'https://cdn.example.test/pattern-thumbnail.png',
+      );
+      final patternData = body['patternData'] as Map<String, dynamic>;
+      expect(patternData['boardSpec'], '29x29');
+      expect(patternData['pixels'], [3, 3, 3, 3, 1, 1]);
+    },
+  );
+
+  testWidgets('keeps edited work open when the server rejects its pattern', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    final services = BackendServices(
+      baseUrl: 'http://api.example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        final response = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'header': {'code': 0, 'message': 'success'},
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/media/upload-token' => _uploadTokenFor(request),
+          '/api/v1/media/report-upload' => _uploadedMediaFor(request),
+          '/pattern-preview.png' ||
+          '/pattern-thumbnail.png' => <String, Object?>{},
+          '/api/v1/works/64' => {
+            'header': {'code': 1101, 'message': 'invalid pattern data'},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(jsonEncode(response), 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _pattern(),
+            workId: '64',
+            boardSpec: '29x29',
+            showBrushGuide: false,
+            showPaletteGuide: false,
+            patternImageUploader: _testPatternImageUploader,
+          ),
+        ),
+      ),
+    );
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(find.byType(PatternEditorScreen), findsOneWidget);
+    expect(find.text('图纸数据有误，请重试'), findsOneWidget);
+  });
+
+  testWidgets('keeps edited work open when uploading its chart fails', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://api.example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final response = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/media/upload-token' => _uploadTokenFor(request),
+          '/pattern-preview.png' => throw const ApiException(
+            5000,
+            'upload failed',
+          ),
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...response,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _pattern(),
+            workId: '64',
+            boardSpec: '29x29',
+            showBrushGuide: false,
+            showPaletteGuide: false,
+            patternImageUploader: _testPatternImageUploader,
+          ),
+        ),
+      ),
+    );
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+    final editedPixels = List<int>.of(_editorPainter(tester).pixels.take(4));
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(find.byType(PatternEditorScreen), findsOneWidget);
+    expect(find.text('保存失败，请重试'), findsOneWidget);
+    expect(_editorPainter(tester).pixels.take(4), editedPixels);
+    expect(
+      requests.where((request) => request.url.path == '/api/v1/works/64'),
+      isEmpty,
+    );
+  });
+
+  testWidgets('keeps local edits when a pending submission locks the work', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+    final services = BackendServices(
+      baseUrl: 'http://api.example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        final response = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'header': {'code': 0, 'message': 'success'},
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/media/upload-token' => _uploadTokenFor(request),
+          '/api/v1/media/report-upload' => _uploadedMediaFor(request),
+          '/pattern-preview.png' ||
+          '/pattern-thumbnail.png' => <String, Object?>{},
+          '/api/v1/works/64' => {
+            'header': {'code': 2006, 'message': 'work is under review'},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(jsonEncode(response), 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: PatternEditorScreen(
+            pattern: _pattern(),
+            workId: '64',
+            boardSpec: '29x29',
+            showBrushGuide: false,
+            showPaletteGuide: false,
+            patternImageUploader: _testPatternImageUploader,
+          ),
+        ),
+      ),
+    );
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+    final editedPixels = List<int>.of(_editorPainter(tester).pixels.take(4));
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(find.byType(PatternEditorScreen), findsOneWidget);
+    expect(find.text('投稿审核中，暂时无法保存修改'), findsOneWidget);
+    expect(_editorPainter(tester).pixels.take(4), editedPixels);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('palette replacement sheet fits $viewport', (tester) async {
       _setViewport(tester, viewport);
@@ -936,4 +1255,41 @@ GeneratedPattern _colorPickerPattern() {
     paletteEntries: [d6, z9, b1, a2],
     draft: DraftProject(originalImageBytes: Uint8List(0)),
   );
+}
+
+class _FakePatternExportService extends PatternExportService {
+  const _FakePatternExportService();
+
+  @override
+  Future<Uint8List> exportChartPngBytes(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async => Uint8List.fromList([1, 2, 3]);
+
+  @override
+  Future<Uint8List> exportChartThumbnailPngBytes(
+    GeneratedPattern pattern,
+  ) async => Uint8List.fromList([4, 5, 6]);
+}
+
+const _testPatternImageUploader = PatternImageUploadService(
+  exportService: _FakePatternExportService(),
+);
+
+Map<String, Object?> _uploadTokenFor(http.Request request) {
+  final fileName =
+      (jsonDecode(request.body) as Map<String, dynamic>)['file_name'] as String;
+  return {
+    'uploadUrl': 'https://storage.example.test/$fileName',
+    'fileKey': 'pattern/guest-1/$fileName',
+    'headers': {'Content-Type': 'image/png'},
+    'uploadMethod': 'PUT',
+    'maxFileSize': 20 * 1024 * 1024,
+  };
+}
+
+Map<String, Object?> _uploadedMediaFor(http.Request request) {
+  final fileKey =
+      (jsonDecode(request.body) as Map<String, dynamic>)['file_key'] as String;
+  return {'fileUrl': 'https://cdn.example.test/${fileKey.split('/').last}'};
 }

@@ -14,12 +14,14 @@ class BeadModeScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final bool editingEnabled;
   final String? workId;
+  final String? boardSpec;
 
   const BeadModeScreen({
     super.key,
     required this.pattern,
     this.editingEnabled = true,
     this.workId,
+    this.boardSpec,
   });
 
   @override
@@ -39,14 +41,19 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
     final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            PatternEditorScreen(pattern: _pattern, workId: widget.workId),
+        builder: (_) => PatternEditorScreen(
+          pattern: _pattern,
+          workId: widget.workId,
+          boardSpec: widget.boardSpec,
+        ),
       ),
     );
     if (!mounted || editedPattern == null) return;
 
     setState(() => _pattern = editedPattern);
   }
+
+  void _close() => Navigator.pop(context, _pattern);
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +71,7 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
               _BeadModeNavigationBar(
                 editingEnabled: widget.editingEnabled,
                 onEdit: _openEditor,
+                onBack: _close,
               ),
               Expanded(
                 child: Stack(
@@ -133,10 +141,12 @@ class _BeadModeScreenState extends State<BeadModeScreen> {
 class _BeadModeNavigationBar extends StatelessWidget {
   final bool editingEnabled;
   final VoidCallback onEdit;
+  final VoidCallback onBack;
 
   const _BeadModeNavigationBar({
     required this.editingEnabled,
     required this.onEdit,
+    required this.onBack,
   });
 
   @override
@@ -150,7 +160,7 @@ class _BeadModeNavigationBar extends StatelessWidget {
           children: [
             _NavigationAction(
               label: '返回',
-              onTap: () => Navigator.pop(context),
+              onTap: onBack,
               asset: 'assets/pin_icon/bead_back.svg',
             ),
             if (editingEnabled)

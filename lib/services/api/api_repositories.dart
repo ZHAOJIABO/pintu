@@ -624,16 +624,23 @@ class WorkRepository {
 
   /// Persists edits made to an existing user work.
   ///
-  /// The server owns the derived counts and preview metadata, so the editor
-  /// submits only the updated [PatternData] source of truth.
+  /// The server owns the derived counts and thumbnail metadata. The editor
+  /// submits both the updated [PatternData] source of truth and its newly
+  /// rendered, uploaded chart image.
   Future<void> updateWork({
     required String workId,
     required PatternData patternData,
+    required String patternImageUrl,
+    required String thumbnailUrl,
   }) async {
     await auth.ensureSignedIn();
     await apiClient.put(
       '/api/v1/works/${Uri.encodeComponent(workId)}',
-      body: {'patternData': patternData.toJson()},
+      body: {
+        'patternImageUrl': patternImageUrl,
+        'thumbnailUrl': thumbnailUrl,
+        'patternData': patternData.toJson(),
+      },
     );
   }
 

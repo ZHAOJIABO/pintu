@@ -430,11 +430,14 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   Set<String> _retryingCreationIds = const {};
   final Map<String, String> _retryClientRequestIds = {};
   List<WorkItem> _works = const [];
+  Set<String> _pendingSubmissionWorkIds = const {};
+  bool _pendingSubmissionLocksLoaded = false;
   String _categoryName = '全部';
   int _requestVersion = 0;
   int _blindBoxHistoryRequestVersion = 0;
   int _recentCreationsRequestVersion = 0;
   int _worksRequestVersion = 0;
+  int _pendingSubmissionsRequestVersion = 0;
   Timer? _taskPollingTimer;
   bool _taskPollInFlight = false;
   late _LibraryTab _selectedTab;
@@ -461,6 +464,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     if (services != null) {
       if (_selectedTab == _LibraryTab.patterns) {
         _loadWorks(services);
+        _loadPendingSubmissionWorkIds(services);
         _loadRecentCreations(services);
       } else {
         _loadFavorites(services);
@@ -723,6 +727,43 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     }
   }
 
+  Future<void> _loadPendingSubmissionWorkIds(BackendServices services) async {
+    final requestVersion = ++_pendingSubmissionsRequestVersion;
+    final pendingWorkIds = <String>{};
+    var cursor = '';
+    if (mounted && identical(services, _backendServices)) {
+      setState(() => _pendingSubmissionLocksLoaded = false);
+    }
+    try {
+      do {
+        final page = await services.templateSubmissions.list(
+          limit: 50,
+          cursor: cursor,
+        );
+        pendingWorkIds.addAll(
+          page.items
+              .where((submission) => submission.isPending)
+              .map((submission) => submission.workId)
+              .where((workId) => workId.isNotEmpty),
+        );
+        cursor = page.nextCursor;
+      } while (cursor.isNotEmpty);
+
+      if (!mounted ||
+          !identical(services, _backendServices) ||
+          requestVersion != _pendingSubmissionsRequestVersion ||
+          _selectedTab != _LibraryTab.patterns) {
+        return;
+      }
+      setState(() {
+        _pendingSubmissionWorkIds = pendingWorkIds;
+        _pendingSubmissionLocksLoaded = true;
+      });
+    } catch (_) {
+      // 加载失败时维持锁定状态，服务端也会以 2006 保护作品。
+    }
+  }
+
   Future<void> _openTemplate(String templateId) async {
     final services = _backendServices;
     if (services == null || templateId.isEmpty) return;
@@ -755,6 +796,10 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
           builder: (_) => ResultScreen(
             pattern: detail.patternData.toGeneratedPattern(),
             workId: detail.work.workId,
+            boardSpec: detail.patternData.boardSpec,
+            isEditingLocked:
+                !_pendingSubmissionLocksLoaded ||
+                _pendingSubmissionWorkIds.contains(detail.work.workId),
           ),
         ),
       );
@@ -836,7 +881,6 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     setState(() {
       _retryingCreationIds = {..._retryingCreationIds, task.taskId};
     });
-    unawaited(_loadRecentCreations(services));
 
     try {
       final created = await services.aiGenerations.retryStyleGeneration(
@@ -864,7 +908,9 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         _recentCreations = [
           retriedTask,
           ..._recentCreations.where(
-            (existingTask) => existingTask.taskId != retriedTask.taskId,
+            (existingTask) =>
+                existingTask.taskId != task.taskId &&
+                existingTask.taskId != retriedTask.taskId,
           ),
         ];
         _retryClientRequestIds.remove(task.taskId);
@@ -888,6 +934,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         setState(() {
           _retryingCreationIds = {..._retryingCreationIds}..remove(task.taskId);
         });
+        unawaited(_loadRecentCreations(services));
       }
     }
   }
@@ -905,6 +952,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     if (services != null) {
       if (tab == _LibraryTab.patterns) {
         _loadWorks(services);
+        _loadPendingSubmissionWorkIds(services);
         _loadRecentCreations(services);
       } else {
         _recentCreationsRequestVersion++;
@@ -1000,6 +1048,8 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
                                 newCreationIds: _newCreationIds,
                                 retryingCreationIds: _retryingCreationIds,
                                 works: _works,
+                                pendingSubmissionWorkIds:
+                                    _pendingSubmissionWorkIds,
                                 categoryName: _categoryName,
                                 onFilter: _openFilterDialog,
                                 onTemplateTap: _openTemplate,
@@ -1033,6 +1083,7 @@ class _MyPatternsContent extends StatelessWidget {
   final Set<String> newCreationIds;
   final Set<String> retryingCreationIds;
   final List<WorkItem> works;
+  final Set<String> pendingSubmissionWorkIds;
   final String categoryName;
   final VoidCallback onFilter;
   final ValueChanged<String> onTemplateTap;
@@ -1050,6 +1101,7 @@ class _MyPatternsContent extends StatelessWidget {
     required this.newCreationIds,
     required this.retryingCreationIds,
     required this.works,
+    required this.pendingSubmissionWorkIds,
     required this.categoryName,
     required this.onFilter,
     required this.onTemplateTap,
@@ -1108,6 +1160,9 @@ class _MyPatternsContent extends StatelessWidget {
                                 work.originalImageUrl != work.patternImageUrl)
                               work.originalImageUrl,
                           ],
+                          isPendingReview: pendingSubmissionWorkIds.contains(
+                            work.workId,
+                          ),
                         ),
                       )
                       .toList()
@@ -1120,6 +1175,7 @@ class _MyPatternsContent extends StatelessWidget {
             gridSpacing: 12,
             tileSize: _myGalleryTileSize,
             tileSpacing: _myGalleryTileSpacing,
+            showTemplateAuthors: false,
           ),
         ],
       ),

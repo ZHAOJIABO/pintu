@@ -17,6 +17,7 @@ import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/editor_history_service.dart';
 import '../services/pattern_edit_service.dart';
+import '../services/pattern_image_upload_service.dart';
 import '../widgets/bead_board_preview.dart';
 
 const _editorBackground = Color(0xFFEEF0F6);
@@ -84,17 +85,21 @@ const _brushGuideSteps = <_BrushGuideStep>[
 class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final String? workId;
+  final String? boardSpec;
   final bool showBrushGuide;
   final bool showPaletteGuide;
   final PatternEditorPanel initialPanel;
+  final PatternImageUploadService patternImageUploader;
 
   const PatternEditorScreen({
     super.key,
     required this.pattern,
     this.workId,
+    this.boardSpec,
     this.showBrushGuide = true,
     this.showPaletteGuide = true,
     this.initialPanel = PatternEditorPanel.brush,
+    this.patternImageUploader = const PatternImageUploadService(),
   });
 
   @override
@@ -466,10 +471,23 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
 
       setState(() => _saving = true);
       try {
+        final uploadedImages = await widget.patternImageUploader
+            .uploadEditedPattern(media: services.media, pattern: edited);
         await services.works.updateWork(
           workId: workId,
-          patternData: PatternData.fromGeneratedPattern(edited),
+          patternData: PatternData.fromGeneratedPattern(
+            edited,
+            boardSpec: widget.boardSpec,
+          ),
+          patternImageUrl: uploadedImages.patternImageUrl,
+          thumbnailUrl: uploadedImages.thumbnailUrl,
         );
+      } on ApiException catch (error) {
+        if (mounted) {
+          setState(() => _saving = false);
+          _showSaveFailure(message: _saveErrorMessage(error));
+        }
+        return;
       } catch (_) {
         if (mounted) {
           setState(() => _saving = false);
@@ -483,10 +501,19 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     Navigator.pop(context, edited);
   }
 
-  void _showSaveFailure() {
+  String _saveErrorMessage(ApiException error) {
+    return switch (error.code) {
+      1101 => '图纸数据有误，请重试',
+      1102 => '作品已不存在',
+      2006 => '投稿审核中，暂时无法保存修改',
+      _ => '保存失败，请重试',
+    };
+  }
+
+  void _showSaveFailure({String message = '保存失败，请重试'}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   String get _selectedColorRef => _colorRefFor(_selectedColor);

@@ -31,6 +31,7 @@ const _homeGalleryTop = 525.0;
 const _homeGalleryTitleAndSpacingHeight = 32.0;
 const _homeGalleryTileSize = 119.33;
 const _homeGalleryTileSpacing = 4.0;
+const _homeGalleryAuthorHeight = 21.2;
 
 double _homeContentHeightForTemplateCount(int templateCount) {
   final rowCount =
@@ -38,7 +39,7 @@ double _homeContentHeightForTemplateCount(int templateCount) {
   if (rowCount == 0) return _designContentHeight;
 
   final galleryHeight =
-      rowCount * _homeGalleryTileSize +
+      rowCount * (_homeGalleryTileSize + _homeGalleryAuthorHeight) +
       (rowCount - 1) * _homeGalleryTileSpacing;
   return math.max(
     _designContentHeight,

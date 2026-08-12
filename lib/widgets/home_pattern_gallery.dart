@@ -14,11 +14,13 @@ class PatternGalleryItem {
   final String id;
   final String thumbnailUrl;
   final List<String> alternateThumbnailUrls;
+  final bool isPendingReview;
 
   const PatternGalleryItem({
     required this.id,
     required this.thumbnailUrl,
     this.alternateThumbnailUrls = const [],
+    this.isPendingReview = false,
   });
 }
 
@@ -34,6 +36,7 @@ class HomePatternGallery extends StatelessWidget {
   final double gridSpacing;
   final double tileSize;
   final double tileSpacing;
+  final bool showTemplateAuthors;
 
   const HomePatternGallery({
     super.key,
@@ -47,6 +50,7 @@ class HomePatternGallery extends StatelessWidget {
     this.gridSpacing = 12,
     this.tileSize = 119.33,
     this.tileSpacing = 4,
+    this.showTemplateAuthors = true,
   });
 
   @override
@@ -72,6 +76,7 @@ class HomePatternGallery extends StatelessWidget {
             onItemTap: onItemTap,
             tileSize: tileSize,
             tileSpacing: tileSpacing,
+            showTemplateAuthors: showTemplateAuthors,
           ),
         ],
       ),
@@ -180,6 +185,7 @@ class _GalleryGrid extends StatelessWidget {
   final ValueChanged<String>? onItemTap;
   final double tileSize;
   final double tileSpacing;
+  final bool showTemplateAuthors;
 
   const _GalleryGrid({
     required this.templates,
@@ -188,6 +194,7 @@ class _GalleryGrid extends StatelessWidget {
     required this.onItemTap,
     required this.tileSize,
     required this.tileSpacing,
+    required this.showTemplateAuthors,
   });
 
   static const _fallbackThumbnailUrl =
@@ -204,6 +211,7 @@ class _GalleryGrid extends StatelessWidget {
               actionId: item.id,
               thumbnailUrl: item.thumbnailUrl,
               alternateThumbnailUrls: item.alternateThumbnailUrls,
+              isPendingReview: item.isPendingReview,
             ),
           )
           .toList();
@@ -217,6 +225,7 @@ class _GalleryGrid extends StatelessWidget {
             thumbnailUrl: template.thumbnailUrl.isNotEmpty
                 ? template.thumbnailUrl
                 : template.previewUrl,
+            authorName: showTemplateAuthors ? template.displayAuthorName : null,
           ),
         )
         .where(
@@ -260,12 +269,16 @@ class _GalleryPattern {
   final String? actionId;
   final String thumbnailUrl;
   final List<String> alternateThumbnailUrls;
+  final bool isPendingReview;
+  final String? authorName;
 
   const _GalleryPattern({
     required this.id,
     this.actionId,
     required this.thumbnailUrl,
     this.alternateThumbnailUrls = const [],
+    this.isPendingReview = false,
+    this.authorName,
   });
 }
 
@@ -285,28 +298,91 @@ class _GalleryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      key: ValueKey('gallery-tile-${pattern.id}'),
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: tileSize,
-        height: tileSize,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: DecoratedBox(
-            decoration: const BoxDecoration(color: Colors.white),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: _GalleryThumbnail(
-                    key: ValueKey('gallery-thumbnail-${pattern.id}'),
-                    url: pattern.thumbnailUrl,
-                    alternateUrls: pattern.alternateThumbnailUrls,
-                    fallbackUrl: fallbackThumbnailUrl,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: tileSize,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(color: Colors.white),
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: _GalleryThumbnail(
+                          key: ValueKey('gallery-thumbnail-${pattern.id}'),
+                          url: pattern.thumbnailUrl,
+                          alternateUrls: pattern.alternateThumbnailUrls,
+                          fallbackUrl: fallbackThumbnailUrl,
+                        ),
+                      ),
+                      const Positioned.fill(child: _GalleryFade()),
+                      if (pattern.isPendingReview)
+                        Positioned(
+                          top: 6,
+                          right: 6,
+                          child: _PendingReviewBadge(patternId: pattern.id),
+                        ),
+                    ],
                   ),
                 ),
-                const Positioned.fill(child: _GalleryFade()),
-              ],
+              ),
             ),
+            if (pattern.authorName case final authorName?) ...[
+              const SizedBox(height: 8),
+              Text(
+                'by $authorName',
+                key: ValueKey('gallery-author-${pattern.id}'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0x4D000000),
+                  fontFamily: _roundFontFamily,
+                  fontFamilyFallback: _fontFallbacks,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingReviewBadge extends StatelessWidget {
+  final String patternId;
+
+  const _PendingReviewBadge({required this.patternId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '审核中',
+      child: Container(
+        key: ValueKey('gallery-review-pending-$patternId'),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xCC4B5563),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Text(
+          '审核中',
+          style: TextStyle(
+            color: Colors.white,
+            fontFamily: _roundFontFamily,
+            fontFamilyFallback: _fontFallbacks,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
