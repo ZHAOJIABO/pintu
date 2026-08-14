@@ -9,6 +9,8 @@ import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('renders the supplied watermark above the exported chart', () async {
     final watermark = await _solidPng(const ui.Color(0xFFFF0000));
 

@@ -139,6 +139,13 @@ class TemplateRepository {
     return _mapList(data['categories'], TemplateCategory.fromJson);
   }
 
+  /// Lists categories that contain at least one current-user favorite.
+  Future<List<TemplateCategory>> listFavoriteCategories() async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get('/api/v1/templates/favorites/categories');
+    return _mapList(data['categories'], TemplateCategory.fromJson);
+  }
+
   Future<PagedResult<TemplateItem>> listTemplates({
     String? scene,
     int? categoryId,
@@ -205,13 +212,18 @@ class TemplateRepository {
   }
 
   Future<PagedResult<TemplateItem>> listFavorites({
+    int? categoryId,
     int page = 1,
     int pageSize = 20,
   }) async {
     await auth.ensureSignedIn();
     final data = await apiClient.get(
       '/api/v1/templates/favorites',
-      query: {'page.page': page, 'page.pageSize': pageSize},
+      query: {
+        if (categoryId != null && categoryId > 0) 'categoryId': categoryId,
+        'page.page': page,
+        'page.pageSize': pageSize,
+      },
     );
     return PagedResult(
       items: _mapList(data['templates'], TemplateItem.fromJson),

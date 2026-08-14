@@ -45,6 +45,29 @@ void main() {
     });
   }
 
+  testWidgets('official template shows its author below the chart', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          template: _template(authorName: '土豆颠婆'),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('result-pattern-author')), findsOneWidget);
+    expect(find.text('by土豆颠婆'), findsOneWidget);
+  });
+
   testWidgets('bead color references use SemiBold-Round text', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -640,10 +663,11 @@ GeneratedPattern _pattern() {
   );
 }
 
-TemplateItem _template({bool isFavorited = false}) {
+TemplateItem _template({bool isFavorited = false, String authorName = ''}) {
   return TemplateItem(
     templateId: 'template-001',
     title: '兔子模板',
+    authorName: authorName,
     previewUrl: '',
     thumbnailUrl: '',
     description: '',

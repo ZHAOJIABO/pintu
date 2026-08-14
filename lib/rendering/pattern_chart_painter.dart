@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -419,6 +420,7 @@ class PatternChartPagePainter extends CustomPainter {
   final List<PaletteEntry> paletteEntries;
   final String title;
   final double cellSize;
+  final ui.Image? appIcon;
 
   PatternChartPagePainter({
     required this.chart,
@@ -426,6 +428,7 @@ class PatternChartPagePainter extends CustomPainter {
     required this.paletteEntries,
     required this.title,
     required this.cellSize,
+    this.appIcon,
   });
 
   Size get pageSize {
@@ -490,6 +493,21 @@ class PatternChartPagePainter extends CustomPainter {
   }
 
   void _drawHeader(Canvas canvas, Size size) {
+    const iconSize = 45.0;
+    const iconTitleGap = 10.0;
+    // The source icon has a small transparent top inset; offset the drawing
+    // box so the visible rabbit head aligns with the title's cap height.
+    final iconOrigin = Offset(pageMargin, pageMargin - 10);
+    if (appIcon != null) {
+      canvas.drawImageRect(
+        appIcon!,
+        Offset.zero &
+            Size(appIcon!.width.toDouble(), appIcon!.height.toDouble()),
+        iconOrigin & const Size(iconSize, iconSize),
+        Paint()..filterQuality = FilterQuality.high,
+      );
+    }
+
     final titlePainter = TextPainter(
       text: TextSpan(
         text: title,
@@ -501,8 +519,14 @@ class PatternChartPagePainter extends CustomPainter {
         ),
       ),
       textDirection: TextDirection.ltr,
-    )..layout(maxWidth: size.width - pageMargin * 2);
-    titlePainter.paint(canvas, Offset(pageMargin, pageMargin));
+    )..layout(maxWidth: size.width - pageMargin * 2 - iconSize - iconTitleGap);
+    titlePainter.paint(
+      canvas,
+      Offset(
+        pageMargin + (appIcon == null ? 0 : iconSize + iconTitleGap),
+        pageMargin,
+      ),
+    );
 
     final totalBeads = usage.values.fold<int>(0, (sum, count) => sum + count);
     final summaryPainter = TextPainter(
@@ -622,7 +646,8 @@ class PatternChartPagePainter extends CustomPainter {
         oldDelegate.usage != usage ||
         oldDelegate.paletteEntries != paletteEntries ||
         oldDelegate.title != title ||
-        oldDelegate.cellSize != cellSize;
+        oldDelegate.cellSize != cellSize ||
+        oldDelegate.appIcon != appIcon;
   }
 }
 

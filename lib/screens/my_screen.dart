@@ -433,6 +433,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   Set<String> _pendingSubmissionWorkIds = const {};
   bool _pendingSubmissionLocksLoaded = false;
   String _categoryName = '全部';
+  int? _favoriteCategoryId;
   int _requestVersion = 0;
   int _blindBoxHistoryRequestVersion = 0;
   int _recentCreationsRequestVersion = 0;
@@ -473,10 +474,15 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     }
   }
 
-  Future<void> _loadFavorites(BackendServices services) async {
+  Future<void> _loadFavorites(
+    BackendServices services, {
+    int? categoryId,
+  }) async {
     final requestVersion = ++_requestVersion;
     try {
-      final result = await services.templates.listFavorites();
+      final result = await services.templates.listFavorites(
+        categoryId: categoryId,
+      );
       if (!mounted ||
           !identical(services, _backendServices) ||
           requestVersion != _requestVersion) {
@@ -697,19 +703,33 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   }
 
   Future<void> _openFilterDialog() async {
-    if (_selectedTab == _LibraryTab.favorites) return;
-
+    if (kDebugMode) {
+      debugPrint('[Library filter] opening for $_selectedTab');
+    }
     final selection = await showHomeFilterDialog(
       context,
-      loadCategories: _backendServices?.loadTemplateCategories,
+      loadCategories: _selectedTab == _LibraryTab.favorites
+          ? _backendServices?.templates.listFavoriteCategories
+          : _backendServices?.loadTemplateCategories,
+      includeAllCategory: _selectedTab == _LibraryTab.favorites,
     );
     final services = _backendServices;
     if (selection == null || services == null) return;
 
     setState(() {
       _categoryName = selection.isDefault ? '全部' : selection.category.name;
+      if (_selectedTab == _LibraryTab.favorites) {
+        _favoriteCategoryId = selection.isDefault
+            ? null
+            : selection.category.categoryId;
+        _templates = const [];
+      }
     });
-    await _loadTemplates(services, categoryId: selection.category.categoryId);
+    if (_selectedTab == _LibraryTab.favorites) {
+      await _loadFavorites(services, categoryId: _favoriteCategoryId);
+    } else {
+      await _loadTemplates(services, categoryId: selection.category.categoryId);
+    }
   }
 
   Future<void> _loadWorks(BackendServices services) async {
@@ -853,24 +873,26 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('重新生成'),
-        content: const Text('重新生成会再次扣除积分，原失败任务的积分已退回。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('重新生成'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
+    // 暂时不展示重新生成会扣除积分的二次确认弹窗，直接提交重试。
+    // final confirmed = await showDialog<bool>(
+    //   context: context,
+    //   builder: (context) => AlertDialog(
+    //     title: const Text('重新生成'),
+    //     content: const Text('重新生成会再次扣除积分，原失败任务的积分已退回。'),
+    //     actions: [
+    //       TextButton(
+    //         onPressed: () => Navigator.of(context).pop(false),
+    //         child: const Text('取消'),
+    //       ),
+    //       FilledButton(
+    //         onPressed: () => Navigator.of(context).pop(true),
+    //         child: const Text('重新生成'),
+    //       ),
+    //     ],
+    //   ),
+    // );
+    // if (confirmed != true || !mounted) return;
+    if (!mounted) return;
 
     final services = _backendServices;
     if (services == null) return;
@@ -950,6 +972,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     setState(() => _selectedTab = tab);
     final services = _backendServices;
     if (services != null) {
+      _categoryName = '全部';
       if (tab == _LibraryTab.patterns) {
         _loadWorks(services);
         _loadPendingSubmissionWorkIds(services);
@@ -958,6 +981,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         _recentCreationsRequestVersion++;
         _taskPollingTimer?.cancel();
         _taskPollingTimer = null;
+        _favoriteCategoryId = null;
         _loadFavorites(services);
         _loadBlindBoxHistory(services);
       }

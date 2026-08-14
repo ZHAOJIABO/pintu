@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -18,6 +20,8 @@ class PatternExportService {
   static const double thumbnailMaxPixelSize = 300;
   static const double _preferredExportPixelRatio = 2;
   static const double _maxExportDimension = 6000;
+  static const String _appIconAsset =
+      'ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png';
   static const MethodChannel _photoLibraryChannel = MethodChannel(
     'bobobeads/photo_library',
   );
@@ -71,14 +75,19 @@ class PatternExportService {
     GeneratedPattern pattern, {
     Uint8List? watermarkPngBytes,
   }) async {
-    final painter = _buildPagePainter(pattern);
-    final size = painter.pageSize;
-    return _renderPng(
-      painter,
-      size,
-      pixelRatio: _exportPixelRatio(size),
-      watermarkPngBytes: watermarkPngBytes,
-    );
+    final appIcon = await _loadAppIconWithoutBackground();
+    try {
+      final painter = _buildPagePainter(pattern, appIcon: appIcon);
+      final size = painter.pageSize;
+      return _renderPng(
+        painter,
+        size,
+        pixelRatio: _exportPixelRatio(size),
+        watermarkPngBytes: watermarkPngBytes,
+      );
+    } finally {
+      appIcon.dispose();
+    }
   }
 
   /// Renders only the pattern's color blocks for gallery lists.
@@ -171,14 +180,114 @@ class PatternExportService {
     return byteData.buffer.asUint8List();
   }
 
-  PatternChartPagePainter _buildPagePainter(GeneratedPattern pattern) {
+  Future<ui.Image> _loadAppIconWithoutBackground() async {
+    final bytes = await rootBundle.load(_appIconAsset);
+    final codec = await ui.instantiateImageCodec(bytes.buffer.asUint8List());
+    try {
+      final source = (await codec.getNextFrame()).image;
+      try {
+        final raw = await source.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (raw == null) throw StateError('无法读取 App 图标');
+
+        final rgba = Uint8List.fromList(raw.buffer.asUint8List());
+        _makeBorderConnectedBackgroundTransparent(
+          rgba,
+          width: source.width,
+          height: source.height,
+        );
+        final transparentIcon = await _decodeRgbaImage(
+          rgba,
+          source.width,
+          source.height,
+        );
+        return transparentIcon;
+      } finally {
+        source.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  Future<ui.Image> _decodeRgbaImage(Uint8List rgba, int width, int height) {
+    final image = Completer<ui.Image>();
+    ui.decodeImageFromPixels(
+      rgba,
+      width,
+      height,
+      ui.PixelFormat.rgba8888,
+      image.complete,
+    );
+    return image.future;
+  }
+
+  /// Removes only the solid pink background connected to the icon border.
+  /// Pink inside the rabbit ears is enclosed by the black/white artwork, so it
+  /// remains visible.
+  void _makeBorderConnectedBackgroundTransparent(
+    Uint8List rgba, {
+    required int width,
+    required int height,
+  }) {
+    if (width <= 0 || height <= 0) return;
+
+    const backgroundTolerance = 24;
+    final backgroundRed = rgba[0];
+    final backgroundGreen = rgba[1];
+    final backgroundBlue = rgba[2];
+    final visited = Uint8List(width * height);
+    final pending = Queue<int>();
+
+    bool isBackground(int pixel) {
+      final offset = pixel * 4;
+      final redDifference = rgba[offset] - backgroundRed;
+      final greenDifference = rgba[offset + 1] - backgroundGreen;
+      final blueDifference = rgba[offset + 2] - backgroundBlue;
+      return redDifference * redDifference +
+              greenDifference * greenDifference +
+              blueDifference * blueDifference <=
+          backgroundTolerance * backgroundTolerance;
+    }
+
+    void addIfBackground(int pixel) {
+      if (visited[pixel] != 0 || !isBackground(pixel)) return;
+      visited[pixel] = 1;
+      pending.add(pixel);
+    }
+
+    for (var x = 0; x < width; x++) {
+      addIfBackground(x);
+      addIfBackground((height - 1) * width + x);
+    }
+    for (var y = 1; y < height - 1; y++) {
+      addIfBackground(y * width);
+      addIfBackground(y * width + width - 1);
+    }
+
+    while (pending.isNotEmpty) {
+      final pixel = pending.removeFirst();
+      rgba[pixel * 4 + 3] = 0;
+      final x = pixel % width;
+      final y = pixel ~/ width;
+      if (x > 0) addIfBackground(pixel - 1);
+      if (x < width - 1) addIfBackground(pixel + 1);
+      if (y > 0) addIfBackground(pixel - width);
+      if (y < height - 1) addIfBackground(pixel + width);
+    }
+  }
+
+  PatternChartPagePainter _buildPagePainter(
+    GeneratedPattern pattern, {
+    ui.Image? appIcon,
+  }) {
     final chart = PatternChartData.fromPattern(pattern);
     return PatternChartPagePainter(
       chart: chart,
       usage: pattern.usage,
       paletteEntries: pattern.paletteEntries,
-      title: '拼豆图纸',
+      title: '拼兔',
       cellSize: pngCellSize,
+      appIcon: appIcon,
     );
   }
 

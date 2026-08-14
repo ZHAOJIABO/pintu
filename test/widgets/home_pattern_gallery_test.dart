@@ -1,5 +1,6 @@
 import 'package:bobobeads/widgets/home_pattern_gallery.dart';
 import 'package:bobobeads/services/api/api_models.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,6 +52,30 @@ void main() {
 
     expect(find.text('by 气态美式'), findsOneWidget);
     expect(find.text('by pintoo'), findsOneWidget);
+  });
+
+  testWidgets('uses a cached image widget for remote thumbnails', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HomePatternGallery(
+            templates: const [],
+            items: const [
+              PatternGalleryItem(
+                id: 'remote-work',
+                thumbnailUrl: 'https://example.com/thumbnail.png',
+              ),
+            ],
+            categoryName: '全部',
+            onFilter: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(CachedNetworkImage), findsOneWidget);
   });
 }
 

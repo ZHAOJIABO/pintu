@@ -2,7 +2,7 @@ name: bobobeads
 description: "Convert images into bead patterns for perler bead art."
 publish_to: 'none'
 
-version: 1.0.0+12
+version: 1.0.0+13
 
 environment:
   sdk: ^3.11.0-113.0.dev
@@ -39,6 +39,7 @@ flutter:
     - assets/figma_my/
     - assets/figma_style/
     - assets/pin_icon/
+    - ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png
     - assets/palettes/mard221.csv
   fonts:
     - family: Z Labs RoundPix 12px M CN
@@ -51,4 +52,7 @@ flutter:
       fonts:
         - asset: assets/fonts/Taprom-Regular.ttf
 dependency_overrides:
-  objective_c: 9.4.1
+  # path_provider_foundation 2.6.x 改为依赖 Objective-C FFI 原生资产。
+  # 当前 Flutter iOS 调试构建无法在运行时解析该资产，导致读取登录态
+  # 就提前失败，所有接口均不会真正发出。固定到最后一个通道实现版本。
+  path_provider_foundation: 2.4.4

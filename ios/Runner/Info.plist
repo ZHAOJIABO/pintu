@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- 本地调试 API 使用 http://localhost:8080；不放宽外部 HTTP 请求。 -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>用于拍摄并记录你的拼豆成品。</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

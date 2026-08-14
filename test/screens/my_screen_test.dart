@@ -734,6 +734,91 @@ void main() {
     );
   });
 
+  testWidgets('我的收藏可按收藏分类筛选', (tester) async {
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/templates/favorites/categories' => {
+            'categories': [
+              {
+                'categoryId': 1,
+                'name': '动物',
+                'iconUrl': '',
+                'templateCount': 1,
+              },
+            ],
+          },
+          '/api/v1/templates/favorites' => {
+            'templates': [
+              {
+                'templateId': request.url.queryParameters['categoryId'] == '1'
+                    ? 'favorite-animal-001'
+                    : 'favorite-template-001',
+                'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                'isFavorited': true,
+              },
+            ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          '/api/v1/templates/random/history' => {
+            'templates': const [],
+            'page': {'total': 0, 'page': 1, 'pageSize': 3, 'hasMore': false},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyFavoritesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('home-filter-category-1')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('home-filter-category-1')));
+    await tester.pumpAndSettle();
+
+    final filteredRequest = requests.lastWhere(
+      (request) =>
+          request.url.path == '/api/v1/templates/favorites' &&
+          request.url.queryParameters['categoryId'] == '1',
+    );
+    expect(filteredRequest.url.queryParameters, {
+      'categoryId': '1',
+      'page.page': '1',
+      'page.pageSize': '20',
+    });
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-favorite-animal-001')),
+      findsOneWidget,
+    );
+  });
+
   for (final viewport in viewports) {
     testWidgets('我的图纸页在 $viewport 下可滚动且无布局异常', (tester) async {
       tester.view.physicalSize = viewport;

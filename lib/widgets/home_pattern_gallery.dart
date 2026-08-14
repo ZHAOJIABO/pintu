@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api/api_models.dart';
 
@@ -318,7 +319,6 @@ class _GalleryTile extends StatelessWidget {
                         child: _GalleryThumbnail(
                           key: ValueKey('gallery-thumbnail-${pattern.id}'),
                           url: pattern.thumbnailUrl,
-                          alternateUrls: pattern.alternateThumbnailUrls,
                           fallbackUrl: fallbackThumbnailUrl,
                         ),
                       ),
@@ -392,13 +392,11 @@ class _PendingReviewBadge extends StatelessWidget {
 
 class _GalleryThumbnail extends StatelessWidget {
   final String url;
-  final List<String> alternateUrls;
   final String fallbackUrl;
 
   const _GalleryThumbnail({
     super.key,
     required this.url,
-    this.alternateUrls = const [],
     required this.fallbackUrl,
   });
 
@@ -420,31 +418,14 @@ class _GalleryThumbnail extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Image.asset(
-          fallbackUrl,
+        const ColoredBox(color: Color(0xFFF4F4F4)),
+        CachedNetworkImage(
+          imageUrl: url,
           fit: BoxFit.cover,
           alignment: Alignment.center,
           filterQuality: FilterQuality.medium,
-        ),
-        Image.network(
-          url,
-          fit: BoxFit.cover,
-          alignment: Alignment.center,
-          filterQuality: FilterQuality.medium,
-          loadingBuilder: (context, child, progress) {
-            if (progress == null) return child;
-            return const SizedBox.expand();
-          },
-          errorBuilder: (context, error, stackTrace) {
-            if (alternateUrls.isNotEmpty) {
-              return _GalleryThumbnail(
-                url: alternateUrls.first,
-                alternateUrls: alternateUrls.skip(1).toList(),
-                fallbackUrl: fallbackUrl,
-              );
-            }
-            return const SizedBox.expand();
-          },
+          placeholder: (_, _) => const SizedBox.expand(),
+          errorWidget: (_, _, _) => const SizedBox.expand(),
         ),
       ],
     );

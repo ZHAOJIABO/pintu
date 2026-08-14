@@ -23,8 +23,8 @@ import 'package:http/testing.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
-  test('ApiClient defaults to the production API origin', () {
-    expect(ApiClient.defaultBaseUrl, 'https://appbobo.cn');
+  test('ApiClient defaults to the local API origin for development', () {
+    expect(ApiClient.defaultBaseUrl, 'http://localhost:8080');
   });
 
   test('ApiClient sends common headers and parses successful body', () async {
@@ -1549,6 +1549,87 @@ void main() {
       expect(homeListRequest.url.queryParameters['scene'], 'home');
       expect(homeListRequest.url.queryParameters['page.page'], '1');
       expect(homeListRequest.url.queryParameters['page.pageSize'], '20');
+    },
+  );
+
+  test(
+    'favorite categories and filtered favorites use their dedicated API',
+    () async {
+      final temporaryDirectory = await Directory.systemTemp.createTemp(
+        'bobobeads_favorite_categories_test_',
+      );
+      addTearDown(() => temporaryDirectory.delete(recursive: true));
+
+      final requests = <http.Request>[];
+      final services = BackendServices(
+        baseUrl: 'http://example.test',
+        store: ApiSessionStore(
+          fileProvider: () async =>
+              File('${temporaryDirectory.path}/session.json'),
+        ),
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          final body = switch (request.url.path) {
+            '/api/v1/auth/guest' => {
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+              'expiresIn': 3600,
+              'user': {'userId': 'guest-1'},
+            },
+            '/api/v1/templates/favorites/categories' => {
+              'categories': [
+                {
+                  'categoryId': 1,
+                  'name': '动物',
+                  'iconUrl': 'https://example.test/animal.png',
+                  'templateCount': 2,
+                },
+              ],
+            },
+            '/api/v1/templates/favorites' => {
+              'templates': const [],
+              'page': {'total': 2, 'page': 1, 'pageSize': 20, 'hasMore': false},
+            },
+            _ => throw StateError('Unexpected request: ${request.url}'),
+          };
+          return http.Response.bytes(
+            utf8.encode(
+              jsonEncode({
+                'header': {'code': 0, 'message': 'success'},
+                ...body,
+              }),
+            ),
+            200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+
+      final categories = await services.templates.listFavoriteCategories();
+      final favorites = await services.templates.listFavorites(categoryId: 1);
+
+      expect(categories, hasLength(1));
+      expect(categories.single.name, '动物');
+      expect(categories.single.templateCount, 2);
+      expect(favorites.page.total, 2);
+      expect(
+        requests
+            .singleWhere(
+              (request) =>
+                  request.url.path == '/api/v1/templates/favorites/categories',
+            )
+            .headers['Authorization'],
+        'Bearer access-token',
+      );
+      expect(
+        requests
+            .singleWhere(
+              (request) => request.url.path == '/api/v1/templates/favorites',
+            )
+            .url
+            .queryParameters,
+        {'categoryId': '1', 'page.page': '1', 'page.pageSize': '20'},
+      );
     },
   );
 }

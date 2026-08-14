@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -17,6 +18,7 @@ const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 Future<HomeFilterSelection?> showHomeFilterDialog(
   BuildContext context, {
   Future<List<TemplateCategory>> Function()? loadCategories,
+  bool includeAllCategory = false,
 }) {
   return showGeneralDialog<HomeFilterSelection>(
     context: context,
@@ -24,8 +26,10 @@ Future<HomeFilterSelection?> showHomeFilterDialog(
     barrierLabel: '关闭筛选弹窗',
     barrierColor: Colors.transparent,
     transitionDuration: Duration.zero,
-    pageBuilder: (context, _, _) =>
-        HomeFilterDialog(loadCategories: loadCategories),
+    pageBuilder: (context, _, _) => HomeFilterDialog(
+      loadCategories: loadCategories,
+      includeAllCategory: includeAllCategory,
+    ),
   );
 }
 
@@ -38,8 +42,13 @@ class HomeFilterSelection {
 
 class HomeFilterDialog extends StatefulWidget {
   final Future<List<TemplateCategory>> Function()? loadCategories;
+  final bool includeAllCategory;
 
-  const HomeFilterDialog({this.loadCategories, super.key});
+  const HomeFilterDialog({
+    this.loadCategories,
+    this.includeAllCategory = false,
+    super.key,
+  });
 
   @override
   State<HomeFilterDialog> createState() => _HomeFilterDialogState();
@@ -133,7 +142,16 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
 
   Future<void> _loadCategories() async {
     final loader = widget.loadCategories;
-    if (loader == null) return;
+    if (loader == null) {
+      if (kDebugMode) {
+        debugPrint('[Filter categories] missing category loader');
+      }
+      return;
+    }
+
+    if (kDebugMode) {
+      debugPrint('[Filter categories] loading');
+    }
 
     setState(() {
       _loading = true;
@@ -146,7 +164,16 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
         _categories = categories;
         _loading = false;
       });
-    } catch (_) {
+      if (kDebugMode) {
+        debugPrint(
+          '[Filter categories] loaded ${categories.length} categories',
+        );
+      }
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[Filter categories] load failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -205,6 +232,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
                               height: _sheetDesignHeight,
                               child: _HomeFilterSheet(
                                 categories: _categories,
+                                includeAllCategory: widget.includeAllCategory,
                                 loading: _loading,
                                 loadFailed: _loadFailed,
                                 onRetry: widget.loadCategories == null
@@ -230,6 +258,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
 
 class _HomeFilterSheet extends StatelessWidget {
   final List<TemplateCategory> categories;
+  final bool includeAllCategory;
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
@@ -237,6 +266,7 @@ class _HomeFilterSheet extends StatelessWidget {
 
   const _HomeFilterSheet({
     required this.categories,
+    required this.includeAllCategory,
     required this.loading,
     required this.loadFailed,
     required this.onRetry,
@@ -294,6 +324,7 @@ class _HomeFilterSheet extends StatelessWidget {
             Expanded(
               child: _FilterCategoryContent(
                 categories: categories,
+                includeAllCategory: includeAllCategory,
                 loading: loading,
                 loadFailed: loadFailed,
                 onRetry: onRetry,
@@ -309,6 +340,7 @@ class _HomeFilterSheet extends StatelessWidget {
 
 class _FilterCategoryContent extends StatelessWidget {
   final List<TemplateCategory> categories;
+  final bool includeAllCategory;
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
@@ -316,6 +348,7 @@ class _FilterCategoryContent extends StatelessWidget {
 
   const _FilterCategoryContent({
     required this.categories,
+    required this.includeAllCategory,
     required this.loading,
     required this.loadFailed,
     required this.onRetry,
@@ -324,9 +357,19 @@ class _FilterCategoryContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final displayCategories = categories
+    final loadedCategories = categories
         .where((category) => category.name.trim().isNotEmpty)
         .toList(growable: false);
+    final displayCategories = [
+      if (includeAllCategory && loadedCategories.isNotEmpty)
+        const TemplateCategory(
+          categoryId: 0,
+          name: '全部',
+          iconUrl: '',
+          templateCount: 0,
+        ),
+      ...loadedCategories,
+    ];
     if (loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -363,7 +406,12 @@ class _FilterCategoryContent extends StatelessWidget {
           key: ValueKey('home-filter-category-${category.categoryId}'),
           label: category.name,
           onTap: () => onCategorySelected(
-            HomeFilterSelection(category: category, isDefault: index == 0),
+            HomeFilterSelection(
+              category: category,
+              isDefault: includeAllCategory
+                  ? category.categoryId == 0
+                  : index == 0,
+            ),
           ),
         );
       },

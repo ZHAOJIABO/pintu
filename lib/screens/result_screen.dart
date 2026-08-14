@@ -213,7 +213,12 @@ class _ResultScreenState extends State<ResultScreen> {
         body: Column(
           children: [
             _DrawingHeader(pattern: _pattern, onSaveImage: _saveImage),
-            Expanded(child: _MaterialSummary(pattern: _pattern)),
+            Expanded(
+              child: _MaterialSummary(
+                pattern: _pattern,
+                authorName: _template?.displayAuthorName,
+              ),
+            ),
             _BottomActionBar(
               onStart: _openBeadMode,
               secondaryLabel: _template == null
@@ -391,8 +396,9 @@ class _PatternChartFrame extends StatelessWidget {
 
 class _MaterialSummary extends StatelessWidget {
   final GeneratedPattern pattern;
+  final String? authorName;
 
-  const _MaterialSummary({required this.pattern});
+  const _MaterialSummary({required this.pattern, this.authorName});
 
   @override
   Widget build(BuildContext context) {
@@ -401,6 +407,19 @@ class _MaterialSummary extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
       child: Column(
         children: [
+          if (authorName case final author?) ...[
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'by$author',
+                key: const ValueKey('result-pattern-author'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _attributionTextStyle,
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
           _MaterialSummaryCounts(pattern: pattern),
           const SizedBox(height: 20),
           _MaterialUsageGrid(pattern: pattern),
@@ -430,6 +449,14 @@ class _MaterialSummaryCounts extends StatelessWidget {
 
 const _summaryTextStyle = TextStyle(
   color: Color(0x99000000),
+  fontSize: 12,
+  fontFamily: _roundFontFamily,
+  fontFamilyFallback: _fontFallbacks,
+  fontWeight: FontWeight.w500,
+);
+
+const _attributionTextStyle = TextStyle(
+  color: Color(0x4D000000),
   fontSize: 12,
   fontFamily: _roundFontFamily,
   fontFamilyFallback: _fontFallbacks,
