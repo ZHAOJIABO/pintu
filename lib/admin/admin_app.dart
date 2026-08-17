@@ -12,21 +12,27 @@ import '../services/palette_service.dart';
 import '../services/pattern_generation_service.dart';
 import '../widgets/pattern_preview.dart';
 import 'admin_api.dart';
+import 'admin_chart_import.dart';
 import 'admin_pattern_editor.dart';
 import 'admin_preview_exporter.dart';
 import 'admin_submission_review.dart';
 import 'admin_template_editor.dart';
+import 'admin_widgets.dart';
 
-enum _AdminSection { publish, submissions, library }
+enum _AdminSection { publish, chartImport, submissions, library }
 
-enum _AdminMenuAction { publish, submissions, library, logout }
+enum _AdminMenuAction { publish, chartImport, submissions, library, logout }
 
 /// Internal admin portal for publishing official bead templates.
 class BoboBeadsAdminApp extends StatelessWidget {
   /// Test and preview injection point; production uses [AdminApi] by default.
   final AdminApi? api;
 
-  const BoboBeadsAdminApp({super.key, this.api});
+  /// Test injection point so a widget test can feed in a synthesized chart
+  /// instead of going through the platform image picker.
+  final ImageService? imageService;
+
+  const BoboBeadsAdminApp({super.key, this.api, this.imageService});
 
   @override
   Widget build(BuildContext context) {
@@ -59,15 +65,16 @@ class BoboBeadsAdminApp extends StatelessWidget {
           ),
         ),
       ),
-      home: _AdminPortal(api: api),
+      home: _AdminPortal(api: api, imageService: imageService),
     );
   }
 }
 
 class _AdminPortal extends StatefulWidget {
   final AdminApi? api;
+  final ImageService? imageService;
 
-  const _AdminPortal({this.api});
+  const _AdminPortal({this.api, this.imageService});
 
   @override
   State<_AdminPortal> createState() => _AdminPortalState();
@@ -83,7 +90,7 @@ class _AdminPortalState extends State<_AdminPortal> {
   ];
 
   late final _api = widget.api ?? AdminApi();
-  final _imageService = ImageService();
+  late final _imageService = widget.imageService ?? ImageService();
   final _paletteService = PaletteService();
   final _generator = PatternGenerationService(imageService: ImageService());
   final _previewExporter = const AdminPreviewExporter();
@@ -110,6 +117,7 @@ class _AdminPortalState extends State<_AdminPortal> {
   bool _submissionHasMore = false;
   bool _smoothing = true;
   bool _removeBackground = true;
+  bool _patternFromImport = false;
   bool _loggingIn = false;
   bool _generating = false;
   bool _publishing = false;
@@ -124,6 +132,20 @@ class _AdminPortalState extends State<_AdminPortal> {
   String? _success;
 
   bool get _isBusy => _loggingIn || _generating || _publishing;
+
+  // An imported chart has no source photo behind it, so every generation
+  // setting is meaningless for it — and each one nulls out `_pattern`, which
+  // would silently discard the import.
+  bool get _generationLocked => _isBusy || _patternFromImport;
+
+  void _clearImportedPattern() {
+    setState(() {
+      _pattern = null;
+      _patternFromImport = false;
+      _error = null;
+      _success = null;
+    });
+  }
 
   @override
   void dispose() {
@@ -175,6 +197,7 @@ class _AdminPortalState extends State<_AdminPortal> {
       setState(() {
         _sourceImage = bytes;
         _pattern = null;
+        _patternFromImport = false;
         _error = null;
         _success = null;
       });
@@ -563,6 +586,7 @@ class _AdminPortalState extends State<_AdminPortal> {
       _submissionHasMore = false;
       _categoryId = null;
       _pattern = null;
+      _patternFromImport = false;
       _sourceImage = null;
       _section = _AdminSection.publish;
       _hasLoadedTemplates = false;
@@ -642,7 +666,7 @@ class _AdminPortalState extends State<_AdminPortal> {
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 14),
-                      _Notice(message: _error!, isError: true),
+                      AdminNotice(message: _error!, isError: true),
                     ],
                     const SizedBox(height: 24),
                     FilledButton.icon(
@@ -693,6 +717,8 @@ class _AdminPortalState extends State<_AdminPortal> {
                     switch (action) {
                       case _AdminMenuAction.publish:
                         _selectSection(_AdminSection.publish);
+                      case _AdminMenuAction.chartImport:
+                        _selectSection(_AdminSection.chartImport);
                       case _AdminMenuAction.submissions:
                         _selectSection(_AdminSection.submissions);
                       case _AdminMenuAction.library:
@@ -707,6 +733,13 @@ class _AdminPortalState extends State<_AdminPortal> {
                       child: ListTile(
                         leading: Icon(Icons.publish_outlined),
                         title: Text('发布模板'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _AdminMenuAction.chartImport,
+                      child: ListTile(
+                        leading: Icon(Icons.grid_on_outlined),
+                        title: Text('图纸导入'),
                       ),
                     ),
                     const PopupMenuItem(
@@ -743,6 +776,12 @@ class _AdminPortalState extends State<_AdminPortal> {
                   onTap: () => _selectSection(_AdminSection.publish),
                 ),
                 _WorkspaceTab(
+                  icon: Icons.grid_on_outlined,
+                  label: '图纸导入',
+                  selected: _section == _AdminSection.chartImport,
+                  onTap: () => _selectSection(_AdminSection.chartImport),
+                ),
+                _WorkspaceTab(
                   icon: Icons.fact_check_outlined,
                   label: '投稿审核',
                   selected: _section == _AdminSection.submissions,
@@ -766,6 +805,7 @@ class _AdminPortalState extends State<_AdminPortal> {
       ),
       body: switch (_section) {
         _AdminSection.publish => _buildPublishWorkspace(context),
+        _AdminSection.chartImport => _buildChartImportWorkspace(context),
         _AdminSection.submissions => _buildSubmissionQueue(context),
         _AdminSection.library => _buildTemplateLibrary(context),
       },
@@ -774,15 +814,33 @@ class _AdminPortalState extends State<_AdminPortal> {
 
   String get _sectionTitle => switch (_section) {
     _AdminSection.publish => '模板发布工作台',
+    _AdminSection.chartImport => '现成图纸导入',
     _AdminSection.submissions => '用户投稿审核',
     _AdminSection.library => '官方模板库',
   };
 
   String get _sectionShortTitle => switch (_section) {
     _AdminSection.publish => '发布模板',
+    _AdminSection.chartImport => '图纸导入',
     _AdminSection.submissions => '投稿审核',
     _AdminSection.library => '模板库',
   };
+
+  Widget _buildChartImportWorkspace(BuildContext context) {
+    return AdminChartImportPanel(
+      imageService: _imageService,
+      paletteService: _paletteService,
+      onUse: (pattern) {
+        setState(() {
+          _pattern = pattern;
+          _patternFromImport = true;
+          _section = _AdminSection.publish;
+          _error = null;
+          _success = '图纸已导入，请填写信息后发布。';
+        });
+      },
+    );
+  }
 
   Widget _buildPublishWorkspace(BuildContext context) {
     return LayoutBuilder(
@@ -795,7 +853,7 @@ class _AdminPortalState extends State<_AdminPortal> {
             if (_error != null || _success != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: _Notice(
+                child: AdminNotice(
                   message: _error ?? _success!,
                   isError: _error != null,
                 ),
@@ -837,7 +895,24 @@ class _AdminPortalState extends State<_AdminPortal> {
         const SizedBox(height: 6),
         const Text('上传素材，生成图纸，再发布为客户端官方模板。'),
         const SizedBox(height: 20),
-        _SectionLabel(label: '素材图片'),
+        if (_patternFromImport && _pattern != null) ...[
+          InputChip(
+            key: const ValueKey('admin-import-badge'),
+            avatar: const Icon(Icons.grid_on_outlined, size: 18),
+            label: Text('来自图纸导入 · ${_pattern!.width}×${_pattern!.height}'),
+            deleteIcon: const Icon(Icons.close_rounded, size: 18),
+            deleteButtonTooltipMessage: '清除导入的图纸',
+            onDeleted: _isBusy ? null : _clearImportedPattern,
+            onPressed: null,
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            '导入的图纸不需要重新生成，下方生成参数已锁定。清除后可恢复照片生成流程。',
+            style: TextStyle(fontSize: 12, color: Color(0xFF8A6C79)),
+          ),
+          const SizedBox(height: 16),
+        ],
+        AdminSectionLabel(label: '素材图片'),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: _isBusy ? null : _pickImage,
@@ -858,7 +933,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           ),
         ],
         const SizedBox(height: 20),
-        _SectionLabel(label: '图纸规格'),
+        AdminSectionLabel(label: '图纸规格'),
         const SizedBox(height: 8),
         DropdownButtonFormField<ProductTemplate>(
           initialValue: _product,
@@ -875,7 +950,7 @@ class _AdminPortalState extends State<_AdminPortal> {
                 ),
               )
               .toList(),
-          onChanged: _isBusy
+          onChanged: _generationLocked
               ? null
               : (value) => setState(() {
                   _product = value ?? _product;
@@ -895,7 +970,7 @@ class _AdminPortalState extends State<_AdminPortal> {
                 ),
               )
               .toList(),
-          onChanged: _isBusy
+          onChanged: _generationLocked
               ? null
               : (value) => setState(() {
                   _paletteId = value ?? _paletteId;
@@ -916,7 +991,7 @@ class _AdminPortalState extends State<_AdminPortal> {
                 ),
               )
               .toList(),
-          onChanged: _isBusy
+          onChanged: _generationLocked
               ? null
               : (value) => setState(() {
                   _colorLimit = value ?? _colorLimit;
@@ -928,7 +1003,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           key: const ValueKey('admin-remove-background-toggle'),
           contentPadding: EdgeInsets.zero,
           value: _removeBackground,
-          onChanged: _isBusy
+          onChanged: _generationLocked
               ? null
               : (value) => setState(() {
                   _removeBackground = value;
@@ -940,7 +1015,7 @@ class _AdminPortalState extends State<_AdminPortal> {
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           value: _smoothing,
-          onChanged: _isBusy
+          onChanged: _generationLocked
               ? null
               : (value) => setState(() {
                   _smoothing = value;
@@ -950,7 +1025,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           subtitle: const Text('保留现有客户端的抖动算法'),
         ),
         FilledButton.icon(
-          onPressed: _isBusy ? null : _generatePattern,
+          onPressed: _generationLocked ? null : _generatePattern,
           icon: _generating
               ? const SizedBox(
                   width: 18,
@@ -996,7 +1071,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           padding: EdgeInsets.symmetric(vertical: 22),
           child: Divider(),
         ),
-        _SectionLabel(label: '发布信息'),
+        AdminSectionLabel(label: '发布信息'),
         const SizedBox(height: 8),
         TextField(
           controller: _titleController,
@@ -1096,14 +1171,14 @@ class _AdminPortalState extends State<_AdminPortal> {
         ),
       ],
     );
-    return _Panel(
+    return AdminPanel(
       child: compact ? contents : SingleChildScrollView(child: contents),
     );
   }
 
   Widget _buildPreview(BuildContext context, {required bool compact}) {
     final pattern = _pattern;
-    return _Panel(
+    return AdminPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1249,7 +1324,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           ),
           if (_error != null || _success != null) ...[
             const SizedBox(height: 16),
-            _Notice(message: _error ?? _success!, isError: _error != null),
+            AdminNotice(message: _error ?? _success!, isError: _error != null),
           ],
           const SizedBox(height: 20),
           if (_submissions.isEmpty)
@@ -1354,7 +1429,7 @@ class _AdminPortalState extends State<_AdminPortal> {
           ),
           if (_error != null || _success != null) ...[
             const SizedBox(height: 16),
-            _Notice(message: _error ?? _success!, isError: _error != null),
+            AdminNotice(message: _error ?? _success!, isError: _error != null),
           ],
           const SizedBox(height: 20),
           if (groups.isEmpty)
@@ -1438,24 +1513,6 @@ class _PreviewArea extends StatelessWidget {
     return compact
         ? SizedBox(height: 460, child: child)
         : Expanded(child: child);
-  }
-}
-
-class _Panel extends StatelessWidget {
-  final Widget child;
-
-  const _Panel({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFBFC),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFECE3EA)),
-      ),
-      child: Padding(padding: const EdgeInsets.all(22), child: child),
-    );
   }
 }
 
@@ -1916,56 +1973,6 @@ class _CardMeta extends StatelessWidget {
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String label;
-
-  const _SectionLabel({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-        color: const Color(0xFF6A4B59),
-        fontWeight: FontWeight.w800,
-      ),
-    );
-  }
-}
-
-class _Notice extends StatelessWidget {
-  final String message;
-  final bool isError;
-
-  const _Notice({required this.message, required this.isError});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isError ? const Color(0xFFC6284A) : const Color(0xFF257550);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        child: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: color,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(message, style: TextStyle(color: color)),
-            ),
-          ],
         ),
       ),
     );

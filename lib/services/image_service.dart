@@ -21,6 +21,15 @@ class ImageService {
     );
   }
 
+  /// Picks an image without any resizing. Chart import samples individual grid
+  /// cells, and image_picker's maxWidth/maxHeight resampling (which does run on
+  /// web) blends grid lines into cell colors.
+  Future<XFile?> pickFullResolutionImage({
+    ImageSource source = ImageSource.gallery,
+  }) {
+    return _picker.pickImage(source: source);
+  }
+
   Future<XFile?> pickFinishedProductPhoto() {
     return _picker.pickImage(
       source: _finishedProductImageSource,

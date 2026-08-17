@@ -12,7 +12,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _NavigationObserver extends NavigatorObserver {
   int pushCount = 0;
@@ -35,8 +34,6 @@ class _NavigationObserver extends NavigatorObserver {
 }
 
 void main() {
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
   const pathProviderChannel = MethodChannel('plugins.flutter.io/path_provider');
   setUpAll(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

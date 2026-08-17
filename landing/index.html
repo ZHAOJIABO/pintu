@@ -670,5 +670,19 @@
         </div>
     </footer>
 
+    <script>
+        // The previous admin app was served from "/" and may have left a
+        // site-wide Flutter service worker in visitors' browsers.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+                const rootScope = `${window.location.origin}/`;
+                registrations.forEach((registration) => {
+                    if (registration.scope === rootScope) {
+                        registration.unregister();
+                    }
+                });
+            });
+        }
+    </script>
 </body>
 </html>
