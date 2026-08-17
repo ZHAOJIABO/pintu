@@ -43,4 +43,25 @@ void main() {
     );
     expect(secondRequestCount, 0);
   });
+
+  test('clearing cache removes memory and disk thumbnails', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'bobobeads_style_thumbnail_cache_clear_test_',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+
+    var requestCount = 0;
+    final cache = StyleThumbnailCache(
+      httpClient: MockClient((request) async {
+        requestCount += 1;
+        return http.Response.bytes([requestCount], 200);
+      }),
+      directoryProvider: () async => directory,
+    );
+    const url = 'https://images.example.test/style.webp';
+
+    expect(await cache.load(url), Uint8List.fromList(const [1]));
+    await cache.clear();
+    expect(await cache.load(url), Uint8List.fromList(const [2]));
+  });
 }

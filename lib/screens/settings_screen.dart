@@ -1,16 +1,39 @@
+import 'dart:async';
+
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:in_app_review/in_app_review.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api/api_scope.dart';
+import '../services/style_thumbnail_cache.dart';
 import 'upload_pattern_screen.dart';
 
 const _settingsBackground = Color(0xFFF0F0F4);
 const _settingsFontFamily = 'Alimama FangYuanTi VF';
 const _settingsFontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
+final _privacyPolicyUrl = Uri.parse('https://appbobo.cn/privacy');
+final _userAgreementUrl = Uri.parse('https://appbobo.cn/terms');
+final _aboutUrl = Uri.parse('https://appbobo.cn/about');
+
+typedef ExternalUrlLauncher = Future<bool> Function(Uri url);
+typedef AppReviewRequester = Future<bool> Function();
+typedef AppCacheClearer =
+    Future<void> Function(StyleThumbnailCache? styleThumbnails);
 
 /// Figma “设置”页。
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final ExternalUrlLauncher launchExternalUrl;
+  final AppReviewRequester requestAppReview;
+  final AppCacheClearer clearAppCache;
+
+  const SettingsScreen({
+    super.key,
+    this.launchExternalUrl = _launchExternalUrl,
+    this.requestAppReview = _requestAppReview,
+    this.clearAppCache = _clearAppCache,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -19,6 +42,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   BackendServices? _services;
   String _userId = '';
+  bool _clearingCache = false;
 
   @override
   void didChangeDependencies() {
@@ -33,6 +57,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final userId = (await services.store.readSession())?.user.userId ?? '';
     if (!mounted || !identical(_services, services)) return;
     setState(() => _userId = userId);
+  }
+
+  Future<void> _openExternalPage(Uri url) async {
+    try {
+      final launched = await widget.launchExternalUrl(url);
+      if (!launched && mounted) {
+        _showLaunchFailure();
+      }
+    } catch (_) {
+      if (mounted) _showLaunchFailure();
+    }
+  }
+
+  Future<void> _openAppReview() async {
+    try {
+      final requested = await widget.requestAppReview();
+      if (!requested && mounted) {
+        _showReviewFailure();
+      }
+    } catch (_) {
+      if (mounted) _showReviewFailure();
+    }
+  }
+
+  Future<void> _confirmAndClearCache() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('清除缓存'),
+        content: const Text('将清除已缓存的图片和临时文件，不会删除图纸、成品和登录信息。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('清除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted || _clearingCache) return;
+
+    setState(() => _clearingCache = true);
+    try {
+      await widget.clearAppCache(_services?.styleThumbnails);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('缓存已清除')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('清除失败，请稍后重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _clearingCache = false);
+    }
+  }
+
+  void _showLaunchFailure() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('暂时无法打开页面')));
+  }
+
+  void _showReviewFailure() {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('暂时无法发起评分')));
   }
 
   @override
@@ -55,45 +152,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     physics: const BouncingScrollPhysics(),
                     children: [
-                      const _SettingsGroup(
+                      _SettingsGroup(
                         rows: [
                           _SettingsRowData(
+                            rowKey: const ValueKey('settings-rate-app'),
                             iconAsset: 'assets/pin_icon/settings_rate.svg',
                             title: '给兔评分',
                             trailing: _SettingsChevron(),
+                            onTap: () => unawaited(_openAppReview()),
                           ),
                           _SettingsRowData(
+                            rowKey: const ValueKey('settings-user-agreement'),
                             iconAsset: 'assets/pin_icon/settings_agreement.svg',
                             title: '用户协议',
                             trailing: _SettingsChevron(),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      const _SettingsGroup(
-                        rows: [
-                          _SettingsRowData(
-                            iconAsset: 'assets/pin_icon/settings_privacy.svg',
-                            title: '隐私政策',
-                            trailing: _SettingsChevron(),
-                          ),
-                          _SettingsRowData(
-                            iconAsset: 'assets/pin_icon/settings_about.svg',
-                            iconContentSize: Size(15.3112, 15.109),
-                            title: '关于我们',
-                            trailing: _SettingsChevron(),
+                            onTap: () =>
+                                unawaited(_openExternalPage(_userAgreementUrl)),
                           ),
                         ],
                       ),
                       const SizedBox(height: 15),
                       _SettingsGroup(
                         rows: [
-                          const _SettingsRowData(
+                          _SettingsRowData(
+                            rowKey: const ValueKey('settings-privacy-policy'),
+                            iconAsset: 'assets/pin_icon/settings_privacy.svg',
+                            title: '隐私政策',
+                            trailing: _SettingsChevron(),
+                            onTap: () =>
+                                unawaited(_openExternalPage(_privacyPolicyUrl)),
+                          ),
+                          _SettingsRowData(
+                            rowKey: const ValueKey('settings-about'),
+                            iconAsset: 'assets/pin_icon/settings_about.svg',
+                            iconContentSize: Size(15.3112, 15.109),
+                            title: '关于我们',
+                            trailing: _SettingsChevron(),
+                            onTap: () =>
+                                unawaited(_openExternalPage(_aboutUrl)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 15),
+                      _SettingsGroup(
+                        rows: [
+                          _SettingsRowData(
+                            rowKey: const ValueKey('settings-clear-cache'),
                             iconAsset:
                                 'assets/pin_icon/settings_clear_cache.svg',
                             iconContentSize: Size(12, 13.3347),
-                            title: '清除缓存',
-                            trailing: _SettingsChevron(),
+                            title: _clearingCache ? '清理中…' : '清除缓存',
+                            trailing: const _SettingsChevron(),
+                            onTap: _clearingCache
+                                ? null
+                                : () => unawaited(_confirmAndClearCache()),
                           ),
                           const _SettingsRowData(
                             iconAsset: 'assets/pin_icon/settings_version.svg',
@@ -136,6 +248,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+Future<bool> _launchExternalUrl(Uri url) {
+  return launchUrl(url, mode: LaunchMode.externalApplication);
+}
+
+Future<bool> _requestAppReview() async {
+  final review = InAppReview.instance;
+  if (!await review.isAvailable()) return false;
+  await review.requestReview();
+  return true;
+}
+
+Future<void> _clearAppCache(StyleThumbnailCache? styleThumbnails) {
+  return Future.wait<void>([
+    DefaultCacheManager().emptyCache(),
+    if (styleThumbnails != null) styleThumbnails.clear(),
+  ]);
 }
 
 class _SettingsNavigationBar extends StatelessWidget {

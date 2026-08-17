@@ -6,6 +6,7 @@ import '../services/api/api_models.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
+const galleryFallbackThumbnailUrl = 'assets/figma_home/gallery_pattern_1.png';
 
 /// 可显示在共用图库中的缩略图数据。
 ///
@@ -198,9 +199,6 @@ class _GalleryGrid extends StatelessWidget {
     required this.showTemplateAuthors,
   });
 
-  static const _fallbackThumbnailUrl =
-      'assets/figma_home/gallery_pattern_1.png';
-
   List<_GalleryPattern> get _patterns {
     final galleryItems = items;
     if (galleryItems != null) {
@@ -248,7 +246,7 @@ class _GalleryGrid extends StatelessWidget {
           for (final pattern in patterns)
             _GalleryTile(
               pattern: pattern,
-              fallbackThumbnailUrl: _fallbackThumbnailUrl,
+              fallbackThumbnailUrl: galleryFallbackThumbnailUrl,
               onTap: _onPatternTap(pattern),
               tileSize: tileSize,
             ),

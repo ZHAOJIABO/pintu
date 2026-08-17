@@ -420,6 +420,7 @@ class _MyLibraryScreen extends StatefulWidget {
 class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   static const _taskPollingInterval = Duration(seconds: 1);
   static const _recentCreationsPageSize = 20;
+  static const _worksPageSize = 20;
 
   BackendServices? _backendServices;
   List<TemplateItem> _templates = const [];
@@ -438,6 +439,9 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   int _blindBoxHistoryRequestVersion = 0;
   int _recentCreationsRequestVersion = 0;
   int _worksRequestVersion = 0;
+  int _worksPage = 1;
+  bool _worksHasMore = false;
+  bool _worksLoadingMore = false;
   int _pendingSubmissionsRequestVersion = 0;
   Timer? _taskPollingTimer;
   bool _taskPollInFlight = false;
@@ -734,17 +738,97 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
 
   Future<void> _loadWorks(BackendServices services) async {
     final requestVersion = ++_worksRequestVersion;
+    if (mounted &&
+        identical(services, _backendServices) &&
+        _selectedTab == _LibraryTab.patterns) {
+      setState(() => _worksLoadingMore = true);
+    }
     try {
-      final result = await services.works.listWorks();
+      final result = await services.works.listWorks(pageSize: _worksPageSize);
       if (!mounted ||
           !identical(services, _backendServices) ||
-          requestVersion != _worksRequestVersion) {
+          requestVersion != _worksRequestVersion ||
+          _selectedTab != _LibraryTab.patterns) {
         return;
       }
-      setState(() => _works = result.items);
+      setState(() {
+        _works = result.items;
+        _worksPage = result.page.page;
+        _worksHasMore = result.page.hasMore;
+        _worksLoadingMore = false;
+      });
     } catch (_) {
+      if (mounted &&
+          identical(services, _backendServices) &&
+          requestVersion == _worksRequestVersion &&
+          _selectedTab == _LibraryTab.patterns) {
+        setState(() => _worksLoadingMore = false);
+      }
       // 保留既有界面，后续进入页面或切换页签时可再次尝试加载。
     }
+  }
+
+  Future<void> _loadMoreWorks() async {
+    final services = _backendServices;
+    if (services == null ||
+        _selectedTab != _LibraryTab.patterns ||
+        !_worksHasMore ||
+        _worksLoadingMore) {
+      return;
+    }
+
+    final requestVersion = _worksRequestVersion;
+    final nextPage = _worksPage + 1;
+    setState(() => _worksLoadingMore = true);
+    try {
+      final result = await services.works.listWorks(
+        page: nextPage,
+        pageSize: _worksPageSize,
+      );
+      if (!mounted ||
+          !identical(services, _backendServices) ||
+          requestVersion != _worksRequestVersion ||
+          _selectedTab != _LibraryTab.patterns) {
+        return;
+      }
+      final mergedWorks = _mergeWorks(_works, result.items);
+      final madeProgress = mergedWorks.length > _works.length;
+      final receivedExpectedPage = result.page.page == nextPage;
+      setState(() {
+        _works = mergedWorks;
+        _worksPage = nextPage;
+        _worksHasMore =
+            receivedExpectedPage && madeProgress && result.page.hasMore;
+        _worksLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted &&
+          identical(services, _backendServices) &&
+          requestVersion == _worksRequestVersion &&
+          _selectedTab == _LibraryTab.patterns) {
+        setState(() => _worksLoadingMore = false);
+      }
+      // 已加载的图纸保持可见，用户再次滚动到底部时可重试。
+    }
+  }
+
+  List<WorkItem> _mergeWorks(List<WorkItem> current, List<WorkItem> incoming) {
+    final worksById = <String, WorkItem>{
+      for (final work in current) work.workId: work,
+    };
+    for (final work in incoming) {
+      worksById[work.workId] = work;
+    }
+    return worksById.values.toList();
+  }
+
+  bool _onLibraryScroll(ScrollNotification notification) {
+    if (notification.depth == 0 &&
+        notification is ScrollUpdateNotification &&
+        notification.metrics.extentAfter <= 200) {
+      unawaited(_loadMoreWorks());
+    }
+    return false;
   }
 
   Future<void> _loadPendingSubmissionWorkIds(BackendServices services) async {
@@ -1055,34 +1139,37 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
                       final contentDesignHeight =
                           _patternsContentHeightForItemCount(galleryItemCount);
 
-                      return SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        child: Center(
-                          child: SizedBox(
-                            width: pageWidth,
-                            height: contentDesignHeight * scale,
-                            child: _ScaledDesignSurface(
-                              designWidth: _designWidth,
-                              designHeight: contentDesignHeight,
-                              scale: scale,
-                              child: _MyPatternsContent(
-                                templates: _templates,
-                                blindBoxHistory: _blindBoxHistory,
-                                recentCreations: _recentCreations,
-                                newCreationIds: _newCreationIds,
-                                retryingCreationIds: _retryingCreationIds,
-                                works: _works,
-                                pendingSubmissionWorkIds:
-                                    _pendingSubmissionWorkIds,
-                                categoryName: _categoryName,
-                                onFilter: _openFilterDialog,
-                                onTemplateTap: _openTemplate,
-                                onBlindBoxHistoryTap: _openTemplate,
-                                onWorkTap: _openWork,
-                                onCreationTap: _openCreationTask,
-                                onCreationRetry: _retryCreationTask,
-                                selectedTab: _selectedTab,
-                                onTabSelected: _selectTab,
+                      return NotificationListener<ScrollNotification>(
+                        onNotification: _onLibraryScroll,
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          child: Center(
+                            child: SizedBox(
+                              width: pageWidth,
+                              height: contentDesignHeight * scale,
+                              child: _ScaledDesignSurface(
+                                designWidth: _designWidth,
+                                designHeight: contentDesignHeight,
+                                scale: scale,
+                                child: _MyPatternsContent(
+                                  templates: _templates,
+                                  blindBoxHistory: _blindBoxHistory,
+                                  recentCreations: _recentCreations,
+                                  newCreationIds: _newCreationIds,
+                                  retryingCreationIds: _retryingCreationIds,
+                                  works: _works,
+                                  pendingSubmissionWorkIds:
+                                      _pendingSubmissionWorkIds,
+                                  categoryName: _categoryName,
+                                  onFilter: _openFilterDialog,
+                                  onTemplateTap: _openTemplate,
+                                  onBlindBoxHistoryTap: _openTemplate,
+                                  onWorkTap: _openWork,
+                                  onCreationTap: _openCreationTask,
+                                  onCreationRetry: _retryCreationTask,
+                                  selectedTab: _selectedTab,
+                                  onTabSelected: _selectTab,
+                                ),
                               ),
                             ),
                           ),
@@ -1541,7 +1628,7 @@ class _RecentCreationPreview extends StatelessWidget {
           width: 130,
           height: 130,
           child: DecoratedBox(
-            decoration: const BoxDecoration(color: Color(0xFFD1D1D1)),
+            decoration: const BoxDecoration(color: Colors.white),
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -1743,11 +1830,13 @@ class _CreationTaskImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (imageUrl.isEmpty) return const SizedBox.expand();
+    const fallback = galleryFallbackThumbnailUrl;
+    if (imageUrl.isEmpty) {
+      return Image.asset(fallback, fit: BoxFit.cover);
+    }
     final uri = Uri.tryParse(imageUrl);
     final isNetworkImage =
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
-    const fallback = 'assets/figma_home/gallery_pattern_3.png';
     final thumbnailCacheSize = math.max(
       1,
       (130 * MediaQuery.devicePixelRatioOf(context)).round(),

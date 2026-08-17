@@ -12,7 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-// import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _NavigationObserver extends NavigatorObserver {
   int pushCount = 0;
@@ -412,6 +412,180 @@ void main() {
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     expect(find.byType(MyPatternsScreen), findsOneWidget);
+  });
+
+  testWidgets('最近创作的网络图片使用全部图纸相同的底图', (tester) async {
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' => {
+            'data': {
+              'works': const [],
+              'page': {'total': 0, 'page': 1, 'pageSize': 20, 'hasMore': false},
+            },
+          },
+          '/api/v1/ai/style-generations' => {
+            'tasks': [
+              {
+                'taskId': 'network-creation',
+                'status': AIGenerationItem.succeeded,
+                'outputImageUrl': 'https://cdn.example.test/result.png',
+              },
+              {
+                'taskId': 'empty-creation',
+                'status': AIGenerationItem.failed,
+                'inputImageUrl': '',
+              },
+            ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('my-patterns-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+
+    for (final taskId in ['network-creation', 'empty-creation']) {
+      final preview = find.byKey(ValueKey('recent-creation-preview-$taskId'));
+      final assetNames = tester
+          .widgetList<Image>(
+            find.descendant(of: preview, matching: find.byType(Image)),
+          )
+          .map((image) => image.image)
+          .whereType<AssetImage>()
+          .map((image) => image.assetName);
+      expect(assetNames, contains('assets/figma_home/gallery_pattern_1.png'));
+    }
+  });
+
+  testWidgets('图纸列表滚动到底部时按每页二十条继续加载', (tester) async {
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final worksPage = request.url.queryParameters['page.page'] ?? '1';
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' when worksPage == '1' => {
+            'data': {
+              'works': List.generate(
+                20,
+                (index) => {
+                  'workId': 'work-${index + 1}',
+                  'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                },
+              ),
+              'page': {'total': 21, 'page': 1, 'pageSize': 20, 'hasMore': true},
+            },
+          },
+          '/api/v1/works' when worksPage == '2' => {
+            'data': {
+              'works': [
+                {
+                  'workId': 'work-21',
+                  'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                },
+              ],
+              'page': {
+                'total': 21,
+                'page': 2,
+                'pageSize': 20,
+                'hasMore': false,
+              },
+            },
+          },
+          '/api/v1/ai/style-generations' => {
+            'tasks': const [],
+            'page': {'total': 0, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('my-patterns-shortcut')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -1000),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -100),
+    );
+    await tester.pumpAndSettle();
+
+    final workRequests = requests
+        .where((request) => request.url.path == '/api/v1/works')
+        .toList();
+    expect(workRequests.map((request) => request.url.queryParameters), [
+      {'page.page': '1', 'page.pageSize': '20'},
+      {'page.page': '2', 'page.pageSize': '20'},
+    ]);
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-work-21')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-work-1')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('重试创作失败后仍会重新加载最近创作任务', (tester) async {

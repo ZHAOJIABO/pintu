@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -81,6 +80,21 @@ class StyleThumbnailCache {
         }
       }),
     );
+  }
+
+  /// Removes the in-memory and temporary-disk copies of style thumbnails.
+  Future<void> clear() async {
+    _memory.clear();
+    _cacheDirectoryRequest = null;
+    try {
+      final root = await _directoryProvider();
+      final directory = Directory('${root.path}/$_directoryName');
+      if (await directory.exists()) {
+        await directory.delete(recursive: true);
+      }
+    } catch (_) {
+      // Failing to remove one temporary cache file must not affect user data.
+    }
   }
 
   Future<Uint8List?> _loadFromDisk(String url) async {

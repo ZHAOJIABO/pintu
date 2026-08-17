@@ -24,6 +24,102 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('tapping rate requests an in-app review', (tester) async {
+    var reviewRequested = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          requestAppReview: () async {
+            reviewRequested = true;
+            return true;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('settings-rate-app')));
+    await tester.pump();
+
+    expect(reviewRequested, isTrue);
+  });
+
+  testWidgets('clearing cache requires confirmation and invokes cleaner', (
+    tester,
+  ) async {
+    var clearCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          clearAppCache: (_) async {
+            clearCount += 1;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('settings-clear-cache')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('清除缓存'),
+      ),
+      findsOneWidget,
+    );
+    expect(clearCount, 0);
+
+    await tester.tap(find.widgetWithText(FilledButton, '清除'));
+    await tester.pumpAndSettle();
+
+    expect(clearCount, 1);
+    expect(find.text('缓存已清除'), findsOneWidget);
+  });
+
+  testWidgets('tapping privacy policy opens appbobo website', (tester) async {
+    Uri? openedUrl;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          launchExternalUrl: (url) async {
+            openedUrl = url;
+            return true;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('settings-privacy-policy')));
+    await tester.pump();
+
+    expect(openedUrl, Uri.parse('https://appbobo.cn/privacy'));
+  });
+
+  testWidgets('tapping terms and about opens their appbobo pages', (
+    tester,
+  ) async {
+    final openedUrls = <Uri>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsScreen(
+          launchExternalUrl: (url) async {
+            openedUrls.add(url);
+            return true;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('settings-user-agreement')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('settings-about')));
+    await tester.pump();
+
+    expect(openedUrls, [
+      Uri.parse('https://appbobo.cn/terms'),
+      Uri.parse('https://appbobo.cn/about'),
+    ]);
+  });
+
   testWidgets('upload-pattern page loads works and pending submissions', (
     tester,
   ) async {
