@@ -72,19 +72,7 @@ class AdminTemplate {
   }
 
   factory AdminTemplate.fromJson(JsonMap json) {
-    final rawTags = json['tags'];
-    final tags = rawTags is List
-        ? rawTags
-              .map((value) => value.toString())
-              .where((tag) => tag.isNotEmpty)
-              .toList()
-        : rawTags
-                  ?.toString()
-                  .split(',')
-                  .map((tag) => tag.trim())
-                  .where((tag) => tag.isNotEmpty)
-                  .toList() ??
-              const <String>[];
+    final tags = _parseTags(json['tags']);
     return AdminTemplate(
       id: json['templateId']?.toString() ?? '',
       title: json['title']?.toString() ?? '',
@@ -114,14 +102,165 @@ class AdminTemplate {
           : null,
     );
   }
+}
 
-  static String _firstValue(JsonMap json, List<String> keys) {
-    for (final key in keys) {
-      final value = json[key]?.toString() ?? '';
-      if (value.isNotEmpty) return value;
+/// A user-submitted pattern awaiting operator review.
+///
+/// Mirrors `GET /api/v1/admin/template-submissions`. Unlike the customer-facing
+/// [TemplateSubmissionItem] this carries the submitter id and the reviewer
+/// bookkeeping operators need in order to audit a decision.
+class AdminSubmission {
+  final String id;
+  final String userId;
+  final String workId;
+  final String title;
+  final String description;
+  final AdminSubmissionStatus status;
+  final String reviewReason;
+  final String reviewerActor;
+  final String templateId;
+  final String boardSpec;
+  final int width;
+  final int height;
+  final int beadCount;
+  final int colorCount;
+  final String previewUrl;
+  final String thumbnailUrl;
+  final DateTime? createdAt;
+  final DateTime? reviewedAt;
+
+  const AdminSubmission({
+    required this.id,
+    required this.userId,
+    required this.workId,
+    required this.title,
+    required this.description,
+    required this.status,
+    required this.reviewReason,
+    required this.reviewerActor,
+    required this.templateId,
+    required this.boardSpec,
+    required this.width,
+    required this.height,
+    required this.beadCount,
+    required this.colorCount,
+    required this.previewUrl,
+    required this.thumbnailUrl,
+    this.createdAt,
+    this.reviewedAt,
+  });
+
+  /// The preview the operator can actually render, or an empty string when the
+  /// submission arrived without one and the chart has to stand in for it.
+  String get imageUrl {
+    for (final value in [thumbnailUrl, previewUrl]) {
+      if (value.startsWith('https://') ||
+          value.startsWith('http://') ||
+          value.startsWith('/')) {
+        return value;
+      }
     }
     return '';
   }
+
+  factory AdminSubmission.fromJson(JsonMap json) {
+    return AdminSubmission(
+      id: json['submissionId']?.toString() ?? '',
+      userId: json['userId']?.toString() ?? '',
+      workId: json['workId']?.toString() ?? '',
+      title: json['title']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      status: AdminSubmissionStatus.fromCode(
+        (json['status'] as num?)?.toInt() ?? 0,
+      ),
+      reviewReason: json['reviewReason']?.toString() ?? '',
+      reviewerActor: json['reviewerActor']?.toString() ?? '',
+      templateId: json['templateId']?.toString() ?? '',
+      boardSpec: json['boardSpec']?.toString() ?? '',
+      width: (json['width'] as num?)?.toInt() ?? 0,
+      height: (json['height'] as num?)?.toInt() ?? 0,
+      beadCount: (json['beadCount'] as num?)?.toInt() ?? 0,
+      colorCount: (json['colorCount'] as num?)?.toInt() ?? 0,
+      previewUrl: _firstValue(json, const ['previewUrl', 'previewFileUrl']),
+      thumbnailUrl: _firstValue(json, const [
+        'thumbnailUrl',
+        'thumbnailFileUrl',
+      ]),
+      createdAt: _timestamp(json['createdAt']),
+      reviewedAt: _timestamp(json['reviewedAt']),
+    );
+  }
+}
+
+enum AdminSubmissionStatus {
+  pending('pending', '待审核'),
+  approved('approved', '已通过'),
+  rejected('rejected', '已驳回');
+
+  const AdminSubmissionStatus(this.wireName, this.label);
+
+  /// Value accepted by the `status` query parameter.
+  final String wireName;
+  final String label;
+
+  static AdminSubmissionStatus fromCode(int code) => switch (code) {
+    1 => AdminSubmissionStatus.approved,
+    2 => AdminSubmissionStatus.rejected,
+    _ => AdminSubmissionStatus.pending,
+  };
+}
+
+class AdminSubmissionDetail {
+  final AdminSubmission submission;
+  final PatternData patternData;
+
+  const AdminSubmissionDetail({
+    required this.submission,
+    required this.patternData,
+  });
+}
+
+class AdminSubmissionPage {
+  final List<AdminSubmission> submissions;
+  final int total;
+  final bool hasMore;
+
+  const AdminSubmissionPage({
+    required this.submissions,
+    required this.total,
+    required this.hasMore,
+  });
+}
+
+List<String> _parseTags(Object? raw) {
+  if (raw is List) {
+    return raw
+        .map((value) => value.toString())
+        .where((tag) => tag.isNotEmpty)
+        .toList();
+  }
+  return raw
+          ?.toString()
+          .split(',')
+          .map((tag) => tag.trim())
+          .where((tag) => tag.isNotEmpty)
+          .toList() ??
+      const <String>[];
+}
+
+String _firstValue(JsonMap json, List<String> keys) {
+  for (final key in keys) {
+    final value = json[key]?.toString() ?? '';
+    if (value.isNotEmpty) return value;
+  }
+  return '';
+}
+
+/// Admin timestamps are Unix **seconds**, and `0` means "never happened".
+DateTime? _timestamp(Object? raw) {
+  final seconds = (raw as num?)?.toInt() ?? 0;
+  if (seconds <= 0) return null;
+  return DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
 }
 
 class AdminTemplateDetail {
@@ -249,6 +388,28 @@ class AdminApi {
     );
   }
 
+  /// Uploads a preview image through the API origin and returns its `fileKey`.
+  ///
+  /// The portal deliberately uses the server-side proxy channel rather than the
+  /// direct object-storage upload: the bucket CORS policy does not allow
+  /// browser PUTs, and the proxy already performs the token/report handshake.
+  Future<String> uploadPreviewImage({
+    required Uint8List bytes,
+    String? contentType,
+  }) async {
+    if (bytes.isEmpty) {
+      throw ArgumentError.value(bytes, 'bytes', '预览图内容不能为空');
+    }
+    final upload = await _client.postBytes(
+      '/api/v1/admin/media/upload',
+      bytes: bytes,
+      contentType: contentType ?? _detectImageContentType(bytes),
+    );
+    final fileKey = upload['fileKey']?.toString() ?? '';
+    if (fileKey.isEmpty) throw const FormatException('预览图上传响应缺少 fileKey');
+    return fileKey;
+  }
+
   Future<String> publishTemplate({
     required String idempotencyKey,
     required String title,
@@ -262,13 +423,10 @@ class AdminApi {
     if (thumbnailBytes.isEmpty) {
       throw ArgumentError.value(thumbnailBytes, 'thumbnailBytes', '图库缩略图不能为空');
     }
-    final upload = await _client.postBytes(
-      '/api/v1/admin/media/upload',
+    final fileKey = await uploadPreviewImage(
       bytes: thumbnailBytes,
       contentType: 'image/png',
     );
-    final fileKey = upload['fileKey']?.toString() ?? '';
-    if (fileKey.isEmpty) throw const FormatException('预览图上传响应缺少 fileKey');
 
     final data = await _client.post(
       '/api/v1/admin/templates',
@@ -303,13 +461,10 @@ class AdminApi {
     if (thumbnailBytes.isEmpty) {
       throw ArgumentError.value(thumbnailBytes, 'thumbnailBytes', '图库缩略图不能为空');
     }
-    final upload = await _client.postBytes(
-      '/api/v1/admin/media/upload',
+    final fileKey = await uploadPreviewImage(
       bytes: thumbnailBytes,
       contentType: 'image/png',
     );
-    final fileKey = upload['fileKey']?.toString() ?? '';
-    if (fileKey.isEmpty) throw const FormatException('预览图上传响应缺少 fileKey');
 
     await _client.put(
       '/api/v1/admin/templates/${Uri.encodeComponent(templateId)}',
@@ -333,5 +488,131 @@ class AdminApi {
       '/api/v1/admin/templates/${Uri.encodeComponent(templateId)}/unpublish',
       body: {'reason': reason},
     );
+  }
+
+  /// Loads one page of the review queue.
+  ///
+  /// Unlike [listTemplates] this does not walk every page: the approved and
+  /// rejected archives keep growing, so the caller pages on demand instead.
+  Future<AdminSubmissionPage> listSubmissions({
+    AdminSubmissionStatus? status,
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final data = await _client.get(
+      '/api/v1/admin/template-submissions',
+      query: {
+        if (status != null) 'status': status.wireName,
+        'page.page': page,
+        'page.pageSize': pageSize,
+      },
+    );
+    final values = data['submissions'];
+    final submissions = values is List
+        ? values
+              .whereType<Map>()
+              .map(
+                (value) =>
+                    AdminSubmission.fromJson(value.cast<String, dynamic>()),
+              )
+              .where((submission) => submission.id.isNotEmpty)
+              .toList()
+        : const <AdminSubmission>[];
+    final pageInfo = data['page'];
+    return AdminSubmissionPage(
+      submissions: submissions,
+      total: pageInfo is Map ? (pageInfo['total'] as num?)?.toInt() ?? 0 : 0,
+      hasMore: pageInfo is Map && pageInfo['hasMore'] == true,
+    );
+  }
+
+  Future<AdminSubmissionDetail> getSubmission(String submissionId) async {
+    final data = await _client.get(
+      '/api/v1/admin/template-submissions/${Uri.encodeComponent(submissionId)}',
+    );
+    final rawSubmission = data['submission'];
+    final rawPatternData = data['patternData'];
+    if (rawPatternData is! Map) {
+      throw const FormatException('投稿详情响应缺少 patternData');
+    }
+    return AdminSubmissionDetail(
+      submission: AdminSubmission.fromJson(
+        rawSubmission is Map ? rawSubmission.cast<String, dynamic>() : data,
+      ),
+      patternData: PatternData.fromJson(rawPatternData.cast<String, dynamic>()),
+    );
+  }
+
+  /// Approves a submission and returns the official template it produced.
+  ///
+  /// Empty optional fields are omitted rather than sent blank so the server
+  /// keeps the submitter's own title, description and preview image.
+  Future<String> approveSubmission({
+    required String submissionId,
+    required int categoryId,
+    required int difficulty,
+    String tags = '',
+    String title = '',
+    String description = '',
+    String previewFileKey = '',
+  }) async {
+    final data = await _client.post(
+      '/api/v1/admin/template-submissions/'
+      '${Uri.encodeComponent(submissionId)}/approve',
+      body: {
+        'categoryId': categoryId,
+        'difficulty': difficulty,
+        if (tags.isNotEmpty) 'tags': tags,
+        if (title.isNotEmpty) 'title': title,
+        if (description.isNotEmpty) 'description': description,
+        if (previewFileKey.isNotEmpty) 'previewFileKey': previewFileKey,
+      },
+    );
+    final templateId = data['templateId']?.toString() ?? '';
+    if (templateId.isEmpty) {
+      throw const FormatException('审核通过响应缺少 templateId');
+    }
+    return templateId;
+  }
+
+  Future<void> rejectSubmission({
+    required String submissionId,
+    required String reason,
+  }) {
+    return _client.post(
+      '/api/v1/admin/template-submissions/'
+      '${Uri.encodeComponent(submissionId)}/reject',
+      body: {'reason': reason},
+    );
+  }
+
+  /// The proxy upload endpoint rejects anything outside jpeg/png/webp, so the
+  /// type is sniffed from the magic bytes of the operator's chosen file.
+  static String _detectImageContentType(Uint8List bytes) {
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return 'image/png';
+    }
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return 'image/webp';
+    }
+    throw const FormatException('预览图仅支持 JPG、PNG 或 WebP 格式');
   }
 }

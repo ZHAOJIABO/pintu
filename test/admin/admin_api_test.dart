@@ -267,6 +267,176 @@ void main() {
       ]);
     },
   );
+
+  test('admin API pages the review queue and filters by status', () async {
+    final calls = <String>[];
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/api/v1/admin/login') {
+          return _jsonResponse({'accessToken': 'admin-token'});
+        }
+        expect(request.url.path, '/api/v1/admin/template-submissions');
+        expect(request.headers['authorization'], 'Bearer admin-token');
+        expect(request.url.queryParameters['page.pageSize'], '50');
+        if (request.url.queryParameters['page.page'] == '1') {
+          expect(request.url.queryParameters['status'], 'pending');
+          return _jsonResponse({
+            'submissions': [
+              {
+                'submissionId': '88',
+                'userId': '1024',
+                'workId': '2048',
+                'title': '小猫',
+                'description': '第一次投稿',
+                'status': 0,
+                'boardSpec': '29x29',
+                'width': 29,
+                'height': 29,
+                'beadCount': 512,
+                'colorCount': 8,
+                'thumbnailUrl': 'https://cdn.example.test/cat.webp',
+                'createdAt': 1755100000,
+                'reviewedAt': 0,
+              },
+            ],
+            'page': {'total': 2, 'hasMore': true},
+          });
+        }
+        expect(request.url.queryParameters['page.page'], '2');
+        return _jsonResponse({
+          'submissions': [
+            {
+              'submissionId': '89',
+              'status': 2,
+              'reviewReason': '版权风险',
+              'reviewerActor': 'operator',
+              'reviewedAt': 1755200000,
+            },
+          ],
+          'page': {'total': 2, 'hasMore': false},
+        });
+      }),
+    );
+
+    await client.login(username: 'operator', password: 'secret');
+    final first = await client.listSubmissions(
+      status: AdminSubmissionStatus.pending,
+    );
+    final second = await client.listSubmissions(page: 2);
+
+    expect(first.total, 2);
+    expect(first.hasMore, isTrue);
+    final pending = first.submissions.single;
+    expect(pending.userId, '1024');
+    expect(pending.beadCount, 512);
+    expect(pending.status, AdminSubmissionStatus.pending);
+    expect(pending.imageUrl, 'https://cdn.example.test/cat.webp');
+    expect(
+      pending.createdAt,
+      DateTime.fromMillisecondsSinceEpoch(1755100000 * 1000),
+    );
+    expect(pending.reviewedAt, isNull);
+    expect(second.hasMore, isFalse);
+    expect(second.submissions.single.status, AdminSubmissionStatus.rejected);
+    expect(calls, [
+      'POST /api/v1/admin/login',
+      'GET /api/v1/admin/template-submissions',
+      'GET /api/v1/admin/template-submissions',
+    ]);
+  });
+
+  test('admin API approves a submission and omits blank fields', () async {
+    final calls = <String>[];
+    Map<String, dynamic>? approveBody;
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        switch (request.url.path) {
+          case '/api/v1/admin/login':
+            return _jsonResponse({'accessToken': 'admin-token'});
+          case '/api/v1/admin/template-submissions/88':
+            return _jsonResponse({
+              'submission': {'submissionId': '88', 'title': '小猫', 'status': 0},
+              'patternData': {
+                'width': 2,
+                'height': 2,
+                'boardSpec': '2x2',
+                'pixels': [1, 0, 0, 1],
+                'colorPalette': [
+                  {
+                    'index': 1,
+                    'hex': '#ff0000',
+                    'brand': 'hama',
+                    'code': 'H01',
+                    'name': '红',
+                  },
+                ],
+              },
+            });
+          case '/api/v1/admin/template-submissions/88/approve':
+            expect(request.headers['authorization'], 'Bearer admin-token');
+            approveBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return _jsonResponse({'templateId': 'template-900'});
+          default:
+            throw StateError('Unexpected request: ${request.url}');
+        }
+      }),
+    );
+
+    await client.login(username: 'operator', password: 'secret');
+    final detail = await client.getSubmission('88');
+    final templateId = await client.approveSubmission(
+      submissionId: '88',
+      categoryId: 7,
+      difficulty: 2,
+      tags: '动物,新手',
+      title: '小猫',
+    );
+
+    expect(detail.patternData.width, 2);
+    expect(templateId, 'template-900');
+    expect(approveBody, {
+      'categoryId': 7,
+      'difficulty': 2,
+      'tags': '动物,新手',
+      'title': '小猫',
+    });
+    expect(calls, [
+      'POST /api/v1/admin/login',
+      'GET /api/v1/admin/template-submissions/88',
+      'POST /api/v1/admin/template-submissions/88/approve',
+    ]);
+  });
+
+  test('admin API rejects a submission with a reason', () async {
+    final calls = <String>[];
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        if (request.url.path == '/api/v1/admin/login') {
+          return _jsonResponse({'accessToken': 'admin-token'});
+        }
+        expect(
+          request.url.path,
+          '/api/v1/admin/template-submissions/88/reject',
+        );
+        expect(jsonDecode(request.body), {'reason': '图案存在版权风险'});
+        return _jsonResponse({});
+      }),
+    );
+
+    await client.login(username: 'operator', password: 'secret');
+    await client.rejectSubmission(submissionId: '88', reason: '图案存在版权风险');
+
+    expect(calls, [
+      'POST /api/v1/admin/login',
+      'POST /api/v1/admin/template-submissions/88/reject',
+    ]);
+  });
 }
 
 http.Response _jsonResponse(Map<String, Object?> body) {

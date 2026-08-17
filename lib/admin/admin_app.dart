@@ -14,11 +14,12 @@ import '../widgets/pattern_preview.dart';
 import 'admin_api.dart';
 import 'admin_pattern_editor.dart';
 import 'admin_preview_exporter.dart';
+import 'admin_submission_review.dart';
 import 'admin_template_editor.dart';
 
-enum _AdminSection { publish, library }
+enum _AdminSection { publish, submissions, library }
 
-enum _AdminMenuAction { publish, library, logout }
+enum _AdminMenuAction { publish, submissions, library, logout }
 
 /// Internal admin portal for publishing official bead templates.
 class BoboBeadsAdminApp extends StatelessWidget {
@@ -102,15 +103,23 @@ class _AdminPortalState extends State<_AdminPortal> {
   int _difficulty = 1;
   _AdminSection _section = _AdminSection.publish;
   List<AdminTemplate> _templates = const [];
+  List<AdminSubmission> _submissions = const [];
+  AdminSubmissionStatus? _submissionFilter = AdminSubmissionStatus.pending;
+  int _submissionPage = 1;
+  int _submissionTotal = 0;
+  bool _submissionHasMore = false;
   bool _smoothing = true;
   bool _removeBackground = true;
   bool _loggingIn = false;
   bool _generating = false;
   bool _publishing = false;
   bool _loadingTemplates = false;
+  bool _loadingSubmissions = false;
   bool _creatingCategory = false;
   bool _hasLoadedTemplates = false;
+  bool _hasLoadedSubmissions = false;
   String? _unpublishingTemplateId;
+  String? _reviewingSubmissionId;
   String? _error;
   String? _success;
 
@@ -284,6 +293,9 @@ class _AdminPortalState extends State<_AdminPortal> {
     if (section == _AdminSection.library && !_hasLoadedTemplates) {
       _loadTemplates();
     }
+    if (section == _AdminSection.submissions && !_hasLoadedSubmissions) {
+      _loadSubmissions();
+    }
   }
 
   Future<void> _loadTemplates() async {
@@ -304,6 +316,82 @@ class _AdminPortalState extends State<_AdminPortal> {
     } finally {
       if (mounted) setState(() => _loadingTemplates = false);
     }
+  }
+
+  /// Loads the review queue one page at a time; [append] backs the "load more"
+  /// button so the archived tabs do not have to be fetched in full.
+  Future<void> _loadSubmissions({bool append = false}) async {
+    if (_loadingSubmissions) return;
+    final page = append ? _submissionPage + 1 : 1;
+    setState(() {
+      _loadingSubmissions = true;
+      _error = null;
+    });
+    try {
+      final result = await _api.listSubmissions(
+        status: _submissionFilter,
+        page: page,
+      );
+      if (!mounted) return;
+      setState(() {
+        _submissions = append
+            ? [..._submissions, ...result.submissions]
+            : result.submissions;
+        _submissionPage = page;
+        _submissionTotal = result.total;
+        _submissionHasMore = result.hasMore;
+        _hasLoadedSubmissions = true;
+      });
+    } catch (error) {
+      _setError('加载投稿失败：${_errorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _loadingSubmissions = false);
+    }
+  }
+
+  void _selectSubmissionFilter(AdminSubmissionStatus? status) {
+    if (_submissionFilter == status || _loadingSubmissions) return;
+    setState(() {
+      _submissionFilter = status;
+      _submissions = const [];
+      _submissionHasMore = false;
+      _submissionTotal = 0;
+      _error = null;
+      _success = null;
+    });
+    _loadSubmissions();
+  }
+
+  Future<void> _openSubmissionReview(AdminSubmission submission) async {
+    if (_isBusy || _reviewingSubmissionId != null) return;
+    setState(() => _reviewingSubmissionId = submission.id);
+    final result = await Navigator.of(context)
+        .push<AdminSubmissionReviewResult>(
+          MaterialPageRoute(
+            builder: (_) => AdminSubmissionReviewPage(
+              api: _api,
+              submission: submission,
+              categories: _categories,
+            ),
+          ),
+        );
+    if (!mounted) return;
+    setState(() {
+      _reviewingSubmissionId = null;
+      if (result == null) return;
+      _error = null;
+      _success = switch (result.outcome) {
+        AdminSubmissionReviewOutcome.approved =>
+          '已通过「${submission.title}」，生成模板 ID ${result.templateId}',
+        AdminSubmissionReviewOutcome.rejected => '已驳回「${submission.title}」',
+      };
+      // An approval adds an official template, so the library has to be
+      // refetched the next time the operator opens it.
+      if (result.outcome == AdminSubmissionReviewOutcome.approved) {
+        _hasLoadedTemplates = false;
+      }
+    });
+    if (result != null) await _loadSubmissions();
   }
 
   Future<void> _unpublishTemplate(AdminTemplate template) async {
@@ -468,11 +556,17 @@ class _AdminPortalState extends State<_AdminPortal> {
       _api.logout();
       _categories = const [];
       _templates = const [];
+      _submissions = const [];
+      _submissionFilter = AdminSubmissionStatus.pending;
+      _submissionPage = 1;
+      _submissionTotal = 0;
+      _submissionHasMore = false;
       _categoryId = null;
       _pattern = null;
       _sourceImage = null;
       _section = _AdminSection.publish;
       _hasLoadedTemplates = false;
+      _hasLoadedSubmissions = false;
       _creatingCategory = false;
       _error = null;
       _success = null;
@@ -582,13 +676,13 @@ class _AdminPortalState extends State<_AdminPortal> {
         backgroundColor: const Color(0xFFFFFBFC),
         surfaceTintColor: Colors.transparent,
         title: compactNavigation
-            ? Text(_section == _AdminSection.publish ? '发布模板' : '模板库')
+            ? Text(_sectionShortTitle)
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const _BrandMark(compact: true),
                   const SizedBox(width: 12),
-                  Text(_section == _AdminSection.publish ? '模板发布工作台' : '官方模板库'),
+                  Text(_sectionTitle),
                 ],
               ),
         actions: compactNavigation
@@ -599,6 +693,8 @@ class _AdminPortalState extends State<_AdminPortal> {
                     switch (action) {
                       case _AdminMenuAction.publish:
                         _selectSection(_AdminSection.publish);
+                      case _AdminMenuAction.submissions:
+                        _selectSection(_AdminSection.submissions);
                       case _AdminMenuAction.library:
                         _selectSection(_AdminSection.library);
                       case _AdminMenuAction.logout:
@@ -611,6 +707,13 @@ class _AdminPortalState extends State<_AdminPortal> {
                       child: ListTile(
                         leading: Icon(Icons.publish_outlined),
                         title: Text('发布模板'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _AdminMenuAction.submissions,
+                      child: ListTile(
+                        leading: Icon(Icons.fact_check_outlined),
+                        title: Text('投稿审核'),
                       ),
                     ),
                     const PopupMenuItem(
@@ -640,6 +743,12 @@ class _AdminPortalState extends State<_AdminPortal> {
                   onTap: () => _selectSection(_AdminSection.publish),
                 ),
                 _WorkspaceTab(
+                  icon: Icons.fact_check_outlined,
+                  label: '投稿审核',
+                  selected: _section == _AdminSection.submissions,
+                  onTap: () => _selectSection(_AdminSection.submissions),
+                ),
+                _WorkspaceTab(
                   icon: Icons.view_module_outlined,
                   label: '模板库',
                   selected: _section == _AdminSection.library,
@@ -655,11 +764,25 @@ class _AdminPortalState extends State<_AdminPortal> {
                 const SizedBox(width: 12),
               ],
       ),
-      body: _section == _AdminSection.library
-          ? _buildTemplateLibrary(context)
-          : _buildPublishWorkspace(context),
+      body: switch (_section) {
+        _AdminSection.publish => _buildPublishWorkspace(context),
+        _AdminSection.submissions => _buildSubmissionQueue(context),
+        _AdminSection.library => _buildTemplateLibrary(context),
+      },
     );
   }
+
+  String get _sectionTitle => switch (_section) {
+    _AdminSection.publish => '模板发布工作台',
+    _AdminSection.submissions => '用户投稿审核',
+    _AdminSection.library => '官方模板库',
+  };
+
+  String get _sectionShortTitle => switch (_section) {
+    _AdminSection.publish => '发布模板',
+    _AdminSection.submissions => '投稿审核',
+    _AdminSection.library => '模板库',
+  };
 
   Widget _buildPublishWorkspace(BuildContext context) {
     return LayoutBuilder(
@@ -1065,6 +1188,122 @@ class _AdminPortalState extends State<_AdminPortal> {
     );
   }
 
+  Widget _buildSubmissionQueue(BuildContext context) {
+    if (_loadingSubmissions && !_hasLoadedSubmissions) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return RefreshIndicator(
+      onRefresh: _loadSubmissions,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '用户投稿',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _submissionTotal > 0
+                          ? '共 $_submissionTotal 条投稿，通过后会生成官方模板。'
+                          : '通过后会生成官方模板，驳回需要填写原因。',
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _loadingSubmissions ? null : _loadSubmissions,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in const <AdminSubmissionStatus?>[
+                AdminSubmissionStatus.pending,
+                AdminSubmissionStatus.approved,
+                AdminSubmissionStatus.rejected,
+                null,
+              ])
+                ChoiceChip(
+                  key: ValueKey(
+                    'submission-filter-${option?.wireName ?? 'all'}',
+                  ),
+                  label: Text(option?.label ?? '全部'),
+                  selected: _submissionFilter == option,
+                  onSelected: _loadingSubmissions
+                      ? null
+                      : (_) => _selectSubmissionFilter(option),
+                ),
+            ],
+          ),
+          if (_error != null || _success != null) ...[
+            const SizedBox(height: 16),
+            _Notice(message: _error ?? _success!, isError: _error != null),
+          ],
+          const SizedBox(height: 20),
+          if (_submissions.isEmpty)
+            const _EmptySubmissionQueue()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final count = constraints.maxWidth >= 1080
+                    ? 3
+                    : constraints.maxWidth >= 720
+                    ? 2
+                    : 1;
+                final width = (constraints.maxWidth - (count - 1) * 16) / count;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    for (final submission in _submissions)
+                      SizedBox(
+                        width: width,
+                        child: _SubmissionCard(
+                          submission: submission,
+                          isOpening: _reviewingSubmissionId == submission.id,
+                          onReview: () => _openSubmissionReview(submission),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          if (_submissionHasMore) ...[
+            const SizedBox(height: 20),
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: _loadingSubmissions
+                    ? null
+                    : () => _loadSubmissions(append: true),
+                icon: _loadingSubmissions
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more_rounded),
+                label: Text(_loadingSubmissions ? '加载中…' : '加载更多'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTemplateLibrary(BuildContext context) {
     if (_loadingTemplates && !_hasLoadedTemplates) {
       return const Center(child: CircularProgressIndicator());
@@ -1302,6 +1541,182 @@ class _EmptyTemplateLibrary extends StatelessWidget {
             SizedBox(height: 4),
             Text('完成发布后会按客户端分类显示在这里。'),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptySubmissionQueue extends StatelessWidget {
+  const _EmptySubmissionQueue();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 72, horizontal: 24),
+        child: Column(
+          children: [
+            Icon(Icons.fact_check_outlined, size: 48, color: Color(0xFFB7AEB7)),
+            SizedBox(height: 12),
+            Text('当前筛选条件下没有投稿'),
+            SizedBox(height: 4),
+            Text('用户把作品投稿为模板后会出现在这里。'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubmissionCard extends StatelessWidget {
+  final AdminSubmission submission;
+  final bool isOpening;
+  final VoidCallback onReview;
+
+  const _SubmissionCard({
+    required this.submission,
+    required this.isOpening,
+    required this.onReview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isPending = submission.status == AdminSubmissionStatus.pending;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: isOpening ? null : onReview,
+                borderRadius: BorderRadius.circular(12),
+                child: _SubmissionPreview(url: submission.imageUrl),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    submission.title.isEmpty ? '未命名投稿' : submission.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AdminSubmissionStatusBadge(status: submission.status),
+              ],
+            ),
+            if (submission.description.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                submission.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFF6A6470)),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (submission.width > 0 && submission.height > 0)
+                  _CardMeta(label: '${submission.width}×${submission.height}'),
+                if (submission.beadCount > 0)
+                  _CardMeta(label: '${submission.beadCount} 颗'),
+                if (submission.colorCount > 0)
+                  _CardMeta(label: '${submission.colorCount} 色'),
+                _CardMeta(label: formatAdminTimestamp(submission.createdAt)),
+              ],
+            ),
+            if (submission.reviewReason.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '审核意见：${submission.reviewReason}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Color(0xFFC6284A), fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: isOpening ? null : onReview,
+              icon: isOpening
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      isPending
+                          ? Icons.rate_review_outlined
+                          : Icons.visibility_outlined,
+                      size: 18,
+                    ),
+              label: Text(isPending ? '审核' : '查看详情'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SubmissionPreview extends StatelessWidget {
+  final String url;
+
+  const _SubmissionPreview({required this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: ColoredBox(
+          color: const Color(0xFFF7F7FA),
+          child: url.isEmpty
+              ? const Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    size: 38,
+                    color: Color(0xFFB7AEB7),
+                  ),
+                )
+              : Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  // Submission previews live on OSS. Prefer a native HTML image
+                  // on Web so previews remain visible while the bucket CORS
+                  // policy is being corrected.
+                  webHtmlElementStrategy: WebHtmlElementStrategy.prefer,
+                  errorBuilder: (context, error, stackTrace) => const Center(
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      size: 38,
+                      color: Color(0xFFB7AEB7),
+                    ),
+                  ),
+                ),
         ),
       ),
     );
