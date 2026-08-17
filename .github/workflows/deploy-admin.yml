@@ -24,7 +24,7 @@ jobs:
 
       - run: flutter pub get
 
-      - run: flutter build web --target lib/admin_main.dart --release --dart-define=BOBOBEADS_API_BASE_URL=
+      - run: flutter build web --target lib/admin_main.dart --release --base-href=/admin/ --dart-define=BOBOBEADS_API_BASE_URL=
 
       - name: Deploy to server
         uses: appleboy/scp-action@v0.1.7
@@ -33,7 +33,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "build/web/*"
-          target: "~/work/pinto_server/admin-web/build/"
+          target: "~/work/pinto_server/admin-web/build/admin/"
           strip_components: 2
 
       - name: Restart Nginx
