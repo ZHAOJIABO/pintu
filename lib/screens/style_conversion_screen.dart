@@ -12,6 +12,7 @@ import '../services/ai_style_transfer_service.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/style_thumbnail_cache.dart';
+import '../widgets/patterns_hint_dialog.dart';
 import 'parameter_config_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -22,8 +23,13 @@ const _loadingRabbitIconAsset = 'assets/figma_style/loading_rabbit_icon.png';
 
 class StyleConversionScreen extends StatefulWidget {
   final DraftProject draft;
+  final Uint8List? initialConvertedImage;
 
-  const StyleConversionScreen({super.key, required this.draft});
+  const StyleConversionScreen({
+    super.key,
+    required this.draft,
+    this.initialConvertedImage,
+  });
 
   @override
   State<StyleConversionScreen> createState() => _StyleConversionScreenState();
@@ -38,15 +44,17 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
   AiStyleTransferService? _styleTransfer;
   List<AIStyleItem> _styles = const [];
   String? _selectedStyleId;
-  Uint8List? _convertedImage;
+  late Uint8List? _convertedImage = widget.initialConvertedImage;
   bool _converting = false;
   bool _stylesLoading = true;
+  bool _hasSubmittedTask = false;
+  bool _leaving = false;
   String? _stylesError;
   bool _didResolveServices = false;
   final _styleScrollController = ScrollController();
 
   Uint8List get _displayImage => _convertedImage ?? _sourceImage;
-  bool get _canGenerate => _convertedImage != null && !_converting;
+  bool get _canGenerate => !_converting;
 
   double _decodeImageAspectRatio(Uint8List bytes) {
     final decoded = img.decodeImage(bytes);
@@ -123,6 +131,9 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
       final task = await transfer.submitAndWait(
         styleId: style.styleId,
         imageBytes: _sourceImage,
+        onTaskSubmitted: () {
+          if (mounted) setState(() => _hasSubmittedTask = true);
+        },
       );
       if (!mounted || !identical(services, _services)) return;
       await _handleTerminalTask(task, services);
@@ -140,6 +151,27 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
         setState(() => _converting = false);
       }
     }
+  }
+
+  Future<void> _confirmAndStartConversion(AIStyleItem style) async {
+    if (_converting) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('是否要转换'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _startConversion(style);
   }
 
   Future<void> _handleTerminalTask(
@@ -176,11 +208,27 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _continueToParameters() async {
-    final convertedImage = _convertedImage;
-    if (convertedImage == null || _converting) return;
+  Future<void> _handleBack() async {
+    if (_leaving) return;
+    if (!_hasSubmittedTask) {
+      returnToHome(context);
+      return;
+    }
 
-    final nextDraft = widget.draft.copyWith(styledImageBytes: convertedImage);
+    setState(() => _leaving = true);
+    await showPatternsHintDialog(
+      context,
+      destination: PatternsHintDestination.drafts,
+    );
+    if (mounted) returnToHome(context);
+  }
+
+  Future<void> _continueToParameters() async {
+    if (_converting) return;
+
+    final nextDraft = _convertedImage == null
+        ? widget.draft
+        : widget.draft.copyWith(styledImageBytes: _convertedImage);
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -215,7 +263,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
               bottom: false,
               child: Column(
                 children: [
-                  const _StyleNavigationBar(),
+                  _StyleNavigationBar(onBack: _handleBack),
                   Expanded(
                     child: _ImageStage(
                       imageBytes: _displayImage,
@@ -232,7 +280,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
                     thumbnailCache: _services?.styleThumbnails,
                     selectedStyleId: _selectedStyleId,
                     canGenerate: _canGenerate,
-                    onStyleTap: _startConversion,
+                    onStyleTap: _confirmAndStartConversion,
                     onRetry: _loadStyles,
                     onGenerate: _continueToParameters,
                   ),
@@ -247,7 +295,9 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
 }
 
 class _StyleNavigationBar extends StatelessWidget {
-  const _StyleNavigationBar();
+  final VoidCallback onBack;
+
+  const _StyleNavigationBar({required this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -259,7 +309,7 @@ class _StyleNavigationBar extends StatelessWidget {
           children: [
             GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => returnToHome(context),
+              onTap: onBack,
               child: const SizedBox(
                 width: 24,
                 height: 40,
@@ -764,12 +814,12 @@ class _GenerateButton extends StatelessWidget {
         height: 52,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: Colors.black,
+            color: enabled ? Colors.black : const Color(0xFFE0E0E0),
             borderRadius: BorderRadius.circular(44),
           ),
           child: Center(
             child: Text(
-              '生成图纸',
+              '参数选择',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: enabled ? 1 : 0.40),
                 fontSize: 18,

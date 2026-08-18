@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:bobobeads/screens/my_screen.dart';
-import 'package:bobobeads/screens/parameter_config_screen.dart';
 import 'package:bobobeads/screens/settings_screen.dart';
+import 'package:bobobeads/screens/style_conversion_screen.dart';
 import 'package:bobobeads/screens/upload_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
@@ -74,7 +74,7 @@ void main() {
         find.byKey(const ValueKey('my-finished-products-title-icon')),
         findsOneWidget,
       );
-      expect(find.text('记录一下'), findsOneWidget);
+      expect(find.text('咔嚓一下'), findsNWidgets(3));
       expect(
         find.byKey(const ValueKey('my-works-placeholder')),
         findsOneWidget,
@@ -400,12 +400,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(newBadge, findsNothing);
-    expect(find.byType(ParameterConfigScreen), findsOneWidget);
-    expect(find.text('保存'), findsOneWidget);
-    final parameterScreen = tester.widget<ParameterConfigScreen>(
-      find.byType(ParameterConfigScreen),
+    expect(find.byType(StyleConversionScreen), findsOneWidget);
+    expect(find.text('参数选择'), findsOneWidget);
+    final styleScreen = tester.widget<StyleConversionScreen>(
+      find.byType(StyleConversionScreen),
     );
-    expect(parameterScreen.draft.croppedImageBytes, isNotEmpty);
+    expect(styleScreen.initialConvertedImage, isNotEmpty);
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     expect(find.byType(MyPatternsScreen), findsOneWidget);

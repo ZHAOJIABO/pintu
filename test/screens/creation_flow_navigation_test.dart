@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/draft_project.dart';
@@ -9,6 +10,8 @@ import 'package:bobobeads/screens/style_conversion_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/services/style_thumbnail_cache.dart';
+import 'package:bobobeads/widgets/patterns_hint_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -83,6 +86,12 @@ void main() {
     final services = BackendServices(
       baseUrl: 'http://api.example.test',
       store: _MemoryApiSessionStore(),
+      styleThumbnails: StyleThumbnailCache(
+        httpClient: MockClient(
+          (_) async => http.Response.bytes(outputImage, 200),
+        ),
+        directoryProvider: () async => Directory.systemTemp,
+      ),
       httpClient: MockClient((request) async {
         if (request.url.host == 'image.example.test' ||
             request.url.host == 'storage.example.test') {
@@ -185,48 +194,83 @@ void main() {
     expect(find.text('确定参数'), findsOneWidget);
   });
 
-  testWidgets('style conversion result enters parameter config from button', (
-    tester,
-  ) async {
-    usePhoneViewport(tester);
-    final image = sampleImagePng();
+  testWidgets(
+    'style conversion lets the original image enter parameter config',
+    (tester) async {
+      usePhoneViewport(tester);
+      final image = sampleImagePng();
 
-    await pumpStyleScreen(tester, image);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StyleConversionScreen(
+            draft: DraftProject(
+              originalImageBytes: image,
+              croppedImageBytes: image,
+              imageSource: DraftImageSource.photo,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
 
-    await tester.tap(find.byKey(const ValueKey('style-generate-button')));
-    await tester.pump();
-    expect(find.text('确定参数'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('style-generate-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
-    await tester.tap(find.byKey(const ValueKey('style-option-picture_book')));
-    await tester.pump();
-    await tester.pump();
-    await tester.pump();
-    await tester.pump();
-    await tester.pump();
-    await tester.pump();
+      expect(find.text('确定参数'), findsOneWidget);
+      expect(find.text('选择大小'), findsOneWidget);
+    },
+  );
 
-    final selectedStyle = tester.widget<AnimatedContainer>(
-      find.descendant(
-        of: find.byKey(const ValueKey('style-option-picture_book')),
-        matching: find.byType(AnimatedContainer),
-      ),
-    );
-    final selectedDecoration = selectedStyle.decoration! as BoxDecoration;
-    expect(selectedDecoration.border!.top.color, const Color(0xFFFF55BE));
+  testWidgets(
+    'style conversion confirms before submitting and then enters parameters',
+    (tester) async {
+      usePhoneViewport(tester);
+      final image = sampleImagePng();
 
-    expect(find.text('生成图纸'), findsOneWidget);
+      await pumpStyleScreen(tester, image);
 
-    expect(find.text('转换风格'), findsAtLeastNWidgets(1));
-    expect(find.text('确定参数'), findsNothing);
-    expect(find.text('生成图纸'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('style-option-picture_book')));
+      await tester.pump();
+      expect(find.text('是否要转换'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('style-generate-button')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('取消'));
+      await tester.pump();
+      expect(find.text('是否要转换'), findsNothing);
+      expect(find.text('参数选择'), findsOneWidget);
 
-    expect(find.text('确定参数'), findsOneWidget);
-    expect(find.text('选择大小'), findsOneWidget);
-  });
+      await tester.tap(find.byKey(const ValueKey('style-option-picture_book')));
+      await tester.pump();
+      await tester.tap(find.text('确定'));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+
+      final selectedStyle = tester.widget<AnimatedContainer>(
+        find.descendant(
+          of: find.byKey(const ValueKey('style-option-picture_book')),
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      final selectedDecoration = selectedStyle.decoration! as BoxDecoration;
+      expect(selectedDecoration.border!.top.color, const Color(0xFFFF55BE));
+
+      expect(find.text('参数选择'), findsOneWidget);
+
+      expect(find.text('转换风格'), findsAtLeastNWidgets(1));
+      expect(find.text('确定参数'), findsNothing);
+      expect(find.text('参数选择'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('style-generate-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('确定参数'), findsOneWidget);
+      expect(find.text('选择大小'), findsOneWidget);
+    },
+  );
 
   testWidgets('style conversion back returns directly to the home route', (
     tester,
@@ -270,6 +314,18 @@ void main() {
 
     expect(find.byKey(homeKey), findsOneWidget);
     expect(find.text('转换风格'), findsNothing);
+  });
+
+  testWidgets('draft hint uses the style conversion return copy', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: PatternsHintDialog(destination: PatternsHintDestination.drafts),
+      ),
+    );
+
+    expect(find.text('草稿将保存在“我的-我的图纸”中'), findsOneWidget);
   });
 
   testWidgets('style conversion loading copy rotates while generation runs', (
@@ -499,17 +555,45 @@ void main() {
         return positioned.left!;
       }
 
+      Color switchTrackColor(String key) {
+        final track = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey(key)),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        return (track.decoration as BoxDecoration).color!;
+      }
+
       expect(switchLeft('parameter-remove-background-toggle'), 23);
+      expect(
+        switchTrackColor('parameter-remove-background-toggle'),
+        const Color(0xFFFF55BE),
+      );
       await tester.tap(
         find.byKey(const ValueKey('parameter-remove-background-toggle')),
       );
       await tester.pump(const Duration(milliseconds: 180));
       expect(switchLeft('parameter-remove-background-toggle'), 2);
+      expect(
+        switchTrackColor('parameter-remove-background-toggle'),
+        const Color(0xFFDEE2ED),
+      );
 
       expect(switchLeft('parameter-denoise-toggle'), 2);
+      expect(
+        switchTrackColor('parameter-denoise-toggle'),
+        const Color(0xFFDEE2ED),
+      );
       await tester.tap(find.byKey(const ValueKey('parameter-denoise-toggle')));
       await tester.pump(const Duration(milliseconds: 180));
       expect(switchLeft('parameter-denoise-toggle'), 23);
+      expect(
+        switchTrackColor('parameter-denoise-toggle'),
+        const Color(0xFFFF55BE),
+      );
 
       expect(find.text('100'), findsOneWidget);
       await tester.tap(

@@ -17,9 +17,9 @@ import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
 import '../models/draft_project.dart';
 import 'finished_product_camera_screen.dart';
-import 'parameter_config_screen.dart';
 import 'result_screen.dart';
 import 'settings_screen.dart';
+import 'style_conversion_screen.dart';
 import 'upload_screen.dart';
 
 const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
@@ -931,13 +931,11 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
       if (!mounted || !identical(services, _backendServices)) return;
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
-          builder: (_) => ParameterConfigScreen(
-            popToPreviousOnBack: true,
-            showAiImageSaveAction: true,
+          builder: (_) => StyleConversionScreen(
+            initialConvertedImage: outputImage,
             draft: DraftProject(
               originalImageBytes: outputImage,
               croppedImageBytes: outputImage,
-              styledImageBytes: outputImage,
             ),
           ),
         ),
@@ -2262,8 +2260,8 @@ class _WorksSection extends StatelessWidget {
             child: _FinishedProductGallery(items: items, loading: loading),
           ),
           Positioned(
-            top: 422,
-            left: 103,
+            top: 365,
+            left: 250,
             child: _RecordButton(onTap: onRecordTap, loading: recording),
           ),
         ],
@@ -2521,36 +2519,94 @@ class _RecordButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: !loading,
-      label: '记录一下',
+      label: '咔嚓一下',
       child: GestureDetector(
         onTap: loading ? null : onTap,
-        child: Container(
-          width: 160,
+        child: SizedBox(
+          width: 126,
           height: 44,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.all(Radius.circular(22)),
-          ),
           child: loading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 2,
+              ? const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.black,
+                      strokeWidth: 2,
+                    ),
                   ),
                 )
-              : Text(
-                  '记录一下',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontFamily: _roundFontFamily,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    height: 1.1,
-                    fontFamilyFallback: _fontFallbacks,
-                  ),
+              : Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: 8,
+                      top: -8,
+                      child: Transform(
+                        transform: Matrix4.diagonal3Values(-1, 1, 1),
+                        alignment: Alignment.center,
+                        child: SvgPicture.asset(
+                          'assets/pin_icon/my_camera_button_icon.svg',
+                          width: 28.8395,
+                          height: 26.3962,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 30,
+                      top: 8,
+                      child: Transform.rotate(
+                        angle: -7.56 * math.pi / 180,
+                        alignment: Alignment.center,
+                        child: Stack(
+                          children: [
+                            Text(
+                              '咔嚓一下',
+                              style: TextStyle(
+                                foreground: Paint()
+                                  ..style = PaintingStyle.stroke
+                                  ..strokeWidth = 13
+                                  ..strokeJoin = StrokeJoin.round
+                                  ..strokeCap = StrokeCap.round
+                                  ..color = const Color(0xFFFFF09A),
+                                fontFamily: _pixelFontFamily,
+                                fontSize: 19.2,
+                                letterSpacing: 1.344,
+                                height: 1,
+                                fontFamilyFallback: _fontFallbacks,
+                              ),
+                            ),
+                            Text(
+                              '咔嚓一下',
+                              style: TextStyle(
+                                foreground: Paint()
+                                  ..style = PaintingStyle.stroke
+                                  ..strokeWidth = 0.6
+                                  ..strokeJoin = StrokeJoin.round
+                                  ..color = const Color(0xFF030303),
+                                fontFamily: _pixelFontFamily,
+                                fontSize: 19.2,
+                                letterSpacing: 1.344,
+                                height: 1,
+                                fontFamilyFallback: _fontFallbacks,
+                              ),
+                            ),
+                            const Text(
+                              '咔嚓一下',
+                              style: TextStyle(
+                                color: Color(0xFF030303),
+                                fontFamily: _pixelFontFamily,
+                                fontSize: 19.2,
+                                letterSpacing: 1.344,
+                                height: 1,
+                                fontFamilyFallback: _fontFallbacks,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
         ),
       ),

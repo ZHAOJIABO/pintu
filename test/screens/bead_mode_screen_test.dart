@@ -112,6 +112,17 @@ void main() {
     expect(placement.verticalRuler.height, 2080);
   });
 
+  test('ruler labels stop growing before three-digit indices overflow', () {
+    expect(
+      BoardRulerPlacement.scaledLabelFontSize(
+        labelBand: 10,
+        cellSize: 8,
+        scale: 18,
+      ),
+      16,
+    );
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('bead mode fits Figma layout on $viewport', (tester) async {
       _setViewport(tester, viewport);

@@ -13,6 +13,7 @@ import 'style_conversion_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
+const _accentColor = Color(0xFFFF55BE);
 
 class CropScreen extends StatefulWidget {
   final DraftProject draft;
@@ -46,7 +47,7 @@ class _CropScreenState extends State<CropScreen>
   ];
 
   final CropService _cropService = CropService();
-  CropAspectRatio _ratio = CropAspectRatio.square;
+  CropAspectRatio? _ratio;
   bool _cropping = false;
   bool _flipped = false;
   double _imageScale = 1;
@@ -56,6 +57,7 @@ class _CropScreenState extends State<CropScreen>
   Offset _offset = Offset.zero;
   int _imageWidth = 1;
   int _imageHeight = 1;
+  double _maxFixedMinImageScale = 0;
   Color _backgroundColor = const Color(0xFF478EA1);
   late final AnimationController _reboundController;
   double _reboundStartScale = 1;
@@ -69,9 +71,6 @@ class _CropScreenState extends State<CropScreen>
   @override
   void initState() {
     super.initState();
-    if (widget.ratioOptions case final options? when options.isNotEmpty) {
-      _ratio = options.first;
-    }
     _reboundController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 180),
@@ -91,8 +90,12 @@ class _CropScreenState extends State<CropScreen>
     _imageWidth = decoded.width;
     _imageHeight = decoded.height;
     _backgroundColor = _averageColor(decoded);
-    _imageScale = _minImageScale(_cropFrameSize(_ratio));
-    _offset = _clampOffset(Offset.zero, _cropFrameSize(_ratio), _imageScale);
+    _maxFixedMinImageScale = _availableRatioOptions
+        .map((ratio) => _minImageScale(_cropFrameSize(ratio)))
+        .fold(0.0, math.max);
+    _freeformCropRect = _initialFreeformCropRect();
+    _imageScale = _minImageScale(_cropFrameRect().size);
+    _offset = _clampOffset(Offset.zero, _cropFrameRect().size, _imageScale);
   }
 
   void _handleReboundTick() {
@@ -134,6 +137,32 @@ class _CropScreenState extends State<CropScreen>
     return Color.lerp(color, Colors.black, 0.12) ?? color;
   }
 
+  static const _cropFrameInset = 30.0;
+  static const _minFreeformCropSize = 128.0;
+
+  Rect _freeformCropRect = const Rect.fromLTWH(30, 188, 330, 330);
+
+  Rect get _cropStageBounds => Rect.fromLTWH(
+    _cropFrameInset,
+    _cropFrameInset,
+    _displayWidth - _cropFrameInset * 2,
+    _displayHeight - _cropFrameInset * 2,
+  );
+
+  Rect _initialFreeformCropRect() {
+    final bounds = _cropStageBounds;
+    final size = applyBoxFit(
+      BoxFit.contain,
+      Size(_imageWidth.toDouble(), _imageHeight.toDouble()),
+      bounds.size,
+    ).destination;
+    return Rect.fromCenter(
+      center: bounds.center,
+      width: size.width,
+      height: size.height,
+    );
+  }
+
   Size _cropFrameSize(CropAspectRatio ratio) {
     final value = ratio.value ?? 1;
     var width = _displayWidth - 60;
@@ -146,6 +175,20 @@ class _CropScreenState extends State<CropScreen>
     return Size(width, height);
   }
 
+  Rect _fixedCropFrameRect(CropAspectRatio ratio) {
+    final size = _cropFrameSize(ratio);
+    return Rect.fromCenter(
+      center: const Offset(_displayWidth / 2, _displayHeight / 2),
+      width: size.width,
+      height: size.height,
+    );
+  }
+
+  Rect _cropFrameRect() {
+    final ratio = _ratio;
+    return ratio == null ? _freeformCropRect : _fixedCropFrameRect(ratio);
+  }
+
   double _minImageScale(Size cropSize) {
     return math.max(
       cropSize.width / _imageWidth,
@@ -154,9 +197,13 @@ class _CropScreenState extends State<CropScreen>
   }
 
   double _maxImageScale(Size cropSize) {
-    final largestRequiredScale = _availableRatioOptions
-        .map((ratio) => _minImageScale(_cropFrameSize(ratio)))
-        .fold(_minImageScale(cropSize), math.max);
+    final largestRequiredScale = math.max(
+      _maxFixedMinImageScale,
+      math.max(
+        _minImageScale(_freeformCropRect.size),
+        _minImageScale(cropSize),
+      ),
+    );
     return largestRequiredScale * 8;
   }
 
@@ -184,14 +231,16 @@ class _CropScreenState extends State<CropScreen>
   }
 
   void _settleImageTransform({bool animate = true}) {
-    final cropSize = _cropFrameSize(_ratio);
+    final cropSize = _cropFrameRect().size;
     final targetScale = _clampImageScale(_imageScale, cropSize);
     final targetOffset = _clampOffset(_offset, cropSize, targetScale);
     final alreadySettled =
         (targetScale - _imageScale).abs() < 0.001 &&
         (targetOffset - _offset).distance < 0.001;
 
-    if (!animate || alreadySettled) {
+    if (alreadySettled) return;
+
+    if (!animate) {
       setState(() {
         _imageScale = targetScale;
         _offset = targetOffset;
@@ -214,8 +263,60 @@ class _CropScreenState extends State<CropScreen>
   void _setRatio(CropAspectRatio ratio) {
     _reboundController.stop();
     setState(() {
-      _ratio = ratio;
+      if (_ratio == ratio) {
+        _ratio = null;
+      } else {
+        _ratio = ratio;
+        _freeformCropRect = _fixedCropFrameRect(ratio);
+      }
     });
+    _settleImageTransform();
+  }
+
+  void _startCropResize() {
+    _reboundController.stop();
+  }
+
+  void _updateCropResize(_CropHandle handle, Offset delta) {
+    final start = _freeformCropRect;
+
+    final bounds = _cropStageBounds;
+    var left = start.left;
+    var top = start.top;
+    var right = start.right;
+    var bottom = start.bottom;
+
+    if (handle.movesLeft) {
+      left = (start.left + delta.dx)
+          .clamp(bounds.left, start.right - _minFreeformCropSize)
+          .toDouble();
+    }
+    if (handle.movesRight) {
+      right = (start.right + delta.dx)
+          .clamp(start.left + _minFreeformCropSize, bounds.right)
+          .toDouble();
+    }
+    if (handle.movesTop) {
+      top = (start.top + delta.dy)
+          .clamp(bounds.top, start.bottom - _minFreeformCropSize)
+          .toDouble();
+    }
+    if (handle.movesBottom) {
+      bottom = (start.bottom + delta.dy)
+          .clamp(start.top + _minFreeformCropSize, bounds.bottom)
+          .toDouble();
+    }
+
+    final nextRect = Rect.fromLTRB(left, top, right, bottom);
+    final nextScale = _clampImageScale(_imageScale, nextRect.size);
+    setState(() {
+      _freeformCropRect = nextRect;
+      _imageScale = nextScale;
+      _offset = _clampOffset(_offset, nextRect.size, nextScale);
+    });
+  }
+
+  void _endCropResize() {
     _settleImageTransform();
   }
 
@@ -224,18 +325,21 @@ class _CropScreenState extends State<CropScreen>
   }
 
   Future<void> _confirmCrop() async {
-    final cropSize = _cropFrameSize(_ratio);
+    final cropRect = _cropFrameRect();
+    final cropSize = cropRect.size;
     final renderScale = _clampImageScale(_imageScale, cropSize);
     final offset = _clampOffset(_offset, cropSize, renderScale);
+    final cropCenterOffset =
+        cropRect.center - const Offset(_displayWidth / 2, _displayHeight / 2);
 
     setState(() => _cropping = true);
     try {
       final cropped = await _cropService.cropToAspectRatioWithTransform(
         widget.draft.originalImageBytes,
-        _ratio,
+        _ratio ?? CropAspectRatio.freeform,
         renderScale: renderScale,
-        displayOffsetX: offset.dx,
-        displayOffsetY: offset.dy,
+        displayOffsetX: offset.dx - cropCenterOffset.dx,
+        displayOffsetY: offset.dy - cropCenterOffset.dy,
         cropDisplayWidth: cropSize.width,
         cropDisplayHeight: cropSize.height,
         flipped: _flipped,
@@ -247,7 +351,7 @@ class _CropScreenState extends State<CropScreen>
       }
       final nextDraft = widget.draft.copyWith(
         croppedImageBytes: cropped,
-        cropAspectRatio: _ratio,
+        cropAspectRatio: _ratio ?? CropAspectRatio.freeform,
       );
       final nextScreen = nextDraft.imageSource == DraftImageSource.photo
           ? StyleConversionScreen(draft: nextDraft)
@@ -336,7 +440,8 @@ class _CropScreenState extends State<CropScreen>
   }
 
   Widget _buildCropStage() {
-    final cropSize = _cropFrameSize(_ratio);
+    final cropRect = _cropFrameRect();
+    final cropSize = cropRect.size;
     final renderScale = _imageScale;
     final offset = _clampOffset(_offset, cropSize, renderScale);
     final imageSize = Size(
@@ -345,8 +450,8 @@ class _CropScreenState extends State<CropScreen>
     );
     final imageLeft = _displayWidth / 2 + offset.dx - imageSize.width / 2;
     final imageTop = _displayHeight / 2 + offset.dy - imageSize.height / 2;
-    final cropLeft = (_displayWidth - cropSize.width) / 2;
-    final cropTop = (_displayHeight - cropSize.height) / 2;
+    final cropLeft = cropRect.left;
+    final cropTop = cropRect.top;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -430,6 +535,23 @@ class _CropScreenState extends State<CropScreen>
                       ),
                     ),
                   ),
+                  if (_ratio == null) ...[
+                    const Positioned.fill(
+                      child: IgnorePointer(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.all(Radius.circular(14)),
+                          child: CustomPaint(painter: _CropGridPainter()),
+                        ),
+                      ),
+                    ),
+                    for (final handle in _CropHandle.values)
+                      _FreeformCropHandle(
+                        handle: handle,
+                        onStart: _startCropResize,
+                        onUpdate: (delta) => _updateCropResize(handle, delta),
+                        onEnd: _endCropResize,
+                      ),
+                  ],
                   if (widget.cropHint case final hint? when hint.isNotEmpty)
                     Positioned(
                       left: 12,
@@ -470,6 +592,130 @@ class _CropScreenState extends State<CropScreen>
   }
 }
 
+enum _CropHandle {
+  topLeft(movesLeft: true, movesTop: true, alignment: Alignment.topLeft),
+  top(movesTop: true, alignment: Alignment.topCenter),
+  topRight(movesRight: true, movesTop: true, alignment: Alignment.topRight),
+  right(movesRight: true, alignment: Alignment.centerRight),
+  bottomRight(
+    movesRight: true,
+    movesBottom: true,
+    alignment: Alignment.bottomRight,
+  ),
+  bottom(movesBottom: true, alignment: Alignment.bottomCenter),
+  bottomLeft(
+    movesLeft: true,
+    movesBottom: true,
+    alignment: Alignment.bottomLeft,
+  ),
+  left(movesLeft: true, alignment: Alignment.centerLeft);
+
+  final bool movesLeft;
+  final bool movesRight;
+  final bool movesTop;
+  final bool movesBottom;
+  final Alignment alignment;
+
+  const _CropHandle({
+    this.movesLeft = false,
+    this.movesRight = false,
+    this.movesTop = false,
+    this.movesBottom = false,
+    required this.alignment,
+  });
+}
+
+class _FreeformCropHandle extends StatelessWidget {
+  final _CropHandle handle;
+  final VoidCallback onStart;
+  final ValueChanged<Offset> onUpdate;
+  final VoidCallback onEnd;
+
+  const _FreeformCropHandle({
+    required this.handle,
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: handle.alignment,
+      child: Transform.translate(
+        offset: Offset(
+          handle.movesLeft
+              ? -28
+              : handle.movesRight
+              ? 28
+              : 0,
+          handle.movesTop
+              ? -28
+              : handle.movesBottom
+              ? 28
+              : 0,
+        ),
+        child: GestureDetector(
+          key: ValueKey('crop-handle-${handle.name}'),
+          behavior: HitTestBehavior.opaque,
+          onPanStart: (_) => onStart(),
+          onPanUpdate: (details) => onUpdate(details.delta),
+          onPanEnd: (_) => onEnd(),
+          onPanCancel: onEnd,
+          child: SizedBox(
+            width: 56,
+            height: 56,
+            child: Center(
+              child: Container(
+                width: handle.movesLeft || handle.movesRight
+                    ? (handle.movesTop || handle.movesBottom ? 15 : 22)
+                    : 22,
+                height: handle.movesTop || handle.movesBottom
+                    ? (handle.movesLeft || handle.movesRight ? 15 : 22)
+                    : 22,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: _accentColor, width: 2),
+                  borderRadius: BorderRadius.circular(5),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x59000000), blurRadius: 3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CropGridPainter extends CustomPainter {
+  const _CropGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.35)
+      ..strokeWidth = 1;
+    for (final fraction in [1 / 3, 2 / 3]) {
+      canvas.drawLine(
+        Offset(size.width * fraction, 0),
+        Offset(size.width * fraction, size.height),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(0, size.height * fraction),
+        Offset(size.width, size.height * fraction),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CropGridPainter oldDelegate) => false;
+}
+
 class _TransformedCropImage extends StatelessWidget {
   final Uint8List bytes;
   final bool flipped;
@@ -501,7 +747,7 @@ class _TransformedCropImage extends StatelessWidget {
 }
 
 class _CropToolbar extends StatelessWidget {
-  final CropAspectRatio selectedRatio;
+  final CropAspectRatio? selectedRatio;
   final List<CropAspectRatio> ratioOptions;
   final bool flipped;
   final bool cropping;

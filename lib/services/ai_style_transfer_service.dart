@@ -22,6 +22,7 @@ class AiStyleTransferService {
   Future<AIGenerationItem> submitAndWait({
     required String styleId,
     required Uint8List imageBytes,
+    void Function()? onTaskSubmitted,
   }) async {
     if (imageBytes.isEmpty) {
       throw StateError('风格转换缺少原图');
@@ -55,6 +56,7 @@ class AiStyleTransferService {
     // longer would make the next submission dedupe onto this task.
     await store.clearPendingStyleClientRequestId();
     await store.markAiTaskUnseen(created.taskId);
+    onTaskSubmitted?.call();
     return generations.waitForStyleGeneration(created.taskId);
   }
 }

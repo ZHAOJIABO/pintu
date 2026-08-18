@@ -55,6 +55,25 @@ void main() {
     expect(decoded.getPixel(1, 0).r.toInt(), 40);
   });
 
+  test(
+    'cropToAspectRatioWithTransform preserves a freeform frame size',
+    () async {
+      final cropped = await CropService().cropToAspectRatioWithTransform(
+        gridPng(),
+        CropAspectRatio.freeform,
+        renderScale: 10,
+        displayOffsetX: 0,
+        displayOffsetY: 0,
+        cropDisplayWidth: 40,
+        cropDisplayHeight: 20,
+      );
+
+      final decoded = img.decodePng(cropped)!;
+      expect(decoded.width, 4);
+      expect(decoded.height, 2);
+    },
+  );
+
   test('exportFinishedProduct writes a bounded JPEG export', () async {
     final source = img.Image(width: 2400, height: 1200);
 

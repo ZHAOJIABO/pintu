@@ -11,7 +11,7 @@ const _dialogTotalHeight = _dialogCardHeight + 16 + _dialogActionHeight;
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 
-enum PatternsHintDestination { patterns, favorites }
+enum PatternsHintDestination { patterns, favorites, drafts }
 
 /// Shows the Figma-designed hint that explains where saved patterns are kept.
 Future<void> showPatternsHintDialog(
@@ -205,6 +205,16 @@ class _HintTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFavorites = destination == PatternsHintDestination.favorites;
+    final title = switch (destination) {
+      PatternsHintDestination.patterns => '图纸也可以在“我的-图纸”中查看哦～',
+      PatternsHintDestination.favorites => '已保存至“我的-收藏”',
+      PatternsHintDestination.drafts => '草稿将保存在“我的-我的图纸”中',
+    };
+    final underline = switch (destination) {
+      PatternsHintDestination.patterns => (left: 119.0, width: 57.0),
+      PatternsHintDestination.favorites => (left: 67.0, width: 76.0),
+      PatternsHintDestination.drafts => (left: 81.0, width: 92.0),
+    };
     return SizedBox(
       width: 282,
       height: 32,
@@ -215,7 +225,7 @@ class _HintTitle extends StatelessWidget {
             top: 6,
             left: 0,
             child: Text(
-              isFavorites ? '已保存至“我的-收藏”' : '图纸也可以在“我的-图纸”中查看哦～',
+              title,
               style: const TextStyle(
                 color: Colors.black,
                 fontFamily: _roundFontFamily,
@@ -227,9 +237,9 @@ class _HintTitle extends StatelessWidget {
             ),
           ),
           Positioned(
-            left: isFavorites ? 67 : 119,
+            left: underline.left,
             bottom: 1,
-            width: isFavorites ? 76 : 57,
+            width: underline.width,
             height: 3,
             child: CustomPaint(
               painter: _HintUnderlinePainter(

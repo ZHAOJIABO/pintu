@@ -21,6 +21,7 @@ const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 const _pageBackground = Color(0xFFEEF0F6);
 const _controlBackground = Color(0xFFEEF0F6);
 const _switchTrack = Color(0xFFDEE2ED);
+const _activeSwitchTrack = Color(0xFFFF55BE);
 const _loadingRabbitIconAsset = 'assets/figma_style/loading_rabbit_icon.png';
 const _brandUnlimitedValue = '__unlimited__';
 
@@ -1087,7 +1088,7 @@ class _ControlSwitch extends StatelessWidget {
       height: 28,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: _switchTrack,
+          color: value ? _activeSwitchTrack : _switchTrack,
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(

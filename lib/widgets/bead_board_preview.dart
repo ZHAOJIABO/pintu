@@ -824,6 +824,11 @@ class BoardRulerPlacement {
   /// cover an ever-larger portion of the board at high zoom levels.
   static const double minBandSize = 5;
   static const double maxBandSize = 36;
+  static const double minLabelFontSize = 5;
+
+  /// Three-digit row and column labels must remain visible inside the fixed
+  /// 36px ruler band at the largest zoom level.
+  static const double maxLabelFontSize = 16;
 
   final Rect horizontalRuler;
   final Rect verticalRuler;
@@ -837,6 +842,14 @@ class BoardRulerPlacement {
     required double labelBand,
     required double scale,
   }) => (labelBand * scale).clamp(minBandSize, maxBandSize).toDouble();
+
+  static double scaledLabelFontSize({
+    required double labelBand,
+    required double cellSize,
+    required double scale,
+  }) => (math.min(labelBand * 0.62, cellSize * 0.72) * scale)
+      .clamp(minLabelFontSize, maxLabelFontSize)
+      .toDouble();
 
   factory BoardRulerPlacement.resolve({
     required Matrix4 transform,
@@ -922,9 +935,10 @@ class _PinnedBoardRulerPainter extends CustomPainter {
     final bandPaint = Paint()..color = const Color(0x99000000);
     final textStyle = TextStyle(
       color: Colors.white,
-      fontSize: (math.min(labelBand * 0.62, cellSize * 0.72) * scale).clamp(
-        5.0,
-        36.0,
+      fontSize: BoardRulerPlacement.scaledLabelFontSize(
+        labelBand: labelBand,
+        cellSize: cellSize,
+        scale: scale,
       ),
       fontFamily: 'Alimama FangYuanTi VF',
       fontFamilyFallback: const ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'],
