@@ -499,6 +499,379 @@ void main() {
       'POST /api/v1/admin/template-submissions/88/reject',
     ]);
   });
+
+  test('admin API creates a draft with the exact create field set', () async {
+    Map<String, dynamic>? body;
+    final calls = <String>[];
+    final client = await _authenticatedClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      if (request.url.path == '/api/v1/admin/media/upload') {
+        expect(request.headers['content-type'], 'image/png');
+        expect(request.bodyBytes, Uint8List.fromList([1, 2, 3]));
+        return _jsonResponse({'fileKey': 'admin_preview/draft.png'});
+      }
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/admin/template-drafts');
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return _jsonResponse({
+        'draft': {
+          'draftId': 'draft-1',
+          'updatedAt': '2026-08-19T10:03:00.123Z',
+        },
+      });
+    });
+
+    final result = await client.createDraft(
+      idempotencyKey: 'draft-request-1',
+      templateId: 'template-001',
+      title: '小狐狸',
+      description: '草稿说明',
+      categoryId: 7,
+      tags: '动物,入门',
+      difficulty: 1,
+      patternData: _pattern,
+      thumbnailBytes: Uint8List.fromList([1, 2, 3]),
+    );
+
+    expect(result.draftId, 'draft-1');
+    // Echoed verbatim: reformatting or truncating to seconds would break the
+    // server side optimistic lock, which compares for exact equality.
+    expect(result.updatedAt, '2026-08-19T10:03:00.123Z');
+    expect(body!.keys, {
+      'idempotencyKey',
+      'templateId',
+      'title',
+      'description',
+      'categoryId',
+      'tags',
+      'difficulty',
+      'previewFileKey',
+      'patternData',
+    });
+    expect(body!['previewFileKey'], 'admin_preview/draft.png');
+    expect(body!['patternData']['schemaVersion'], 1);
+    expect(
+      (body!['patternData']['pixels'] as List),
+      hasLength(_pattern.width * _pattern.height),
+    );
+    expect(calls, [
+      'POST /api/v1/admin/media/upload',
+      'POST /api/v1/admin/template-drafts',
+    ]);
+  });
+
+  test('admin API saves a draft without a thumbnail when none was rendered', () async {
+    Map<String, dynamic>? body;
+    final calls = <String>[];
+    final client = await _authenticatedClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return _jsonResponse({
+        'draft': {'draftId': 'draft-1', 'updatedAt': '2026-08-19T10:03:00.1Z'},
+      });
+    });
+
+    await client.createDraft(idempotencyKey: 'key', patternData: _pattern);
+
+    expect(body!['previewFileKey'], '');
+    expect(calls, ['POST /api/v1/admin/template-drafts']);
+  });
+
+  test('admin API refuses to create a draft without an idempotency key', () {
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        throw StateError('Unexpected request: ${request.url}');
+      }),
+    );
+
+    expect(
+      () => client.createDraft(idempotencyKey: '', patternData: _pattern),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
+
+  test('admin API updates a draft without the create-only fields', () async {
+    Map<String, dynamic>? body;
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'PUT');
+      expect(request.url.path, '/api/v1/admin/template-drafts/draft-1');
+      body = jsonDecode(request.body) as Map<String, dynamic>;
+      return _jsonResponse({
+        'draft': {
+          'draftId': 'draft-1',
+          'updatedAt': '2026-08-19T10:05:12.007Z',
+        },
+      });
+    });
+
+    final updatedAt = await client.updateDraft(
+      draftId: 'draft-1',
+      patternData: _pattern,
+      baseUpdatedAt: '2026-08-19T10:03:00.123Z',
+      title: '小狐狸',
+      categoryId: 7,
+    );
+
+    expect(updatedAt, '2026-08-19T10:05:12.007Z');
+    expect(body!.containsKey('idempotencyKey'), isFalse);
+    expect(body!.containsKey('templateId'), isFalse);
+    expect(body!['baseUpdatedAt'], '2026-08-19T10:03:00.123Z');
+    expect(body!.keys, {
+      'title',
+      'description',
+      'categoryId',
+      'tags',
+      'difficulty',
+      'previewFileKey',
+      'patternData',
+      'baseUpdatedAt',
+    });
+  });
+
+  test('admin API surfaces the conflict code when a draft moved on', () async {
+    final client = await _authenticatedClient((request) async {
+      return http.Response(
+        jsonEncode({
+          'header': {
+            'code': 4001,
+            'message': 'draft was modified by operator-b',
+          },
+        }),
+        409,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+
+    await expectLater(
+      client.updateDraft(
+        draftId: 'draft-1',
+        patternData: _pattern,
+        baseUpdatedAt: '2026-08-19T10:03:00.123Z',
+      ),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.code, 'code', AdminDraftErrorCode.conflict)
+            .having((e) => e.httpStatusCode, 'httpStatusCode', 409),
+      ),
+    );
+  });
+
+  test('admin API distinguishes the two 400 draft failures', () async {
+    for (final code in [
+      AdminDraftErrorCode.boxFull,
+      AdminDraftErrorCode.notPublishable,
+    ]) {
+      final client = await _authenticatedClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'header': {'code': code, 'message': 'draft rejected'},
+          }),
+          400,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+
+      await expectLater(
+        client.createDraft(idempotencyKey: 'key', patternData: _pattern),
+        throwsA(isA<ApiException>().having((e) => e.code, 'code', code)),
+      );
+    }
+  });
+
+  test('admin API publishes a draft with only the three publish fields', () async {
+    final calls = <String>[];
+    Map<String, dynamic>? publishBody;
+    final client = await _authenticatedClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      switch (request.url.path) {
+        case '/api/v1/admin/media/upload':
+          expect(request.bodyBytes, Uint8List.fromList([7, 8, 9]));
+          return _jsonResponse({'fileKey': 'admin_preview/draft.png'});
+        case '/api/v1/admin/template-drafts/draft-1/publish':
+          publishBody = jsonDecode(request.body) as Map<String, dynamic>;
+          return _jsonResponse({'templateId': 'template-777'});
+        default:
+          throw StateError('Unexpected request: ${request.url}');
+      }
+    });
+
+    final templateId = await client.publishDraft(
+      draftId: 'draft-1',
+      idempotencyKey: 'publish-request-1',
+      baseUpdatedAt: '2026-08-19T10:05:12.007Z',
+      thumbnailBytes: Uint8List.fromList([7, 8, 9]),
+    );
+
+    expect(templateId, 'template-777');
+    expect(publishBody, {
+      'idempotencyKey': 'publish-request-1',
+      'previewFileKey': 'admin_preview/draft.png',
+      'baseUpdatedAt': '2026-08-19T10:05:12.007Z',
+    });
+    expect(calls, [
+      'POST /api/v1/admin/media/upload',
+      'POST /api/v1/admin/template-drafts/draft-1/publish',
+    ]);
+  });
+
+  test('admin API lists drafts without pattern data', () async {
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/admin/template-drafts');
+      expect(request.url.queryParameters['page.page'], '1');
+      expect(request.url.queryParameters['page.pageSize'], '50');
+      return _jsonResponse({
+        'drafts': [
+          {
+            'draftId': 'draft-1',
+            'templateId': 'template-001',
+            'title': '小狐狸',
+            'categoryId': 7,
+            'categoryName': '动物',
+            'thumbnailUrl': '',
+            'width': 29,
+            'height': 29,
+            'colorCount': 8,
+            'updatedAt': '2026-08-19T10:03:00.123Z',
+            'updatedByActor': 'operator-b',
+          },
+          {
+            'draftId': 'draft-2',
+            'templateId': '',
+            'title': '',
+            'updatedAt': '2026-08-19T09:00:00.000Z',
+          },
+          {'draftId': ''},
+        ],
+        'page': {'total': 2, 'hasMore': false},
+      });
+    });
+
+    final page = await client.listDrafts();
+
+    expect(page.total, 2);
+    expect(page.hasMore, isFalse);
+    expect(page.drafts, hasLength(2));
+    final revision = page.drafts.first;
+    expect(revision.isRevision, isTrue);
+    expect(revision.updatedAt, '2026-08-19T10:03:00.123Z');
+    expect(revision.updatedByActor, 'operator-b');
+    final fresh = page.drafts.last;
+    expect(fresh.isRevision, isFalse);
+    expect(fresh.displayTitle, '未命名草稿');
+  });
+
+  test('admin API reads draft detail tags as a list', () async {
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/admin/template-drafts/draft-1');
+      return _jsonResponse({
+        'draft': {
+          'draftId': 'draft-1',
+          'templateId': 'template-001',
+          'title': '小狐狸',
+          'description': '草稿说明',
+          'categoryId': 7,
+          'tags': ['动物', '入门'],
+          'previewFileKey': '',
+          'updatedAt': '2026-08-19T10:03:00.123Z',
+        },
+        'patternData': {
+          'schemaVersion': 1,
+          'width': 2,
+          'height': 2,
+          'boardSpec': '2x2',
+          'pixels': [1, 0, 0, 1],
+          'colorPalette': [
+            {
+              'index': 1,
+              'hex': '#ff0000',
+              'brand': 'hama',
+              'code': 'H01',
+              'name': '红',
+            },
+          ],
+        },
+      });
+    });
+
+    final detail = await client.getDraft('draft-1');
+
+    expect(detail.tags, ['动物', '入门']);
+    expect(detail.description, '草稿说明');
+    expect(detail.previewFileKey, '');
+    expect(detail.patternData.pixels, [1, 0, 0, 1]);
+    expect(detail.draft.updatedAt, '2026-08-19T10:03:00.123Z');
+  });
+
+  test('admin API deletes a draft', () async {
+    final calls = <String>[];
+    final client = await _authenticatedClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      return _jsonResponse({});
+    });
+
+    await client.deleteDraft('draft-1');
+
+    expect(calls, ['DELETE /api/v1/admin/template-drafts/draft-1']);
+  });
+
+  test('admin templates report whether a draft is waiting', () async {
+    final client = await _authenticatedClient((request) async {
+      return _jsonResponse({
+        'templates': [
+          {
+            'templateId': 'template-001',
+            'title': '小狐狸',
+            'hasDraft': true,
+            'draftId': 'draft-1',
+          },
+          {'templateId': 'template-002', 'title': '小兔子'},
+        ],
+        'page': {'hasMore': false},
+      });
+    });
+
+    final templates = await client.listTemplates();
+
+    expect(templates.first.hasDraft, isTrue);
+    expect(templates.first.draftId, 'draft-1');
+    expect(templates.last.hasDraft, isFalse);
+    expect(templates.last.draftId, '');
+  });
+}
+
+const _pattern = PatternData(
+  width: 2,
+  height: 2,
+  boardSpec: '2x2',
+  pixels: [1, 0, 0, 1],
+  colorPalette: [
+    PatternPaletteColor(
+      index: 1,
+      hex: '#ff0000',
+      brand: 'hama',
+      code: 'H01',
+      name: '红',
+    ),
+  ],
+);
+
+/// Logs in so the caller's handler only sees the request under test.
+Future<AdminApi> _authenticatedClient(MockClientHandler handler) async {
+  final client = AdminApi(
+    baseUrl: 'http://api.example.test',
+    httpClient: MockClient((request) async {
+      if (request.url.path == '/api/v1/admin/login') {
+        return _jsonResponse({'accessToken': 'admin-token'});
+      }
+      expect(request.headers['authorization'], 'Bearer admin-token');
+      return handler(request);
+    }),
+  );
+  await client.login(username: 'operator', password: 'secret');
+  return client;
 }
 
 http.Response _jsonResponse(

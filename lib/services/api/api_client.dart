@@ -261,11 +261,7 @@ class ApiClient {
     await _handleResponse(response, includeAuth: includeAuth);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(
-        response.statusCode,
-        _httpErrorMessage(response),
-        httpStatusCode: response.statusCode,
-      );
+      throw _httpError(response);
     }
 
     final data = _decodeBody(response);
@@ -349,11 +345,7 @@ class ApiClient {
     await _handleResponse(response, includeAuth: includeAuth);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(
-        response.statusCode,
-        _httpErrorMessage(response),
-        httpStatusCode: response.statusCode,
-      );
+      throw _httpError(response);
     }
 
     final data = _decodeBody(response);
@@ -464,22 +456,39 @@ class ApiClient {
     );
   }
 
-  String _httpErrorMessage(http.Response response) {
-    if (response.bodyBytes.isEmpty) return 'request failed';
+  /// Builds the failure for a non-2xx response.
+  ///
+  /// The business `header.code` is preferred over the HTTP status because
+  /// several distinct codes share one status (the draft endpoints map both
+  /// "draft box full" and "draft not publishable" onto `400`), so callers
+  /// cannot branch on the status alone.
+  ApiException _httpError(http.Response response) {
+    final header = _errorHeader(response);
+    return ApiException(
+      header?.code != null && header!.code != 0
+          ? header.code
+          : response.statusCode,
+      header?.message ?? response.reasonPhrase ?? 'request failed',
+      traceId: header?.traceId,
+      httpStatusCode: response.statusCode,
+    );
+  }
+
+  ResponseHeader? _errorHeader(http.Response response) {
+    if (response.bodyBytes.isEmpty) return null;
     try {
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-      if (decoded is Map) {
-        final header = decoded['header'];
-        if (header is Map && header['message'] != null) {
-          return header['message'].toString();
-        }
-        if (decoded['message'] != null) return decoded['message'].toString();
-        if (decoded['error'] != null) return decoded['error'].toString();
+      if (decoded is! Map) return null;
+      final header = decoded['header'];
+      if (header is Map) {
+        return ResponseHeader.fromJson(header.cast<String, dynamic>());
       }
+      final message = decoded['message'] ?? decoded['error'];
+      if (message == null) return null;
+      return ResponseHeader(code: 0, message: message.toString());
     } catch (_) {
-      return response.reasonPhrase ?? 'request failed';
+      return null;
     }
-    return response.reasonPhrase ?? 'request failed';
   }
 
   Object? _redactSecretsForLog(

@@ -19,9 +19,16 @@ import 'admin_submission_review.dart';
 import 'admin_template_editor.dart';
 import 'admin_widgets.dart';
 
-enum _AdminSection { publish, chartImport, submissions, library }
+enum _AdminSection { publish, chartImport, submissions, library, drafts }
 
-enum _AdminMenuAction { publish, chartImport, submissions, library, logout }
+enum _AdminMenuAction {
+  publish,
+  chartImport,
+  submissions,
+  library,
+  drafts,
+  logout,
+}
 
 /// Internal admin portal for publishing official bead templates.
 class BoboBeadsAdminApp extends StatelessWidget {
@@ -111,6 +118,7 @@ class _AdminPortalState extends State<_AdminPortal> {
   _AdminSection _section = _AdminSection.publish;
   List<AdminTemplate> _templates = const [];
   List<AdminSubmission> _submissions = const [];
+  List<AdminTemplateDraft> _drafts = const [];
   AdminSubmissionStatus? _submissionFilter = AdminSubmissionStatus.pending;
   int _submissionPage = 1;
   int _submissionTotal = 0;
@@ -121,17 +129,26 @@ class _AdminPortalState extends State<_AdminPortal> {
   bool _loggingIn = false;
   bool _generating = false;
   bool _publishing = false;
+  bool _savingDraft = false;
   bool _loadingTemplates = false;
   bool _loadingSubmissions = false;
+  bool _loadingDrafts = false;
   bool _creatingCategory = false;
   bool _hasLoadedTemplates = false;
   bool _hasLoadedSubmissions = false;
+  bool _hasLoadedDrafts = false;
   String? _unpublishingTemplateId;
   String? _reviewingSubmissionId;
+  String? _busyDraftId;
+
+  /// The draft backing the publish workspace, so repeated saves update one draft
+  /// instead of filling the draft box with near-identical copies.
+  String? _workspaceDraftId;
+  String _workspaceDraftUpdatedAt = '';
   String? _error;
   String? _success;
 
-  bool get _isBusy => _loggingIn || _generating || _publishing;
+  bool get _isBusy => _loggingIn || _generating || _publishing || _savingDraft;
 
   // An imported chart has no source photo behind it, so every generation
   // setting is meaningless for it — and each one nulls out `_pattern`, which
@@ -198,6 +215,10 @@ class _AdminPortalState extends State<_AdminPortal> {
         _sourceImage = bytes;
         _pattern = null;
         _patternFromImport = false;
+        // A new source photo is a new piece of work, so later draft saves must
+        // not overwrite the draft the previous photo produced.
+        _workspaceDraftId = null;
+        _workspaceDraftUpdatedAt = '';
         _error = null;
         _success = null;
       });
@@ -279,12 +300,113 @@ class _AdminPortalState extends State<_AdminPortal> {
       if (!mounted) return;
       setState(() {
         _success = '发布成功：模板 ID $templateId';
+        // The draft was consumed by the publish, so a later save must start a
+        // new one.
+        _workspaceDraftId = null;
+        _workspaceDraftUpdatedAt = '';
+        _hasLoadedTemplates = false;
+        _hasLoadedDrafts = false;
       });
     } catch (error) {
       _setError('发布失败：${_errorMessage(error)}');
     } finally {
       if (mounted) setState(() => _publishing = false);
     }
+  }
+
+  /// Parks the workspace pattern in the draft box.
+  ///
+  /// Only the pattern is required: the draft endpoints accept a blank title,
+  /// category and difficulty on purpose, and the 358×358 thumbnail is skipped
+  /// entirely so saving does not re-upload a PNG every time. Both are validated
+  /// and generated at publish time instead.
+  Future<void> _saveWorkspaceDraft() async {
+    final pattern = _pattern;
+    if (pattern == null) {
+      _setError('请先生成图纸');
+      return;
+    }
+    setState(() {
+      _savingDraft = true;
+      _error = null;
+      _success = null;
+    });
+    try {
+      final patternData = PatternData.fromGeneratedPattern(pattern);
+      // The draft box can only show an uploaded thumbnail: the list response
+      // omits patternData, so a draft saved without one renders blank.
+      final thumbnail = await _previewExporter.exportGalleryThumbnailPng(
+        pattern,
+      );
+      final title = _titleController.text.trim();
+      final description = _descriptionController.text.trim();
+      final tags = _tagsController.text.trim();
+      final draftId = _workspaceDraftId;
+      if (draftId == null) {
+        final saved = await _api.createDraft(
+          idempotencyKey: 'admin-draft-${DateTime.now().microsecondsSinceEpoch}',
+          title: title,
+          description: description,
+          categoryId: _categoryId ?? 0,
+          tags: tags,
+          difficulty: _difficulty,
+          patternData: patternData,
+          thumbnailBytes: thumbnail,
+        );
+        if (!mounted) return;
+        setState(() {
+          _workspaceDraftId = saved.draftId;
+          _workspaceDraftUpdatedAt = saved.updatedAt;
+        });
+      } else {
+        final updatedAt = await _api.updateDraft(
+          draftId: draftId,
+          baseUpdatedAt: _workspaceDraftUpdatedAt,
+          title: title,
+          description: description,
+          categoryId: _categoryId ?? 0,
+          tags: tags,
+          difficulty: _difficulty,
+          patternData: patternData,
+          thumbnailBytes: thumbnail,
+        );
+        if (!mounted) return;
+        setState(() => _workspaceDraftUpdatedAt = updatedAt);
+      }
+      if (!mounted) return;
+      setState(() {
+        _success = '已存入草稿箱，可在「草稿箱」继续编辑。';
+        _hasLoadedDrafts = false;
+      });
+    } catch (error) {
+      if (error is ApiException &&
+          error.code == AdminDraftErrorCode.notFound &&
+          _workspaceDraftId != null) {
+        // Another operator published or deleted this draft; start a new one so
+        // the operator's work is not stuck against a dead id.
+        setState(() {
+          _workspaceDraftId = null;
+          _workspaceDraftUpdatedAt = '';
+        });
+        _setError('原草稿已被其他管理员处理，请再点一次「存入草稿箱」新建一份。');
+        return;
+      }
+      _setError('保存草稿失败：${_draftErrorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _savingDraft = false);
+    }
+  }
+
+  String _draftErrorMessage(Object error) {
+    if (error is ApiException) {
+      return switch (error.code) {
+        AdminDraftErrorCode.conflict => '这份草稿已被其他管理员修改，请到草稿箱重新打开。',
+        AdminDraftErrorCode.boxFull => '草稿箱已满（上限 200 份），请先清理再保存。',
+        AdminDraftErrorCode.notPublishable => error.message,
+        _ => error.message,
+      };
+    }
+    return _errorMessage(error);
   }
 
   Future<void> _editPattern([
@@ -318,6 +440,29 @@ class _AdminPortalState extends State<_AdminPortal> {
     }
     if (section == _AdminSection.submissions && !_hasLoadedSubmissions) {
       _loadSubmissions();
+    }
+    if (section == _AdminSection.drafts && !_hasLoadedDrafts) {
+      _loadDrafts();
+    }
+  }
+
+  Future<void> _loadDrafts() async {
+    if (_loadingDrafts) return;
+    setState(() {
+      _loadingDrafts = true;
+      _error = null;
+    });
+    try {
+      final result = await _api.listDrafts();
+      if (!mounted) return;
+      setState(() {
+        _drafts = result.drafts;
+        _hasLoadedDrafts = true;
+      });
+    } catch (error) {
+      _setError('加载草稿箱失败：${_draftErrorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _loadingDrafts = false);
     }
   }
 
@@ -442,30 +587,146 @@ class _AdminPortalState extends State<_AdminPortal> {
     }
   }
 
+  /// Opens the editor for a published template.
+  ///
+  /// When the template already has a draft the editor is pointed at that draft:
+  /// `PUT /admin/templates/{id}` does not know about drafts, so editing the
+  /// template directly would be silently overwritten the moment someone
+  /// published the pending revision.
   Future<void> _openTemplateEditor(AdminTemplate template) async {
     if (_isBusy || _unpublishingTemplateId != null) return;
-    final saved = await Navigator.of(context).push<bool>(
+    await _openEditor(
+      template: template,
+      draftId: template.hasDraft && template.draftId.isNotEmpty
+          ? template.draftId
+          : null,
+    );
+  }
+
+  Future<void> _openDraftEditor(AdminTemplateDraft draft) async {
+    if (_isBusy || _busyDraftId != null) return;
+    await _openEditor(draftId: draft.draftId);
+  }
+
+  Future<void> _openEditor({AdminTemplate? template, String? draftId}) async {
+    final result = await Navigator.of(context).push<AdminTemplateEditorResult>(
       MaterialPageRoute(
         builder: (_) => AdminTemplateEditorPage(
           api: _api,
           template: template,
+          draftId: draftId,
           categories: _categories,
         ),
       ),
     );
-    if (!mounted || saved != true) return;
+    if (!mounted || result == null) return;
+    setState(() {
+      _error = null;
+      _success = switch (result.outcome) {
+        AdminTemplateEditorOutcome.draftSaved => '已保存到草稿箱，线上版本未改动。',
+        AdminTemplateEditorOutcome.published => '已发布：模板 ID ${result.templateId}',
+        AdminTemplateEditorOutcome.draftDiscarded => '草稿已丢弃。',
+        AdminTemplateEditorOutcome.draftMissing => '这份草稿已不存在，可能已被其他管理员发布或删除。',
+      };
+    });
+    await _refreshAfterDraftChange();
+  }
+
+  /// Reloads both lists after a draft action, since publishing a draft changes
+  /// the library and every draft action changes the `hasDraft` badges.
+  Future<void> _refreshAfterDraftChange() async {
     try {
-      final categories = await _api.listCategories();
+      final drafts = await _api.listDrafts();
       final templates = await _api.listTemplates();
       if (!mounted) return;
       setState(() {
-        _categories = categories;
+        _drafts = drafts.drafts;
         _templates = templates;
-        _success = '模板修改已保存';
-        _error = null;
+        _hasLoadedDrafts = true;
+        _hasLoadedTemplates = true;
       });
     } catch (error) {
-      _setError('模板已保存，但刷新列表失败：${_errorMessage(error)}');
+      _setError('操作已完成，但刷新列表失败：${_draftErrorMessage(error)}');
+    }
+  }
+
+  /// Publishes a draft straight from its card.
+  ///
+  /// The listing omits `patternData`, so the detail has to be fetched to build
+  /// the 358×358 thumbnail the publish endpoint requires.
+  Future<void> _publishDraft(AdminTemplateDraft draft) async {
+    if (_isBusy || _busyDraftId != null) return;
+    setState(() {
+      _busyDraftId = draft.draftId;
+      _error = null;
+      _success = null;
+    });
+    try {
+      final detail = await _api.getDraft(draft.draftId);
+      final thumbnail = await _previewExporter.exportGalleryThumbnailPng(
+        detail.patternData.toGeneratedPattern(),
+      );
+      final templateId = await _api.publishDraft(
+        draftId: draft.draftId,
+        idempotencyKey: 'admin-publish-${DateTime.now().microsecondsSinceEpoch}',
+        baseUpdatedAt: detail.draft.updatedAt,
+        thumbnailBytes: thumbnail,
+      );
+      if (!mounted) return;
+      setState(() => _success = '已发布「${draft.displayTitle}」：模板 ID $templateId');
+      await _refreshAfterDraftChange();
+    } catch (error) {
+      _setError('发布草稿失败：${_draftErrorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _busyDraftId = null);
+    }
+  }
+
+  Future<void> _discardDraft(AdminTemplateDraft draft) async {
+    if (_isBusy || _busyDraftId != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('丢弃「${draft.displayTitle}」？'),
+        content: Text(
+          draft.isRevision ? '只会删除这份未发布的修订，线上模板保持不变。' : '草稿中的图纸和信息会被删除，无法恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFC6284A),
+            ),
+            child: const Text('丢弃'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _busyDraftId = draft.draftId;
+      _error = null;
+      _success = null;
+    });
+    try {
+      await _api.deleteDraft(draft.draftId);
+      if (!mounted) return;
+      setState(() {
+        _drafts = _drafts
+            .where((item) => item.draftId != draft.draftId)
+            .toList();
+        _success = '已丢弃「${draft.displayTitle}」';
+        // The badge on the related template card is now stale.
+        _hasLoadedTemplates = false;
+      });
+    } catch (error) {
+      _setError('丢弃草稿失败：${_draftErrorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _busyDraftId = null);
     }
   }
 
@@ -723,6 +984,8 @@ class _AdminPortalState extends State<_AdminPortal> {
                         _selectSection(_AdminSection.submissions);
                       case _AdminMenuAction.library:
                         _selectSection(_AdminSection.library);
+                      case _AdminMenuAction.drafts:
+                        _selectSection(_AdminSection.drafts);
                       case _AdminMenuAction.logout:
                         _logout();
                     }
@@ -754,6 +1017,13 @@ class _AdminPortalState extends State<_AdminPortal> {
                       child: ListTile(
                         leading: Icon(Icons.view_module_outlined),
                         title: Text('模板库'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _AdminMenuAction.drafts,
+                      child: ListTile(
+                        leading: Icon(Icons.bookmarks_outlined),
+                        title: Text('草稿箱'),
                       ),
                     ),
                     const PopupMenuDivider(),
@@ -793,6 +1063,12 @@ class _AdminPortalState extends State<_AdminPortal> {
                   selected: _section == _AdminSection.library,
                   onTap: () => _selectSection(_AdminSection.library),
                 ),
+                _WorkspaceTab(
+                  icon: Icons.bookmarks_outlined,
+                  label: '草稿箱',
+                  selected: _section == _AdminSection.drafts,
+                  onTap: () => _selectSection(_AdminSection.drafts),
+                ),
                 const _ModeChip(),
                 const SizedBox(width: 8),
                 TextButton.icon(
@@ -808,6 +1084,7 @@ class _AdminPortalState extends State<_AdminPortal> {
         _AdminSection.chartImport => _buildChartImportWorkspace(context),
         _AdminSection.submissions => _buildSubmissionQueue(context),
         _AdminSection.library => _buildTemplateLibrary(context),
+        _AdminSection.drafts => _buildDraftBox(context),
       },
     );
   }
@@ -817,6 +1094,7 @@ class _AdminPortalState extends State<_AdminPortal> {
     _AdminSection.chartImport => '现成图纸导入',
     _AdminSection.submissions => '用户投稿审核',
     _AdminSection.library => '官方模板库',
+    _AdminSection.drafts => '草稿箱',
   };
 
   String get _sectionShortTitle => switch (_section) {
@@ -824,6 +1102,7 @@ class _AdminPortalState extends State<_AdminPortal> {
     _AdminSection.chartImport => '图纸导入',
     _AdminSection.submissions => '投稿审核',
     _AdminSection.library => '模板库',
+    _AdminSection.drafts => '草稿箱',
   };
 
   Widget _buildChartImportWorkspace(BuildContext context) {
@@ -1154,6 +1433,28 @@ class _AdminPortalState extends State<_AdminPortal> {
           decoration: const InputDecoration(labelText: '模板说明'),
         ),
         const SizedBox(height: 4),
+        OutlinedButton.icon(
+          key: const ValueKey('admin-save-draft'),
+          onPressed: _isBusy ? null : _saveWorkspaceDraft,
+          icon: _savingDraft
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.bookmark_add_outlined),
+          label: Text(
+            _savingDraft
+                ? '正在保存…'
+                : _workspaceDraftId == null
+                ? '存入草稿箱'
+                : '更新草稿箱中的这份',
+          ),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+        ),
+        const SizedBox(height: 10),
         FilledButton.icon(
           onPressed: _isBusy ? null : _publish,
           icon: _publishing
@@ -1474,6 +1775,80 @@ class _AdminPortalState extends State<_AdminPortal> {
     );
   }
 
+  Widget _buildDraftBox(BuildContext context) {
+    if (_loadingDrafts && !_hasLoadedDrafts) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return RefreshIndicator(
+      onRefresh: _loadDrafts,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '草稿箱',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('共 ${_drafts.length} 份草稿，全部管理员可见可编辑，未发布不影响用户端。'),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _loadingDrafts ? null : _loadDrafts,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          if (_error != null || _success != null) ...[
+            const SizedBox(height: 16),
+            AdminNotice(message: _error ?? _success!, isError: _error != null),
+          ],
+          const SizedBox(height: 20),
+          if (_drafts.isEmpty)
+            const _EmptyDraftBox()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final count = constraints.maxWidth >= 1080
+                    ? 3
+                    : constraints.maxWidth >= 720
+                    ? 2
+                    : 1;
+                final width = (constraints.maxWidth - (count - 1) * 16) / count;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    for (final draft in _drafts)
+                      SizedBox(
+                        width: width,
+                        child: _DraftCard(
+                          api: _api,
+                          draft: draft,
+                          isBusy: _busyDraftId == draft.draftId,
+                          onEdit: () => _openDraftEditor(draft),
+                          onPublish: () => _publishDraft(draft),
+                          onDiscard: () => _discardDraft(draft),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
   List<_TemplateGroup> _templateGroups() {
     final groups = <_TemplateGroup>[];
     final assignedIds = <String>{};
@@ -1598,6 +1973,254 @@ class _EmptyTemplateLibrary extends StatelessWidget {
             SizedBox(height: 4),
             Text('完成发布后会按客户端分类显示在这里。'),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyDraftBox extends StatelessWidget {
+  const _EmptyDraftBox();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 72, horizontal: 24),
+        child: Column(
+          children: [
+            Icon(Icons.bookmarks_outlined, size: 48, color: Color(0xFFB7AEB7)),
+            SizedBox(height: 12),
+            Text('草稿箱是空的'),
+            SizedBox(height: 4),
+            Text('在发布工作台或模板库里保存草稿，就会出现在这里。'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DraftCard extends StatelessWidget {
+  final AdminApi api;
+  final AdminTemplateDraft draft;
+  final bool isBusy;
+  final VoidCallback onEdit;
+  final VoidCallback onPublish;
+  final VoidCallback onDiscard;
+
+  const _DraftCard({
+    required this.api,
+    required this.draft,
+    required this.isBusy,
+    required this.onEdit,
+    required this.onPublish,
+    required this.onDiscard,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: isBusy ? null : onEdit,
+                borderRadius: BorderRadius.circular(12),
+                child: _DraftThumbnail(api: api, draft: draft),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    draft.displayTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _DraftKindBadge(isRevision: draft.isRevision),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (draft.width > 0 && draft.height > 0)
+                  _CardMeta(label: '${draft.width}×${draft.height}'),
+                if (draft.colorCount > 0)
+                  _CardMeta(label: '${draft.colorCount} 色'),
+                if (draft.categoryName.isNotEmpty)
+                  _CardMeta(label: draft.categoryName),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _lastEditedLine(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFF6A6470), fontSize: 12),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: isBusy ? null : onEdit,
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('继续编辑'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isBusy ? null : onPublish,
+                    icon: isBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.publish_outlined, size: 18),
+                    label: Text(isBusy ? '处理中…' : '发布'),
+                  ),
+                ),
+                IconButton(
+                  onPressed: isBusy ? null : onDiscard,
+                  tooltip: '丢弃草稿',
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  color: const Color(0xFFC6284A),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _lastEditedLine() {
+    final actor = draft.updatedByActor.isEmpty ? '未知管理员' : draft.updatedByActor;
+    final at = formatAdminTimestamp(DateTime.tryParse(draft.updatedAt));
+    return '$actor 于 $at 修改';
+  }
+}
+
+/// Shows the draft's uploaded thumbnail, falling back to a local render.
+///
+/// The fallback costs one detail request per card, so it only runs for drafts
+/// saved before the thumbnail upload existed: the list response omits
+/// `patternData`, and fetching it for every card would restore exactly the
+/// payload the endpoint drops.
+class _DraftThumbnail extends StatefulWidget {
+  final AdminApi api;
+  final AdminTemplateDraft draft;
+
+  const _DraftThumbnail({required this.api, required this.draft});
+
+  @override
+  State<_DraftThumbnail> createState() => _DraftThumbnailState();
+}
+
+class _DraftThumbnailState extends State<_DraftThumbnail> {
+  PatternData? _patternData;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.draft.thumbnailUrl.isEmpty) _loadPattern();
+  }
+
+  Future<void> _loadPattern() async {
+    try {
+      final detail = await widget.api.getDraft(widget.draft.draftId);
+      if (!mounted) return;
+      setState(() => _patternData = detail.patternData);
+    } catch (_) {
+      // The placeholder already communicates that there is no preview.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _TemplatePreview(
+      url: widget.draft.thumbnailUrl,
+      patternData: _patternData,
+    );
+  }
+}
+
+class _DraftPendingBadge extends StatelessWidget {
+  const _DraftPendingBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF2DC),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Text(
+          '有草稿',
+          style: TextStyle(
+            color: Color(0xFF8A5A11),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DraftKindBadge extends StatelessWidget {
+  final bool isRevision;
+
+  const _DraftKindBadge({required this.isRevision});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isRevision ? const Color(0xFF8C3450) : const Color(0xFF2F6E4F);
+    final background = isRevision
+        ? const Color(0xFFF7EAF0)
+        : const Color(0xFFE6F3EB);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Text(
+          isRevision ? '模板修订' : '新图纸',
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
     );
@@ -1818,11 +2441,24 @@ class _TemplateLibraryCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            Text(
-              template.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    template.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (template.hasDraft) ...[
+                  const SizedBox(width: 8),
+                  const _DraftPendingBadge(),
+                ],
+              ],
             ),
             if (template.description.isNotEmpty) ...[
               const SizedBox(height: 4),
@@ -1854,7 +2490,7 @@ class _TemplateLibraryCard extends StatelessWidget {
                   child: FilledButton.icon(
                     onPressed: isUnpublishing ? null : onEdit,
                     icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('编辑'),
+                    label: Text(template.hasDraft ? '编辑草稿' : '编辑'),
                   ),
                 ),
                 const SizedBox(width: 8),
