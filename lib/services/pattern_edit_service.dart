@@ -195,6 +195,9 @@ class PatternEditService {
     );
   }
 
+  /// Paints a square footprint of [brushSize] beads per side, centred on
+  /// ([x], [y]). Even sizes cannot be centred exactly, so they extend right and
+  /// down from the touched bead.
   List<CellChange> _apply({
     required Uint8List pixels,
     required int width,
@@ -205,9 +208,11 @@ class PatternEditService {
     required BeadColor color,
   }) {
     final changes = <CellChange>[];
-    final radius = max(0, brushSize - 1);
-    for (int cy = y - radius; cy <= y + radius; cy++) {
-      for (int cx = x - radius; cx <= x + radius; cx++) {
+    final side = max(1, brushSize);
+    final startX = x - (side - 1) ~/ 2;
+    final startY = y - (side - 1) ~/ 2;
+    for (int cy = startY; cy < startY + side; cy++) {
+      for (int cx = startX; cx < startX + side; cx++) {
         if (cx < 0 || cy < 0 || cx >= width || cy >= height) continue;
         final offset = (cy * width + cx) * 4;
         final before = BeadColor.fromInt(

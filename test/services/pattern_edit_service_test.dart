@@ -6,6 +6,63 @@ import 'package:bobobeads/services/editor_history_service.dart';
 import 'package:bobobeads/services/pattern_edit_service.dart';
 
 void main() {
+  test('brushSize is the footprint side length in beads', () {
+    final editService = PatternEditService();
+    final red = BeadColor.fromInt(255, 0, 0, 255);
+
+    // Even sizes cannot be centred, so they extend right and down from (2, 2).
+    const expectedCells = <int, List<(int, int)>>{
+      1: [(2, 2)],
+      2: [(2, 2), (3, 2), (2, 3), (3, 3)],
+      3: [
+        (1, 1),
+        (2, 1),
+        (3, 1),
+        (1, 2),
+        (2, 2),
+        (3, 2),
+        (1, 3),
+        (2, 3),
+        (3, 3),
+      ],
+    };
+
+    for (final entry in expectedCells.entries) {
+      final changes = editService.paint(
+        pixels: Uint8List(5 * 5 * 4),
+        width: 5,
+        height: 5,
+        x: 2,
+        y: 2,
+        brushSize: entry.key,
+        color: red,
+      );
+      expect(
+        changes.map((change) => (change.x, change.y)).toSet(),
+        entry.value.toSet(),
+        reason:
+            'brushSize ${entry.key} should cover a '
+            '${entry.key}x${entry.key} square',
+      );
+    }
+  });
+
+  test('brushSize clips the footprint to the chart bounds', () {
+    final editService = PatternEditService();
+
+    final changes = editService.paint(
+      pixels: Uint8List(3 * 3 * 4),
+      width: 3,
+      height: 3,
+      x: 0,
+      y: 0,
+      brushSize: 5,
+      color: BeadColor.fromInt(255, 0, 0, 255),
+    );
+
+    expect(changes, hasLength(9));
+  });
+
   test('paint changes a bead and history can undo and redo it', () {
     final pixels = Uint8List(2 * 2 * 4);
     final editService = PatternEditService();

@@ -2332,18 +2332,8 @@ class _EditorToolbar extends StatelessWidget {
   }
 }
 
-const _brushSizeOptions = <_BrushSizeOption>[
-  _BrushSizeOption(size: 1, label: '1x1'),
-  _BrushSizeOption(size: 2, label: '3x3'),
-  _BrushSizeOption(size: 3, label: '5x5'),
-];
-
-class _BrushSizeOption {
-  final int size;
-  final String label;
-
-  const _BrushSizeOption({required this.size, required this.label});
-}
+/// Brush footprint side lengths, in beads.
+const _brushSizeOptions = <int>[1, 2, 3, 5];
 
 /// Size picker shared by the brush and the eraser, so switching tools keeps the
 /// chosen footprint.
@@ -2372,13 +2362,13 @@ class _BrushSizeSelector extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        for (final option in _brushSizeOptions)
+        for (final size in _brushSizeOptions)
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: _BrushSizeChip(
-              option: option,
-              selected: option.size == selectedSize,
-              onPressed: () => onSelected(option.size),
+              size: size,
+              selected: size == selectedSize,
+              onPressed: () => onSelected(size),
             ),
           ),
       ],
@@ -2387,26 +2377,27 @@ class _BrushSizeSelector extends StatelessWidget {
 }
 
 class _BrushSizeChip extends StatelessWidget {
-  final _BrushSizeOption option;
+  final int size;
   final bool selected;
   final VoidCallback onPressed;
 
   const _BrushSizeChip({
-    required this.option,
+    required this.size,
     required this.selected,
     required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
+    final label = '${size}x$size';
     return Semantics(
       button: true,
       selected: selected,
-      label: '画笔大小 ${option.label}',
+      label: '画笔大小 $label',
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          key: ValueKey('editor-brush-size-option-${option.size}'),
+          key: ValueKey('editor-brush-size-option-$size'),
           onTap: onPressed,
           borderRadius: const BorderRadius.all(Radius.circular(99)),
           child: Container(
@@ -2418,7 +2409,7 @@ class _BrushSizeChip extends StatelessWidget {
               borderRadius: const BorderRadius.all(Radius.circular(99)),
             ),
             child: Text(
-              option.label,
+              label,
               style: TextStyle(
                 color: selected ? Colors.white : Colors.black,
                 fontFamily: 'Alimama FangYuanTi VF',

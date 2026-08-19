@@ -98,6 +98,7 @@ void main() {
     );
     expect(find.text('画笔大小'), findsOneWidget);
     expect(find.text('1x1'), findsOneWidget);
+    expect(find.text('2x2'), findsOneWidget);
     expect(find.text('3x3'), findsOneWidget);
     expect(find.text('5x5'), findsOneWidget);
     expect(_chipBackground(tester, 1), Colors.black);
@@ -114,7 +115,7 @@ void main() {
     await tester.pump();
     expect(_chipBackground(tester, 2), Colors.black);
 
-    // A 3x3 footprint centred on the top-left bead covers the whole 2x2 chart.
+    // A 2x2 footprint anchored on the top-left bead covers the whole 2x2 chart.
     await _tapFirstCell(tester);
     final painted = _patternCells(tester);
     expect(painted.toSet(), hasLength(1));
