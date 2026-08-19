@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/color_limit.dart';
 import '../models/draft_project.dart';
+import '../models/generated_pattern.dart';
 import '../models/product_template.dart';
 import '../navigation/home_navigation.dart';
 import '../services/api/api_scope.dart';
@@ -24,6 +26,9 @@ const _switchTrack = Color(0xFFDEE2ED);
 const _activeSwitchTrack = Color(0xFFFF55BE);
 const _loadingRabbitIconAsset = 'assets/figma_style/loading_rabbit_icon.png';
 const _brandUnlimitedValue = '__unlimited__';
+const _parameterPreviewMaxDimension = 64;
+const _parameterPreviewDebounce = Duration(milliseconds: 160);
+const _parameterPreviewSliderDebounce = Duration(milliseconds: 300);
 
 const _sizeOptions = <ProductTemplate>[
   ProductTemplate(
@@ -110,6 +115,23 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late int _saturation = _clampSaturation(widget.draft.saturation);
   bool _generating = false;
   bool _savingAiImage = false;
+  final Map<_ParameterPreviewCacheKey, GeneratedPattern> _previewCache = {};
+  Timer? _previewDebounce;
+  int _previewRequestVersion = 0;
+  GeneratedPattern? _parameterPreview;
+  bool _updatingParameterPreview = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleParameterPreview(delay: Duration.zero);
+  }
+
+  @override
+  void dispose() {
+    _previewDebounce?.cancel();
+    super.dispose();
+  }
 
   ProductTemplate get _customTemplate =>
       _sizeOptions.firstWhere((template) => template.custom);
@@ -159,6 +181,90 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     final nextSaturation = _clampSaturation(value);
     if (nextSaturation == _saturation) return;
     setState(() => _saturation = nextSaturation);
+  }
+
+  int get _parameterPreviewDimension {
+    final targetSize = _selectedTemplate.custom
+        ? _customSize
+        : _selectedTemplate.beadWidth;
+    return targetSize.clamp(1, _parameterPreviewMaxDimension).toInt();
+  }
+
+  void _scheduleParameterPreview({Duration delay = _parameterPreviewDebounce}) {
+    final requestVersion = ++_previewRequestVersion;
+    _previewDebounce?.cancel();
+    if (mounted) setState(() => _updatingParameterPreview = true);
+    _previewDebounce = Timer(delay, () {
+      unawaited(_generateParameterPreview(requestVersion));
+    });
+  }
+
+  Future<void> _generateParameterPreview(int requestVersion) async {
+    final brandId = _effectiveBrandId;
+    if (brandId == null) {
+      if (mounted && requestVersion == _previewRequestVersion) {
+        setState(() {
+          _parameterPreview = null;
+          _updatingParameterPreview = false;
+        });
+      }
+      return;
+    }
+
+    final dimension = _parameterPreviewDimension;
+    final cacheKey = _ParameterPreviewCacheKey(
+      dimension: dimension,
+      colorLimit: _limit,
+      paletteBrandId: brandId,
+      saturation: _saturation,
+    );
+    final cachedPreview = _previewCache[cacheKey];
+    if (cachedPreview != null) {
+      if (mounted && requestVersion == _previewRequestVersion) {
+        setState(() {
+          _parameterPreview = cachedPreview;
+          _updatingParameterPreview = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final palette = await _paletteService.loadByName(brandId);
+      final previewTemplate = ProductTemplate(
+        id: 'parameter-preview-$dimension',
+        name: '参数预览',
+        subtitle: '$dimension',
+        physicalSizeCm: null,
+        beadWidth: dimension,
+        beadHeight: dimension,
+        defaultAspectRatio: CropAspectRatio.square,
+      );
+      final previewDraft = DraftProject(
+        originalImageBytes: _previewImage,
+        croppedImageBytes: _previewImage,
+        selectedTemplate: previewTemplate,
+        paletteBrandId: brandId,
+        colorLimit: _limit,
+        // 参数页只做低清效果预览；背景移除与抖动留给最终生成。
+        smoothingEnabled: false,
+        removeBackground: false,
+        saturation: _saturation,
+      );
+      final preview = await _generationService.generate(
+        draft: previewDraft,
+        palette: palette,
+      );
+      _previewCache[cacheKey] = preview;
+      if (!mounted || requestVersion != _previewRequestVersion) return;
+      setState(() {
+        _parameterPreview = preview;
+        _updatingParameterPreview = false;
+      });
+    } catch (_) {
+      if (!mounted || requestVersion != _previewRequestVersion) return;
+      setState(() => _updatingParameterPreview = false);
+    }
   }
 
   Future<void> _saveAiGeneratedImage() async {
@@ -299,6 +405,10 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           aspectRatio: _previewAspectRatio,
                           saturation: _saturation,
                           loading: _generating,
+                          preview: _parameterPreview,
+                          previewUpdating: _updatingParameterPreview,
+                          previewDimension: _parameterPreviewDimension,
+                          colorLimit: _limit,
                         ),
                       ),
                       Expanded(
@@ -318,11 +428,15 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                             setState(() {
                               _selectedTemplate = template;
                             });
+                            _scheduleParameterPreview();
                           },
                           onCustomSizeChanged: (value) {
                             setState(() {
                               _customSize = value;
                             });
+                            _scheduleParameterPreview(
+                              delay: _parameterPreviewSliderDebounce,
+                            );
                           },
                           onSmoothingChanged: () {
                             setState(() {
@@ -352,11 +466,13 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                                   ? null
                                   : value;
                             });
+                            _scheduleParameterPreview();
                           },
                           onColorLimitSelected: (limit) {
                             setState(() {
                               _limit = limit;
                             });
+                            _scheduleParameterPreview();
                           },
                           onGenerate: _generate,
                         ),
@@ -469,12 +585,20 @@ class _ImagePreviewStage extends StatelessWidget {
   final double aspectRatio;
   final int saturation;
   final bool loading;
+  final GeneratedPattern? preview;
+  final bool previewUpdating;
+  final int previewDimension;
+  final ColorLimit colorLimit;
 
   const _ImagePreviewStage({
     required this.imageBytes,
     required this.aspectRatio,
     required this.saturation,
     required this.loading,
+    required this.preview,
+    required this.previewUpdating,
+    required this.previewDimension,
+    required this.colorLimit,
   });
 
   @override
@@ -519,6 +643,13 @@ class _ImagePreviewStage extends StatelessWidget {
                       fit: StackFit.expand,
                       children: [
                         _previewImage(),
+                        if (preview != null)
+                          _ParameterPatternPreview(pattern: preview!),
+                        _ParameterPreviewCaption(
+                          dimension: previewDimension,
+                          colorLimit: colorLimit,
+                          updating: previewUpdating,
+                        ),
                         if (loading) const _ParameterLoadingOverlay(),
                       ],
                     ),
@@ -562,6 +693,135 @@ class _ImagePreviewStage extends StatelessWidget {
     }
     return Size(width, height);
   }
+}
+
+class _ParameterPatternPreview extends StatelessWidget {
+  final GeneratedPattern pattern;
+
+  const _ParameterPatternPreview({required this.pattern});
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      key: const ValueKey('parameter-pattern-preview'),
+      child: CustomPaint(
+        painter: _ParameterPatternPreviewPainter(pattern: pattern),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _ParameterPatternPreviewPainter extends CustomPainter {
+  final GeneratedPattern pattern;
+
+  const _ParameterPatternPreviewPainter({required this.pattern});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cellWidth = size.width / pattern.width;
+    final cellHeight = size.height / pattern.height;
+    final pixels = pattern.pixels;
+    final fill = Paint()..isAntiAlias = false;
+    final grid = Paint()
+      ..color = Colors.white.withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5;
+    final drawGrid = math.min(cellWidth, cellHeight) >= 4;
+
+    for (var y = 0; y < pattern.height; y++) {
+      for (var x = 0; x < pattern.width; x++) {
+        final offset = (y * pattern.width + x) * 4;
+        final alpha = pixels[offset + 3];
+        fill.color = Color.fromARGB(
+          alpha,
+          pixels[offset],
+          pixels[offset + 1],
+          pixels[offset + 2],
+        );
+        final rect = Rect.fromLTWH(
+          x * cellWidth,
+          y * cellHeight,
+          cellWidth + 0.1,
+          cellHeight + 0.1,
+        );
+        canvas.drawRect(rect, fill);
+        if (drawGrid) canvas.drawRect(rect, grid);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ParameterPatternPreviewPainter oldDelegate) =>
+      !identical(oldDelegate.pattern, pattern);
+}
+
+class _ParameterPreviewCaption extends StatelessWidget {
+  final int dimension;
+  final ColorLimit colorLimit;
+  final bool updating;
+
+  const _ParameterPreviewCaption({
+    required this.dimension,
+    required this.colorLimit,
+    required this.updating,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = colorLimit.value == null
+        ? '$dimension × $dimension 预览'
+        : '$dimension × $dimension · ${colorLimit.label} 色预览';
+    return Positioned(
+      left: 8,
+      bottom: 8,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.48),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Text(
+            updating ? '预览更新中' : label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: _roundFontFamily,
+              fontFamilyFallback: _fontFallbacks,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ParameterPreviewCacheKey {
+  final int dimension;
+  final ColorLimit colorLimit;
+  final String paletteBrandId;
+  final int saturation;
+
+  const _ParameterPreviewCacheKey({
+    required this.dimension,
+    required this.colorLimit,
+    required this.paletteBrandId,
+    required this.saturation,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ParameterPreviewCacheKey &&
+      dimension == other.dimension &&
+      colorLimit == other.colorLimit &&
+      paletteBrandId == other.paletteBrandId &&
+      saturation == other.saturation;
+
+  @override
+  int get hashCode =>
+      Object.hash(dimension, colorLimit, paletteBrandId, saturation);
 }
 
 class _ParameterLoadingOverlay extends StatelessWidget {
