@@ -287,6 +287,21 @@ class AdminApi {
       platform: 'web',
       tokenProvider: () async => _accessToken,
       deviceIdProvider: () async => 'admin-web',
+      onUnauthorized: () async {
+        // Admin sessions have no refresh endpoint. Let the caller surface the
+        // error, but clear the in-memory session so the next build shows login.
+        _accessToken = null;
+        return false;
+      },
+      onResponse: (response) async {
+        // `package:http` normalizes response header names to lowercase.
+        // The header is intentionally absent until the current token is past
+        // half of its idle timeout, so never clear the existing token here.
+        final fresh = response.headers['x-admin-access-token'];
+        if (fresh != null && fresh.isNotEmpty) {
+          _accessToken = fresh;
+        }
+      },
     );
   }
 

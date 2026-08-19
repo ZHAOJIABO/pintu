@@ -8,6 +8,7 @@ import 'vendor_identifier.dart';
 typedef TokenProvider = Future<String?> Function();
 typedef DeviceIdProvider = Future<String> Function();
 typedef UnauthorizedHandler = Future<bool> Function();
+typedef ApiResponseHandler = Future<void> Function(http.Response response);
 
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
@@ -22,6 +23,7 @@ class ApiClient {
   final DeviceIdProvider deviceIdProvider;
   final DeviceInfoProvider deviceInfoProvider;
   final UnauthorizedHandler? onUnauthorized;
+  final ApiResponseHandler? onResponse;
   final String appVersion;
   final String platform;
 
@@ -32,6 +34,7 @@ class ApiClient {
     required this.deviceIdProvider,
     this.deviceInfoProvider = const DeviceInfoProvider(),
     this.onUnauthorized,
+    this.onResponse,
     this.appVersion = '1.0.0',
     String? platform,
   }) : baseUri = Uri.parse(baseUrl),
@@ -255,6 +258,8 @@ class ApiClient {
       }
     }
 
+    await _handleResponse(response, includeAuth: includeAuth);
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         response.statusCode,
@@ -341,6 +346,8 @@ class ApiClient {
       }
     }
 
+    await _handleResponse(response, includeAuth: includeAuth);
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         response.statusCode,
@@ -411,6 +418,21 @@ class ApiClient {
     final handler = onUnauthorized;
     if (handler == null) return false;
     return handler();
+  }
+
+  /// Observes successful authenticated responses before their payload is
+  /// decoded. Callers can use this for response-header based session rotation
+  /// without coupling the shared client to a specific authentication scheme.
+  Future<void> _handleResponse(
+    http.Response response, {
+    required bool includeAuth,
+  }) async {
+    if (!includeAuth ||
+        response.statusCode < 200 ||
+        response.statusCode >= 300) {
+      return;
+    }
+    await onResponse?.call(response);
   }
 
   Uri _resolve(String path, Map<String, Object?> query) {

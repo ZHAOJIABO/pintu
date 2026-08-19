@@ -40,6 +40,68 @@ void main() {
     expect(categories.single.id, 7);
   });
 
+  test('admin API replaces its token only when a response rotates it', () async {
+    var protectedRequestCount = 0;
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/api/v1/admin/login') {
+          return _jsonResponse({'accessToken': 'original-token'});
+        }
+
+        protectedRequestCount += 1;
+        expect(
+          request.headers['authorization'],
+          'Bearer ${protectedRequestCount == 1 ? 'original-token' : 'rotated-token'}',
+        );
+        if (protectedRequestCount == 1) {
+          return _jsonResponse(
+            {'categories': <Object?>[]},
+            headers: const {'x-admin-access-token': 'rotated-token'},
+          );
+        }
+        return _jsonResponse({'categories': <Object?>[]});
+      }),
+    );
+
+    await client.login(username: 'operator', password: 'secret');
+    await client.listCategories();
+    await client.listCategories();
+
+    expect(protectedRequestCount, 2);
+    expect(client.isAuthenticated, isTrue);
+  });
+
+  test('admin API clears its session on 401 without retrying', () async {
+    var protectedRequestCount = 0;
+    final client = AdminApi(
+      baseUrl: 'http://api.example.test',
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/api/v1/admin/login') {
+          return _jsonResponse({'accessToken': 'admin-token'});
+        }
+        protectedRequestCount += 1;
+        return http.Response(
+          jsonEncode({
+            'header': {
+              'code': 1101,
+              'message': 'administrator authentication required',
+            },
+          }),
+          401,
+          headers: const {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await client.login(username: 'operator', password: 'secret');
+
+    await expectLater(client.listCategories(), throwsA(isA<ApiException>()));
+
+    expect(protectedRequestCount, 1);
+    expect(client.isAuthenticated, isFalse);
+  });
+
   test(
     'admin API uploads the gallery thumbnail before publishing pattern data',
     () async {
@@ -439,13 +501,16 @@ void main() {
   });
 }
 
-http.Response _jsonResponse(Map<String, Object?> body) {
+http.Response _jsonResponse(
+  Map<String, Object?> body, {
+  Map<String, String> headers = const {},
+}) {
   return http.Response(
     jsonEncode({
       'header': {'code': 0, 'message': 'success'},
       ...body,
     }),
     200,
-    headers: const {'content-type': 'application/json; charset=utf-8'},
+    headers: {'content-type': 'application/json; charset=utf-8', ...headers},
   );
 }
