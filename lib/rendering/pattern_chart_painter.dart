@@ -412,8 +412,8 @@ class PatternChartPagePainter extends CustomPainter {
   static const double pageMargin = 32;
   static const double headerHeight = 88;
   static const double legendTopPadding = 28;
-  static const double legendItemWidth = 88;
-  static const double legendItemHeight = 82;
+  static const double legendItemWidth = 124;
+  static const double legendItemHeight = 60;
 
   final PatternChartData chart;
   final Map<String, int> usage;
@@ -595,9 +595,10 @@ class PatternChartPagePainter extends CustomPainter {
         ),
       );
 
+      // 数量贴近所属色块，项目末尾保留较大留白以区分下一色号。
       final countPainter = TextPainter(
         text: TextSpan(
-          text: 'x${item.count}',
+          text: '×${item.count}',
           style: const TextStyle(
             color: Color(0xFF111111),
             fontSize: 17,
@@ -606,8 +607,11 @@ class PatternChartPagePainter extends CustomPainter {
           ),
         ),
         textDirection: TextDirection.ltr,
-      )..layout(maxWidth: legendItemWidth);
-      countPainter.paint(canvas, Offset(x + 4, y + 62));
+      )..layout(maxWidth: legendItemWidth - 60);
+      countPainter.paint(
+        canvas,
+        Offset(x + 60, y + 26 - countPainter.height / 2),
+      );
     }
   }
 
