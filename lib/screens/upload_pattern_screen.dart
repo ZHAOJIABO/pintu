@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../widgets/pattern_display_placeholder.dart';
 
 const _uploadPatternBackground = Color(0xFFF0F2F6);
 const _uploadPatternFontFamily = 'Alimama FangYuanTi VF';
@@ -394,11 +395,14 @@ class _EmptyUploadPatternSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return ClipRRect(
       key: ValueKey('upload-pattern-empty-$index'),
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFF0F2F6)),
-        borderRadius: const BorderRadius.all(Radius.circular(12)),
+      borderRadius: const BorderRadius.all(Radius.circular(12)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFF0F2F6)),
+        ),
+        child: const PatternDisplayPlaceholder(),
       ),
     );
   }
@@ -563,19 +567,31 @@ class _SubmissionThumbnail extends StatelessWidget {
     final isNetworkImage =
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
     if (url.isEmpty) {
-      return const ColoredBox(color: Color(0xFFF0F2F6));
+      return const PatternDisplayPlaceholder();
     }
     if (!isNetworkImage) {
-      return Image.asset(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFF0F2F6)),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          const PatternDisplayPlaceholder(),
+          Image.asset(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.expand(),
+          ),
+        ],
       );
     }
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFF0F2F6)),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const PatternDisplayPlaceholder(),
+        Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const SizedBox.expand(),
+        ),
+      ],
     );
   }
 }
@@ -668,17 +684,30 @@ class _WorkThumbnail extends StatelessWidget {
     final uri = Uri.tryParse(url);
     final isNetworkImage =
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+    if (url.isEmpty) return const PatternDisplayPlaceholder();
     if (!isNetworkImage) {
-      return Image.asset(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFF0F2F6)),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          const PatternDisplayPlaceholder(),
+          Image.asset(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.expand(),
+          ),
+        ],
       );
     }
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFF0F2F6)),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const PatternDisplayPlaceholder(),
+        Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => const SizedBox.expand(),
+        ),
+      ],
     );
   }
 }

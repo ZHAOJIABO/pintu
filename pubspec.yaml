@@ -36,6 +36,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/figma_common/
     - assets/figma_home/
     - assets/figma_home/blind_box/
     - assets/figma_my/

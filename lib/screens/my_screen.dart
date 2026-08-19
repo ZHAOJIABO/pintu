@@ -15,6 +15,7 @@ import '../services/camera_permission_service.dart';
 import '../services/crop_service.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
+import '../widgets/pattern_display_placeholder.dart';
 import '../models/draft_project.dart';
 import 'finished_product_camera_screen.dart';
 import 'result_screen.dart';
@@ -1549,7 +1550,7 @@ class _RecentPatternPreview extends StatelessWidget {
     final item = template;
     final thumbnailUrl = item?.thumbnailUrl.isNotEmpty == true
         ? item!.thumbnailUrl
-        : item?.previewUrl ?? 'assets/figma_home/gallery_pattern_3.png';
+        : item?.previewUrl ?? '';
     final uri = Uri.tryParse(thumbnailUrl);
     final isNetworkImage =
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
@@ -1563,28 +1564,26 @@ class _RecentPatternPreview extends StatelessWidget {
         width: 130,
         height: 130,
         child: ClipRect(
-          child: isNetworkImage
-              ? Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.asset(
-                      'assets/figma_home/gallery_pattern_3.png',
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.medium,
-                    ),
-                    Image.network(
-                      thumbnailUrl,
-                      fit: BoxFit.cover,
-                      filterQuality: FilterQuality.medium,
-                      errorBuilder: (_, _, _) => const SizedBox.expand(),
-                    ),
-                  ],
-                )
-              : Image.asset(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              const PatternDisplayPlaceholder(),
+              if (isNetworkImage)
+                Image.network(
                   thumbnailUrl,
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const SizedBox.expand(),
+                )
+              else if (thumbnailUrl.isNotEmpty)
+                Image.asset(
+                  thumbnailUrl,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (_, _, _) => const SizedBox.expand(),
                 ),
+            ],
+          ),
         ),
       ),
     );
@@ -1828,9 +1827,8 @@ class _CreationTaskImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const fallback = galleryFallbackThumbnailUrl;
     if (imageUrl.isEmpty) {
-      return Image.asset(fallback, fit: BoxFit.cover);
+      return const PatternDisplayPlaceholder();
     }
     final uri = Uri.tryParse(imageUrl);
     final isNetworkImage =
@@ -1841,18 +1839,24 @@ class _CreationTaskImage extends StatelessWidget {
     );
 
     if (!isNetworkImage) {
-      return Image.asset(
-        imageUrl,
-        fit: BoxFit.cover,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, _, _) => Image.asset(fallback, fit: BoxFit.cover),
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          const PatternDisplayPlaceholder(),
+          Image.asset(
+            imageUrl,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (_, _, _) => const SizedBox.expand(),
+          ),
+        ],
       );
     }
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        Image.asset(fallback, fit: BoxFit.cover),
+        const PatternDisplayPlaceholder(),
         CachedNetworkImage(
           imageUrl: imageUrl,
           fit: BoxFit.cover,
@@ -2192,11 +2196,7 @@ class _PatternPreview extends StatelessWidget {
               top: -7.5,
               width: width * 1.0521,
               height: height * 1.4827,
-              child: Image.asset(
-                'assets/figma_my/card_preview.png',
-                fit: BoxFit.fill,
-                filterQuality: FilterQuality.medium,
-              ),
+              child: const PatternDisplayPlaceholder(),
             ),
           ],
         ),
@@ -2402,30 +2402,22 @@ class _FinishedProductSlot extends StatelessWidget {
       top: centers[row] - 48,
       width: 96,
       height: 96,
-      child: product == null
-          ? const Center(child: _FinishedProductEmptySlot())
-          : Image.network(
-              product.displayUrl,
-              key: ValueKey('finished-product-${product.finishedProductId}'),
-              fit: BoxFit.contain,
-              errorBuilder: (_, _, _) =>
-                  const Center(child: _FinishedProductEmptySlot()),
+      child: product == null || product.displayUrl.isEmpty
+          ? const PatternDisplayPlaceholder()
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                const PatternDisplayPlaceholder(),
+                Image.network(
+                  product.displayUrl,
+                  key: ValueKey(
+                    'finished-product-${product.finishedProductId}',
+                  ),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => const SizedBox.expand(),
+                ),
+              ],
             ),
-    );
-  }
-}
-
-class _FinishedProductEmptySlot extends StatelessWidget {
-  const _FinishedProductEmptySlot();
-
-  @override
-  Widget build(BuildContext context) {
-    return const DecoratedBox(
-      decoration: BoxDecoration(
-        color: Color(0xFFD9D9D9),
-        shape: BoxShape.circle,
-      ),
-      child: SizedBox.square(dimension: 12),
     );
   }
 }

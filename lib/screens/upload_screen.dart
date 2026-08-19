@@ -11,6 +11,7 @@ import '../services/image_service.dart';
 import '../widgets/blind_box_dialog.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
+import '../widgets/pattern_display_placeholder.dart';
 import 'crop_screen.dart';
 import 'my_screen.dart';
 import 'result_screen.dart';
@@ -83,7 +84,7 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   static const _blindBoxRewards = [
     BlindBoxReward(
-      patternAsset: 'assets/figma_home/blind_box/rabbit_pattern.jpg',
+      patternAsset: patternDisplayPlaceholderAsset,
       rarity: BlindBoxRarity.superRare,
       titleIconAsset: 'assets/figma_home/blind_box/union.png',
       patternBadgeAsset: 'assets/figma_home/blind_box/badge.png',

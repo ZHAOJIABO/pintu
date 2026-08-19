@@ -3,10 +3,11 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../services/api/api_models.dart';
+import 'pattern_display_placeholder.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
-const galleryFallbackThumbnailUrl = 'assets/figma_home/gallery_pattern_1.png';
+const galleryFallbackThumbnailUrl = patternDisplayPlaceholderAsset;
 
 /// 可显示在共用图库中的缩略图数据。
 ///
@@ -203,7 +204,7 @@ class _GalleryGrid extends StatelessWidget {
     final galleryItems = items;
     if (galleryItems != null) {
       final patterns = galleryItems
-          .where((item) => item.id.isNotEmpty && item.thumbnailUrl.isNotEmpty)
+          .where((item) => item.id.isNotEmpty)
           .map(
             (item) => _GalleryPattern(
               id: item.id,
@@ -227,9 +228,7 @@ class _GalleryGrid extends StatelessWidget {
             authorName: showTemplateAuthors ? template.displayAuthorName : null,
           ),
         )
-        .where(
-          (pattern) => pattern.id.isNotEmpty && pattern.thumbnailUrl.isNotEmpty,
-        )
+        .where((pattern) => pattern.id.isNotEmpty)
         .toList();
     return remotePatterns;
   }
@@ -249,6 +248,7 @@ class _GalleryGrid extends StatelessWidget {
               fallbackThumbnailUrl: galleryFallbackThumbnailUrl,
               onTap: _onPatternTap(pattern),
               tileSize: tileSize,
+              fillHeight: items == null,
             ),
         ],
       ),
@@ -285,12 +285,14 @@ class _GalleryTile extends StatelessWidget {
   final _GalleryPattern pattern;
   final String fallbackThumbnailUrl;
   final double tileSize;
+  final bool fillHeight;
   final VoidCallback? onTap;
 
   const _GalleryTile({
     required this.pattern,
     required this.fallbackThumbnailUrl,
     required this.tileSize,
+    required this.fillHeight,
     this.onTap,
   });
 
@@ -318,6 +320,7 @@ class _GalleryTile extends StatelessWidget {
                           key: ValueKey('gallery-thumbnail-${pattern.id}'),
                           url: pattern.thumbnailUrl,
                           fallbackUrl: fallbackThumbnailUrl,
+                          fit: fillHeight ? BoxFit.fitHeight : BoxFit.cover,
                         ),
                       ),
                       const Positioned.fill(child: _GalleryFade()),
@@ -391,11 +394,13 @@ class _PendingReviewBadge extends StatelessWidget {
 class _GalleryThumbnail extends StatelessWidget {
   final String url;
   final String fallbackUrl;
+  final BoxFit fit;
 
   const _GalleryThumbnail({
     super.key,
     required this.url,
     required this.fallbackUrl,
+    required this.fit,
   });
 
   @override
@@ -405,21 +410,31 @@ class _GalleryThumbnail extends StatelessWidget {
         uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
 
     if (!isNetworkImage) {
-      return Image.asset(
-        url,
-        fit: BoxFit.cover,
-        alignment: Alignment.center,
-        filterQuality: FilterQuality.medium,
+      if (url.isEmpty || url == fallbackUrl) {
+        return const PatternDisplayPlaceholder();
+      }
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          const PatternDisplayPlaceholder(),
+          Image.asset(
+            url,
+            fit: fit,
+            alignment: Alignment.center,
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (_, _, _) => const SizedBox.expand(),
+          ),
+        ],
       );
     }
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        const ColoredBox(color: Color(0xFFF4F4F4)),
+        const PatternDisplayPlaceholder(),
         CachedNetworkImage(
           imageUrl: url,
-          fit: BoxFit.cover,
+          fit: fit,
           alignment: Alignment.center,
           filterQuality: FilterQuality.medium,
           placeholder: (_, _) => const SizedBox.expand(),

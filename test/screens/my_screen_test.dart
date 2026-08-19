@@ -7,6 +7,7 @@ import 'package:bobobeads/screens/upload_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/widgets/pattern_display_placeholder.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -411,7 +412,7 @@ void main() {
     expect(find.byType(MyPatternsScreen), findsOneWidget);
   });
 
-  testWidgets('最近创作的网络图片使用全部图纸相同的底图', (tester) async {
+  testWidgets('最近创作使用统一 Figma 图纸底图', (tester) async {
     final services = BackendServices(
       baseUrl: 'http://example.test',
       store: _MemoryApiSessionStore(),
@@ -472,14 +473,13 @@ void main() {
 
     for (final taskId in ['network-creation', 'empty-creation']) {
       final preview = find.byKey(ValueKey('recent-creation-preview-$taskId'));
-      final assetNames = tester
-          .widgetList<Image>(
-            find.descendant(of: preview, matching: find.byType(Image)),
-          )
-          .map((image) => image.image)
-          .whereType<AssetImage>()
-          .map((image) => image.assetName);
-      expect(assetNames, contains('assets/figma_home/gallery_pattern_1.png'));
+      expect(
+        find.descendant(
+          of: preview,
+          matching: find.byType(PatternDisplayPlaceholder),
+        ),
+        findsOneWidget,
+      );
     }
   });
 

@@ -52,6 +52,15 @@ void main() {
 
     expect(find.text('by 气态美式'), findsOneWidget);
     expect(find.text('by pintoo'), findsOneWidget);
+
+    final publicTemplateImage = tester.widget<Image>(
+      find.descendant(
+        of: find.byKey(const ValueKey('gallery-thumbnail-with-author')),
+        matching: find.byType(Image),
+      ),
+    );
+    expect(publicTemplateImage.fit, BoxFit.fitHeight);
+    expect(publicTemplateImage.alignment, Alignment.center);
   });
 
   testWidgets('uses a cached image widget for remote thumbnails', (

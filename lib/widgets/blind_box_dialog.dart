@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
+import 'pattern_display_placeholder.dart';
 
 enum BlindBoxRarity {
   superRare('超稀有', Color(0xFFFF7AC7)),
@@ -50,7 +51,7 @@ const _pixelFontFamily = 'Z Labs RoundPix 12px M CN';
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
 const _fallbackReward = BlindBoxReward(
-  patternAsset: 'assets/figma_home/blind_box/rabbit_pattern.jpg',
+  patternAsset: patternDisplayPlaceholderAsset,
   rarity: BlindBoxRarity.superRare,
   titleIconAsset: 'assets/figma_home/blind_box/union.png',
   patternBadgeAsset: 'assets/figma_home/blind_box/badge.png',
@@ -837,25 +838,31 @@ class _PrintingPattern extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        imageUrl.isEmpty
-                            ? Image.asset(
+                        if (imageUrl.isEmpty &&
+                            pattern != patternDisplayPlaceholderAsset)
+                          Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              const PatternDisplayPlaceholder(),
+                              Image.asset(
                                 pattern,
                                 fit: BoxFit.cover,
                                 alignment: Alignment.topCenter,
-                              )
-                            : Image.network(
-                                imageUrl,
-                                key: const ValueKey(
-                                  'blind-box-template-preview',
-                                ),
-                                fit: BoxFit.cover,
-                                alignment: Alignment.topCenter,
-                                errorBuilder: (_, _, _) => Image.asset(
-                                  pattern,
-                                  fit: BoxFit.cover,
-                                  alignment: Alignment.topCenter,
-                                ),
+                                errorBuilder: (_, _, _) =>
+                                    const SizedBox.expand(),
                               ),
+                            ],
+                          )
+                        else
+                          const PatternDisplayPlaceholder(),
+                        if (imageUrl.isNotEmpty)
+                          Image.network(
+                            imageUrl,
+                            key: const ValueKey('blind-box-template-preview'),
+                            fit: BoxFit.cover,
+                            alignment: Alignment.topCenter,
+                            errorBuilder: (_, _, _) => const SizedBox.expand(),
+                          ),
                         const Positioned(
                           left: 0,
                           top: _paperMaskTop,
