@@ -45,7 +45,7 @@ class _AdminChartImportPanelState extends State<AdminChartImportPanel> {
   Palette? _palette;
   double _cellInsetRatio = ChartImportService.defaultCellInsetRatio;
   double _confidenceThreshold = ChartImportService.defaultConfidenceThreshold;
-  bool _treatWhiteAsEmpty = false;
+  bool _treatWhiteBackgroundAsEmpty = false;
   bool _parsing = false;
   String? _error;
   String? _success;
@@ -117,7 +117,7 @@ class _AdminChartImportPanelState extends State<AdminChartImportPanel> {
           palettes: [palette],
           cellInsetRatio: _cellInsetRatio,
           confidenceThreshold: _confidenceThreshold,
-          treatWhiteAsEmpty: _treatWhiteAsEmpty,
+          treatWhiteBackgroundAsEmpty: _treatWhiteBackgroundAsEmpty,
         ),
       );
       final preview = await _previewExporter.exportGalleryThumbnailPng(
@@ -300,12 +300,12 @@ class _AdminChartImportPanelState extends State<AdminChartImportPanel> {
           SwitchListTile.adaptive(
             key: const ValueKey('chart-import-white-empty'),
             contentPadding: EdgeInsets.zero,
-            value: _treatWhiteAsEmpty,
+            value: _treatWhiteBackgroundAsEmpty,
             onChanged: _parsing
                 ? null
-                : (value) => setState(() => _treatWhiteAsEmpty = value),
-            title: const Text('白色格视为空'),
-            subtitle: const Text('图纸用纯白当背景时打开；白色本身是豆子颜色时保持关闭'),
+                : (value) => setState(() => _treatWhiteBackgroundAsEmpty = value),
+            title: const Text('白色背景视为空'),
+            subtitle: const Text('只清除与图边缘连通的白色区域；被图案包围的白色仍算白豆'),
           ),
           const SizedBox(height: 12),
           FilledButton.icon(

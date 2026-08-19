@@ -25,7 +25,12 @@ class ChartImportRequest {
   final Matching matching;
   final double cellInsetRatio;
   final double confidenceThreshold;
-  final bool treatWhiteAsEmpty;
+
+  /// Clears the white canvas around the design instead of beading it.
+  ///
+  /// Only white connected to the border is cleared: white enclosed by the
+  /// design is a white bead, and nothing but its position tells the two apart.
+  final bool treatWhiteBackgroundAsEmpty;
   final int maxSamplesPerAxis;
   final int left;
   final int top;
@@ -41,7 +46,7 @@ class ChartImportRequest {
     Matching? matching,
     this.cellInsetRatio = ChartImportService.defaultCellInsetRatio,
     this.confidenceThreshold = ChartImportService.defaultConfidenceThreshold,
-    this.treatWhiteAsEmpty = false,
+    this.treatWhiteBackgroundAsEmpty = false,
     this.maxSamplesPerAxis = ChartImportService.defaultMaxSamplesPerAxis,
     this.left = 0,
     this.top = 0,
@@ -129,6 +134,14 @@ class ChartImportService {
   /// Below this cell pitch there are too few pixels left to sample reliably.
   static const double minUsableCellPitch = 4.0;
 
+  /// Every channel at or above this reads as the white background.
+  ///
+  /// Flat white survives JPEG at exactly 255, but rescaled or rounded charts
+  /// land a shade below, so the test carries slack. It stays clear of the
+  /// palette's lightest tinted beads (cream 255,253,240 and grey 237,237,237),
+  /// which must keep reading as beads.
+  static const int whiteBackgroundMinChannel = 246;
+
   /// Cells smaller than this after insetting fall back to a single centre pixel.
   static const int _minInnerSpan = 3;
 
@@ -162,6 +175,7 @@ class ChartImportService {
     final deltaCache = <int, double>{};
     final cellCounts = <int, int>{};
 
+    final samples = <ChartCellSample>[];
     for (var row = 0; row < request.rows; row++) {
       for (var col = 0; col < request.cols; col++) {
         final sample = _sampleCell(
@@ -177,44 +191,44 @@ class ChartImportService {
           insetRatio: request.cellInsetRatio,
           maxSamplesPerAxis: request.maxSamplesPerAxis,
         );
+        samples.add(sample);
 
         if (sample.confidence < request.confidenceThreshold) {
           lowConfidenceCells.add(sample);
         }
-
-        // A fully transparent cell carries no colour to snap, and pure white is
-        // background rather than a bead whenever the caller says so.
-        final isEmpty =
-            sample.a == 0 ||
-            (request.treatWhiteAsEmpty &&
-                sample.r == 255 &&
-                sample.g == 255 &&
-                sample.b == 255);
-        if (isEmpty) continue;
-
-        final key = _colorKey(sample.r, sample.g, sample.b);
-        var entry = entryCache[key];
-        if (entry == null) {
-          final sampled = BeadColor.fromInt(sample.r, sample.g, sample.b, 255);
-          entry = getClosestPaletteEntry(
-            request.palettes,
-            sampled,
-            request.matching,
-          );
-          entryCache[key] = entry;
-          deltaCache[key] = request.matching.delta(entry.color, sampled);
-        }
-        cellCounts[key] = (cellCounts[key] ?? 0) + 1;
-
-        // The exact palette RGBA is mandatory: computeUsage and
-        // PatternData.fromGeneratedPattern both recover the bead code by exact
-        // RGBA equality, so an approximate colour would lose the bead code.
-        final offset = (row * request.cols + col) * 4;
-        pixels[offset] = entry.color.rInt;
-        pixels[offset + 1] = entry.color.gInt;
-        pixels[offset + 2] = entry.color.bInt;
-        pixels[offset + 3] = entry.color.aInt;
       }
+    }
+
+    // Emptiness spans neighbours, so it needs every sample before any cell can
+    // be judged, which is why snapping to the palette waits for a second pass.
+    final empty = _resolveEmptyCells(request: request, samples: samples);
+
+    for (var index = 0; index < samples.length; index++) {
+      if (empty[index]) continue;
+      final sample = samples[index];
+
+      final key = _colorKey(sample.r, sample.g, sample.b);
+      var entry = entryCache[key];
+      if (entry == null) {
+        final sampled = BeadColor.fromInt(sample.r, sample.g, sample.b, 255);
+        entry = getClosestPaletteEntry(
+          request.palettes,
+          sampled,
+          request.matching,
+        );
+        entryCache[key] = entry;
+        deltaCache[key] = request.matching.delta(entry.color, sampled);
+      }
+      cellCounts[key] = (cellCounts[key] ?? 0) + 1;
+
+      // The exact palette RGBA is mandatory: computeUsage and
+      // PatternData.fromGeneratedPattern both recover the bead code by exact
+      // RGBA equality, so an approximate colour would lose the bead code.
+      final offset = index * 4;
+      pixels[offset] = entry.color.rInt;
+      pixels[offset + 1] = entry.color.gInt;
+      pixels[offset + 2] = entry.color.bInt;
+      pixels[offset + 3] = entry.color.aInt;
     }
 
     final mappings =
@@ -233,7 +247,7 @@ class ChartImportService {
           ..sort((a, b) => b.cellCount.compareTo(a.cellCount));
 
     if (mappings.isEmpty) {
-      throw ArgumentError('没有识别出任何豆子颜色，请检查行列数和「白色格视为空」设置。');
+      throw ArgumentError('没有识别出任何豆子颜色，请检查行列数和「白色背景视为空」设置。');
     }
 
     final pattern = GeneratedPattern(
@@ -276,6 +290,64 @@ class ChartImportService {
       cellPitchY: pitchY,
     );
   }
+
+  /// Flags the cells that hold no bead, indexed like the pattern pixels.
+  ///
+  /// A transparent cell has no colour to snap, so it is always empty. White is
+  /// harder: the canvas around the design and a white bead are the same ink, and
+  /// only position separates them. So the fill starts at the border and stops at
+  /// the first bead, leaving white enclosed by the design as a white bead.
+  List<bool> _resolveEmptyCells({
+    required ChartImportRequest request,
+    required List<ChartCellSample> samples,
+  }) {
+    final empty = List<bool>.filled(samples.length, false);
+    for (var index = 0; index < samples.length; index++) {
+      empty[index] = samples[index].a == 0;
+    }
+    if (!request.treatWhiteBackgroundAsEmpty) return empty;
+
+    final cols = request.cols;
+    final rows = request.rows;
+    final queue = Queue<int>();
+    final visited = List<bool>.filled(samples.length, false);
+
+    // Transparent cells conduct too, so a transparent border still reaches the
+    // white ring behind it.
+    void spread(int index) {
+      if (visited[index]) return;
+      if (!empty[index] && !_isWhiteBackground(samples[index])) return;
+      visited[index] = true;
+      empty[index] = true;
+      queue.add(index);
+    }
+
+    for (var col = 0; col < cols; col++) {
+      spread(col);
+      spread((rows - 1) * cols + col);
+    }
+    for (var row = 0; row < rows; row++) {
+      spread(row * cols);
+      spread(row * cols + cols - 1);
+    }
+
+    while (queue.isNotEmpty) {
+      final index = queue.removeFirst();
+      final col = index % cols;
+      final row = index ~/ cols;
+      if (col > 0) spread(index - 1);
+      if (col < cols - 1) spread(index + 1);
+      if (row > 0) spread(index - cols);
+      if (row < rows - 1) spread(index + cols);
+    }
+
+    return empty;
+  }
+
+  static bool _isWhiteBackground(ChartCellSample sample) =>
+      sample.r >= whiteBackgroundMinChannel &&
+      sample.g >= whiteBackgroundMinChannel &&
+      sample.b >= whiteBackgroundMinChannel;
 
   ChartCellSample _sampleCell({
     required Uint8List rgba,

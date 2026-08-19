@@ -133,7 +133,7 @@ void main() {
     required int cols,
     required int rows,
     double? cellInsetRatio,
-    bool treatWhiteAsEmpty = false,
+    bool treatWhiteBackgroundAsEmpty = false,
     double? confidenceThreshold,
     int left = 0,
     int top = 0,
@@ -147,7 +147,7 @@ void main() {
     cellInsetRatio: cellInsetRatio ?? ChartImportService.defaultCellInsetRatio,
     confidenceThreshold:
         confidenceThreshold ?? ChartImportService.defaultConfidenceThreshold,
-    treatWhiteAsEmpty: treatWhiteAsEmpty,
+    treatWhiteBackgroundAsEmpty: treatWhiteBackgroundAsEmpty,
     left: left,
     top: top,
     right: right,
@@ -176,6 +176,30 @@ void main() {
         expected.color.aInt,
       ],
       reason: 'cell ($col,$row) must hold the exact palette RGBA',
+    );
+  }
+
+  void expectEmptyCell(ChartImportResult result, int col, int row) {
+    final offset = (row * result.pattern.width + col) * 4;
+    final pixels = result.pattern.pixels;
+    expect(
+      [
+        pixels[offset],
+        pixels[offset + 1],
+        pixels[offset + 2],
+        pixels[offset + 3],
+      ],
+      [0, 0, 0, 0],
+      reason: 'cell ($col,$row) must be empty',
+    );
+  }
+
+  void expectBeadedCell(ChartImportResult result, int col, int row) {
+    final offset = (row * result.pattern.width + col) * 4;
+    expect(
+      result.pattern.pixels[offset + 3],
+      255,
+      reason: 'cell ($col,$row) must hold a bead',
     );
   }
 
@@ -348,13 +372,76 @@ void main() {
     expectCell(asBead, 0, 0, white);
 
     final asEmpty = service.import(
-      request(chartPng(grid), cols: 2, rows: 1, treatWhiteAsEmpty: true),
+      request(
+        chartPng(grid),
+        cols: 2,
+        rows: 1,
+        treatWhiteBackgroundAsEmpty: true,
+      ),
     );
     expect(asEmpty.pattern.usage, {'R': 1});
     final pixels = asEmpty.pattern.pixels;
     expect([pixels[0], pixels[1], pixels[2], pixels[3]], [0, 0, 0, 0]);
   });
 
+  test('keeps white enclosed by the design while clearing the canvas', () {
+    final result = service.import(
+      request(
+        chartPng([
+          [white, white, white, white, white],
+          [white, red, red, red, white],
+          [white, red, white, red, white],
+          [white, red, red, red, white],
+          [white, white, white, white, white],
+        ]),
+        cols: 5,
+        rows: 5,
+        treatWhiteBackgroundAsEmpty: true,
+      ),
+    );
+
+    expectCell(result, 2, 2, white);
+    expectEmptyCell(result, 0, 0);
+    expectEmptyCell(result, 4, 2);
+    expect(result.pattern.usage, {'R': 8, 'W': 1});
+  });
+
+  test('clears an off-white canvas that rounding left below pure white', () {
+    // Rescaling and re-encoding a chart lands the canvas a shade under 255, and
+    // the palette has no such entry, so an exact test would bead it.
+    final offWhite = entry('OFF', 252, 253, 251);
+    final result = service.import(
+      request(
+        chartPng([
+          [offWhite, red, offWhite],
+        ]),
+        cols: 3,
+        rows: 1,
+        treatWhiteBackgroundAsEmpty: true,
+      ),
+    );
+
+    expect(result.pattern.usage, {'R': 1});
+    expectEmptyCell(result, 0, 0);
+    expectEmptyCell(result, 2, 0);
+  });
+
+  test('beads a light grey canvas rather than mistaking it for white', () {
+    final lightGrey = entry('GREY', 237, 237, 237);
+    final result = service.import(
+      request(
+        chartPng([
+          [lightGrey, red],
+        ]),
+        cols: 2,
+        rows: 1,
+        treatWhiteBackgroundAsEmpty: true,
+      ),
+    );
+
+    expect(result.pattern.usage.values.reduce((a, b) => a + b), 2);
+    expectBeadedCell(result, 0, 0);
+  });
   test('honours crop insets when the upload has leftover margins', () {
     final grid = [
       [red, green],
@@ -468,7 +555,7 @@ void main() {
             ]),
             cols: 1,
             rows: 1,
-            treatWhiteAsEmpty: true,
+            treatWhiteBackgroundAsEmpty: true,
           ),
         ),
         throwsArgumentError,
