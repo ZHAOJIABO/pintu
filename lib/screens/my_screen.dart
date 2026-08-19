@@ -201,6 +201,9 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
       const CameraPermissionService();
   BackendServices? _services;
   List<FinishedProductItem> _finishedProducts = const [];
+  String _firstWorkThumbnailUrl = '';
+  String _firstFavoriteThumbnailUrl = '';
+  int _shortcutPreviewRequestVersion = 0;
   bool _loadingFinishedProducts = false;
   bool _recording = false;
 
@@ -212,6 +215,61 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
     _services = services;
     if (services != null) {
       _loadFinishedProducts(services);
+      _loadShortcutPreviews(services);
+    }
+  }
+
+  void _loadShortcutPreviews(BackendServices services) {
+    final requestVersion = ++_shortcutPreviewRequestVersion;
+    unawaited(_loadFirstWorkThumbnail(services, requestVersion));
+    unawaited(_loadFirstFavoriteThumbnail(services, requestVersion));
+  }
+
+  Future<void> _loadFirstWorkThumbnail(
+    BackendServices services,
+    int requestVersion,
+  ) async {
+    try {
+      final result = await services.works.listWorks(pageSize: 1);
+      if (!mounted ||
+          !identical(_services, services) ||
+          requestVersion != _shortcutPreviewRequestVersion) {
+        return;
+      }
+      final work = result.items.isEmpty ? null : result.items.first;
+      setState(() {
+        _firstWorkThumbnailUrl = work == null
+            ? ''
+            : _firstNonEmptyUrl([
+                work.thumbnailUrl,
+                work.patternImageUrl,
+                work.originalImageUrl,
+              ]);
+      });
+    } catch (_) {
+      // 请求失败时保持缺省图，并允许下次依赖变化时重试。
+    }
+  }
+
+  Future<void> _loadFirstFavoriteThumbnail(
+    BackendServices services,
+    int requestVersion,
+  ) async {
+    try {
+      final result = await services.templates.listFavorites(pageSize: 1);
+      if (!mounted ||
+          !identical(_services, services) ||
+          requestVersion != _shortcutPreviewRequestVersion) {
+        return;
+      }
+      final template = result.items.isEmpty ? null : result.items.first;
+      setState(() {
+        _firstFavoriteThumbnailUrl = template == null
+            ? ''
+            : _firstNonEmptyUrl([template.thumbnailUrl, template.previewUrl]);
+      });
+    } catch (_) {
+      // 请求失败时保持缺省图，并允许下次依赖变化时重试。
     }
   }
 
@@ -346,6 +404,7 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
                   titleEndColor: const Color(0xFFFFE5F4),
                   moreColor: const Color(0xFFF0D3E6),
                   ribbonAsset: 'assets/figma_my/card_ribbon_pink.svg',
+                  previewImageUrl: _firstWorkThumbnailUrl,
                   onTap: () => Navigator.of(context).push<void>(
                     MaterialPageRoute(builder: (_) => const MyPatternsScreen()),
                   ),
@@ -359,6 +418,7 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
                   titleEndColor: const Color(0xFFFFF8C7),
                   moreColor: const Color(0xFFFFFBE2),
                   ribbonAsset: 'assets/figma_my/card_ribbon_yellow.svg',
+                  previewImageUrl: _firstFavoriteThumbnailUrl,
                   onTap: () => Navigator.of(context).push<void>(
                     MaterialPageRoute(
                       builder: (_) => const MyFavoritesScreen(),
@@ -1919,6 +1979,7 @@ class _ShortcutCard extends StatelessWidget {
   final Color titleEndColor;
   final Color moreColor;
   final String ribbonAsset;
+  final String previewImageUrl;
   final VoidCallback onTap;
 
   const _ShortcutCard({
@@ -1929,6 +1990,7 @@ class _ShortcutCard extends StatelessWidget {
     required this.titleEndColor,
     required this.moreColor,
     required this.ribbonAsset,
+    required this.previewImageUrl,
     required this.onTap,
   });
 
@@ -1973,16 +2035,24 @@ class _ShortcutCard extends StatelessWidget {
                   angle: 3.87 * math.pi / 180,
                   child: Opacity(
                     opacity: 0.52,
-                    child: _PatternPreview(width: 115.74, height: 85.75),
+                    child: _PatternPreview(
+                      width: 115.74,
+                      height: 85.75,
+                      imageUrl: previewImageUrl,
+                    ),
                   ),
                 ),
               ),
-              const Positioned(
+              Positioned(
                 left: 30.63,
                 top: 30.58,
                 child: Opacity(
                   opacity: 0.99,
-                  child: _PatternPreview(width: 115.74, height: 85.75),
+                  child: _PatternPreview(
+                    width: 115.74,
+                    height: 85.75,
+                    imageUrl: previewImageUrl,
+                  ),
                 ),
               ),
               Positioned(
@@ -2167,8 +2237,13 @@ class _RibbonClipper extends CustomClipper<Path> {
 class _PatternPreview extends StatelessWidget {
   final double width;
   final double height;
+  final String imageUrl;
 
-  const _PatternPreview({required this.width, required this.height});
+  const _PatternPreview({
+    required this.width,
+    required this.height,
+    required this.imageUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2191,18 +2266,38 @@ class _PatternPreview extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Positioned(
-              left: -3.2,
-              top: -7.5,
-              width: width * 1.0521,
-              height: height * 1.4827,
-              child: const PatternDisplayPlaceholder(),
-            ),
+            const PatternDisplayPlaceholder(),
+            if (_isNetworkImage(imageUrl))
+              CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                placeholder: (_, _) => const SizedBox.expand(),
+                errorWidget: (_, _, _) => const SizedBox.expand(),
+              )
+            else if (imageUrl.isNotEmpty)
+              Image.asset(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox.expand(),
+              ),
           ],
         ),
       ),
     );
   }
+}
+
+String _firstNonEmptyUrl(Iterable<String> urls) {
+  for (final url in urls) {
+    final trimmed = url.trim();
+    if (trimmed.isNotEmpty) return trimmed;
+  }
+  return '';
+}
+
+bool _isNetworkImage(String url) {
+  final uri = Uri.tryParse(url);
+  return uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
 }
 
 class _WorksSection extends StatelessWidget {

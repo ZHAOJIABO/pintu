@@ -99,7 +99,6 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _picking = false;
   bool _openingBlindBox = false;
   bool _showingMyPage = false;
-  bool _hasOpenedMyPage = false;
 
   @override
   void didChangeDependencies() {
@@ -238,10 +237,7 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   void _showMyPage() {
-    setState(() {
-      _hasOpenedMyPage = true;
-      _showingMyPage = true;
-    });
+    setState(() => _showingMyPage = true);
   }
 
   void _showHomePage() => setState(() => _showingMyPage = false);
@@ -316,9 +312,9 @@ class _UploadScreenState extends State<UploadScreen> {
                             ),
                           ),
                         ),
-                        _hasOpenedMyPage
-                            ? const MyScreenContent()
-                            : const SizedBox.expand(),
+                        // 即使用户仍停留在首页，也提前挂载“我的”页：其中的
+                        // 首张图纸/收藏请求会在 App 启动时开始，切页无需等待。
+                        const MyScreenContent(),
                       ],
                     ),
                   ),
