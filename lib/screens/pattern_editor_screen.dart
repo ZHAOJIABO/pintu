@@ -88,6 +88,11 @@ class PatternEditorScreen extends StatefulWidget {
   final String? boardSpec;
   final bool showBrushGuide;
   final bool showPaletteGuide;
+
+  /// Exposes the brush and eraser size picker, which the web backend uses for
+  /// bulk retouching. The client keeps a single-bead brush so the onboarding
+  /// guide and toolbar layout stay unchanged.
+  final bool showBrushSize;
   final PatternEditorPanel initialPanel;
   final PatternImageUploadService patternImageUploader;
 
@@ -98,6 +103,7 @@ class PatternEditorScreen extends StatefulWidget {
     this.boardSpec,
     this.showBrushGuide = true,
     this.showPaletteGuide = true,
+    this.showBrushSize = false,
     this.initialPanel = PatternEditorPanel.brush,
     this.patternImageUploader = const PatternImageUploadService(),
   });
@@ -112,6 +118,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   late final Uint8List _pixels = Uint8List.fromList(widget.pattern.pixels);
   late BeadColor _selectedColor = _initialColor();
   EditorTool? _tool = EditorTool.brush;
+  int _brushSize = 1;
   late _EditorPanel _panel;
   List<CellChange> _activeStroke = <CellChange>[];
   math.Point<int>? _lastEditedCell;
@@ -291,7 +298,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
             height: widget.pattern.height,
             x: x,
             y: y,
-            brushSize: 1,
+            brushSize: _brushSize,
           )
         : _editService.paint(
             pixels: _pixels,
@@ -299,7 +306,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
             height: widget.pattern.height,
             x: x,
             y: y,
-            brushSize: 1,
+            brushSize: _brushSize,
             color: _selectedColor,
           );
     if (changes.isEmpty) return;
@@ -430,6 +437,10 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
 
   void _selectTool(EditorTool tool) {
     setState(() => _tool = _tool == tool ? null : tool);
+  }
+
+  void _selectBrushSize(int size) {
+    setState(() => _brushSize = size);
   }
 
   Future<void> _showCurrentColorPicker() async {
@@ -671,6 +682,10 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                           onCurrentColorPressed: _showCurrentColorPicker,
                           onUndo: _undo,
                           onRedo: _redo,
+                          brushSize: _brushSize,
+                          onBrushSizeSelected: widget.showBrushSize
+                              ? _selectBrushSize
+                              : null,
                         )
                       : _PaletteToolbar(
                           entries: _usedPaletteEntries(),
@@ -2127,6 +2142,11 @@ class _EditorToolbar extends StatelessWidget {
   final VoidCallback onCurrentColorPressed;
   final VoidCallback onUndo;
   final VoidCallback onRedo;
+  final int brushSize;
+
+  /// A null callback hides the size row, which is how the client keeps its
+  /// single-bead brush.
+  final ValueChanged<int>? onBrushSizeSelected;
   final _BrushGuideTarget? guideTarget;
   final bool isBrushGuide;
 
@@ -2140,6 +2160,8 @@ class _EditorToolbar extends StatelessWidget {
     required this.onCurrentColorPressed,
     required this.onUndo,
     required this.onRedo,
+    this.brushSize = 1,
+    this.onBrushSizeSelected,
     this.guideTarget,
     this.isBrushGuide = false,
   });
@@ -2261,7 +2283,22 @@ class _EditorToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final toolbar = _EditorBottomSheet(child: _buildToolbarRow());
+    final onBrushSizeSelected = this.onBrushSizeSelected;
+    final toolbar = _EditorBottomSheet(
+      child: onBrushSizeSelected == null
+          ? _buildToolbarRow()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildToolbarRow(),
+                const SizedBox(height: 16),
+                _BrushSizeSelector(
+                  selectedSize: brushSize,
+                  onSelected: onBrushSizeSelected,
+                ),
+              ],
+            ),
+    );
     if (!isBrushGuide) return toolbar;
 
     return ClipRRect(
@@ -2290,6 +2327,108 @@ class _EditorToolbar extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+const _brushSizeOptions = <_BrushSizeOption>[
+  _BrushSizeOption(size: 1, label: '1x1'),
+  _BrushSizeOption(size: 2, label: '3x3'),
+  _BrushSizeOption(size: 3, label: '5x5'),
+];
+
+class _BrushSizeOption {
+  final int size;
+  final String label;
+
+  const _BrushSizeOption({required this.size, required this.label});
+}
+
+/// Size picker shared by the brush and the eraser, so switching tools keeps the
+/// chosen footprint.
+class _BrushSizeSelector extends StatelessWidget {
+  final int selectedSize;
+  final ValueChanged<int> onSelected;
+
+  const _BrushSizeSelector({
+    required this.selectedSize,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey('editor-brush-size-selector'),
+      children: [
+        const Text(
+          '画笔大小',
+          style: TextStyle(
+            color: Colors.black,
+            fontFamily: 'Alimama FangYuanTi VF',
+            fontSize: 11,
+            height: 1,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(width: 12),
+        for (final option in _brushSizeOptions)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: _BrushSizeChip(
+              option: option,
+              selected: option.size == selectedSize,
+              onPressed: () => onSelected(option.size),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _BrushSizeChip extends StatelessWidget {
+  final _BrushSizeOption option;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _BrushSizeChip({
+    required this.option,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '画笔大小 ${option.label}',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey('editor-brush-size-option-${option.size}'),
+          onTap: onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(99)),
+          child: Container(
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? Colors.black : _editorToolSurface,
+              borderRadius: const BorderRadius.all(Radius.circular(99)),
+            ),
+            child: Text(
+              option.label,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.black,
+                fontFamily: 'Alimama FangYuanTi VF',
+                fontSize: 11,
+                height: 1,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

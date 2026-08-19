@@ -21,6 +21,55 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
+  testWidgets('client editor keeps a single-bead brush with no size row', (
+    tester,
+  ) async {
+    _setViewport(tester, const Size(390, 844));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _pattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('editor-brush-size-selector')),
+      findsNothing,
+    );
+    expect(find.text('画笔大小'), findsNothing);
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+
+    // Only the tapped bead changes; the other three keep the original chart.
+    final pixels = _editorPainter(tester).pixels;
+    expect(pixels.sublist(4, 16), [
+      233,
+      0,
+      48,
+      255,
+      233,
+      0,
+      48,
+      255,
+      233,
+      0,
+      48,
+      255,
+    ]);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('pattern editor fits the Figma layout on $viewport', (
       tester,

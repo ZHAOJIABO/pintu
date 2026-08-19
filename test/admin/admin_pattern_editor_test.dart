@@ -5,6 +5,7 @@ import 'package:bobobeads/models/color.dart';
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
+import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -82,6 +83,89 @@ void main() {
     );
     expect(find.text('取色器'), findsNothing);
   });
+
+  testWidgets('brush size options are offered on the web backend', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AdminPatternEditorPage(pattern: _pattern())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('editor-brush-size-selector')),
+      findsOneWidget,
+    );
+    expect(find.text('画笔大小'), findsOneWidget);
+    expect(find.text('1x1'), findsOneWidget);
+    expect(find.text('3x3'), findsOneWidget);
+    expect(find.text('5x5'), findsOneWidget);
+    expect(_chipBackground(tester, 1), Colors.black);
+    expect(_chipBackground(tester, 2), isNot(Colors.black));
+  });
+
+  testWidgets('brush and eraser share the selected size', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(home: AdminPatternEditorPage(pattern: _pattern())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('editor-brush-size-option-2')));
+    await tester.pump();
+    expect(_chipBackground(tester, 2), Colors.black);
+
+    // A 3x3 footprint centred on the top-left bead covers the whole 2x2 chart.
+    await _tapFirstCell(tester);
+    final painted = _patternCells(tester);
+    expect(painted.toSet(), hasLength(1));
+    expect(painted.first.endsWith(',255'), isTrue);
+
+    await tester.tap(find.text('橡皮擦'));
+    await tester.pump();
+    expect(_chipBackground(tester, 2), Colors.black);
+
+    await _tapFirstCell(tester);
+    expect(_patternCells(tester), everyElement('0,0,0,0'));
+  });
+}
+
+BeadBoardPainter _editorPainter(WidgetTester tester) {
+  return tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .map((widget) => widget.painter)
+      .whereType<BeadBoardPainter>()
+      .single;
+}
+
+Color _chipBackground(WidgetTester tester, int size) {
+  final container = tester.widget<Container>(
+    find.descendant(
+      of: find.byKey(ValueKey('editor-brush-size-option-$size')),
+      matching: find.byType(Container),
+    ),
+  );
+  return (container.decoration as BoxDecoration).color!;
+}
+
+/// The 2x2 chart is centred on a 50x50 board, so its first bead lands on board
+/// cell 24.
+Future<void> _tapFirstCell(WidgetTester tester) async {
+  final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+  final painter = _editorPainter(tester);
+  final firstCellCenter = Offset(
+    painter.labelBand + 24.5 * painter.cellSize,
+    painter.labelBand + 24.5 * painter.cellSize,
+  );
+  await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+  await tester.pump();
+}
+
+List<String> _patternCells(WidgetTester tester) {
+  final pixels = _editorPainter(tester).pixels;
+  return [
+    for (var offset = 0; offset < 16; offset += 4)
+      pixels.sublist(offset, offset + 4).join(','),
+  ];
 }
 
 GeneratedPattern _pattern() {

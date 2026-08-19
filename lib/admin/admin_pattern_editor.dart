@@ -10,7 +10,8 @@ enum AdminPatternEditingMode { brush, palette }
 /// Keeping this as a small adapter makes the publishing and template-library
 /// flows share the complete editing contract: brush, picker, eraser, palette
 /// replacement, undo/redo and the final [GeneratedPattern] result. The
-/// consumer-oriented onboarding overlays are intentionally omitted here.
+/// consumer-oriented onboarding overlays are intentionally omitted here, while
+/// the brush size picker is exposed only here for bulk retouching.
 class AdminPatternEditorPage extends StatelessWidget {
   final GeneratedPattern pattern;
   final AdminPatternEditingMode initialMode;
@@ -26,6 +27,7 @@ class AdminPatternEditorPage extends StatelessWidget {
     pattern: pattern,
     showBrushGuide: false,
     showPaletteGuide: false,
+    showBrushSize: true,
     initialPanel: switch (initialMode) {
       AdminPatternEditingMode.brush => PatternEditorPanel.brush,
       AdminPatternEditingMode.palette => PatternEditorPanel.palette,
