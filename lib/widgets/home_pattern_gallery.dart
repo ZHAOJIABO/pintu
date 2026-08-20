@@ -413,34 +413,22 @@ class _GalleryThumbnail extends StatelessWidget {
       if (url.isEmpty || url == fallbackUrl) {
         return const PatternDisplayPlaceholder();
       }
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          const PatternDisplayPlaceholder(),
-          Image.asset(
-            url,
-            fit: fit,
-            alignment: Alignment.center,
-            filterQuality: FilterQuality.medium,
-            errorBuilder: (_, _, _) => const SizedBox.expand(),
-          ),
-        ],
+      return Image.asset(
+        url,
+        fit: fit,
+        alignment: Alignment.center,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const PatternDisplayPlaceholder(),
-        CachedNetworkImage(
-          imageUrl: url,
-          fit: fit,
-          alignment: Alignment.center,
-          filterQuality: FilterQuality.medium,
-          placeholder: (_, _) => const SizedBox.expand(),
-          errorWidget: (_, _, _) => const SizedBox.expand(),
-        ),
-      ],
+    return CachedNetworkImage(
+      imageUrl: url,
+      fit: fit,
+      alignment: Alignment.center,
+      filterQuality: FilterQuality.medium,
+      placeholder: (_, _) => const PatternDisplayPlaceholder(),
+      errorWidget: (_, _, _) => const PatternDisplayPlaceholder(),
     );
   }
 }

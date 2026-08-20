@@ -329,6 +329,64 @@ void main() {
     expect(find.byKey(const ValueKey('bead-mode-edit-button')), findsNothing);
   });
 
+  testWidgets('a pending submission cannot be deleted', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    var deletedWorkId = '';
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        final body = switch ((request.method, request.url.path)) {
+          ('POST', '/api/v1/auth/guest') => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          ('DELETE', '/api/v1/works/64') => const <String, Object?>{},
+          _ => throw StateError(
+            'Unexpected request: ${request.method} ${request.url}',
+          ),
+        };
+        final header = request.method == 'DELETE'
+            ? const {'code': 2006, 'message': 'work is under review'}
+            : const {'code': 0, 'message': 'success'};
+        return http.Response(jsonEncode({'header': header, ...body}), 200);
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: MaterialApp(
+          home: ResultScreen(
+            pattern: _pattern(),
+            workId: '64',
+            onWorkDeleted: (workId) => deletedWorkId = workId,
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-delete-work-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('result-delete-work-confirm')));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(deletedWorkId, isEmpty);
+    expect(find.byType(ResultScreen), findsOneWidget);
+    expect(find.text('投稿审核中，暂时无法删除'), findsOneWidget);
+  });
+
   testWidgets('官方模板图纸仅提供开拼和收藏，并可切换收藏状态', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -386,6 +444,9 @@ void main() {
     );
 
     await tester.tap(favoriteButton);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pumpAndSettle();
 
     expect(
@@ -411,6 +472,9 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(favoriteButton);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     await tester.pumpAndSettle();
 
     expect(

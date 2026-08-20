@@ -883,6 +883,15 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     return worksById.values.toList();
   }
 
+  void _removeWorkFromLibrary(String workId) {
+    if (!mounted) return;
+    setState(() {
+      _works = _works.where((work) => work.workId != workId).toList();
+      _pendingSubmissionWorkIds = {..._pendingSubmissionWorkIds}
+        ..remove(workId);
+    });
+  }
+
   bool _onLibraryScroll(ScrollNotification notification) {
     if (notification.depth == 0 &&
         notification is ScrollUpdateNotification &&
@@ -960,11 +969,12 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         MaterialPageRoute(
           builder: (_) => ResultScreen(
             pattern: detail.patternData.toGeneratedPattern(),
-            workId: detail.work.workId,
+            workId: workId,
             boardSpec: detail.patternData.boardSpec,
             isEditingLocked:
                 !_pendingSubmissionLocksLoaded ||
-                _pendingSubmissionWorkIds.contains(detail.work.workId),
+                _pendingSubmissionWorkIds.contains(workId),
+            onWorkDeleted: _removeWorkFromLibrary,
           ),
         ),
       );
@@ -1624,26 +1634,21 @@ class _RecentPatternPreview extends StatelessWidget {
         width: 130,
         height: 130,
         child: ClipRect(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              const PatternDisplayPlaceholder(),
-              if (isNetworkImage)
-                Image.network(
+          child: thumbnailUrl.isEmpty
+              ? const PatternDisplayPlaceholder()
+              : isNetworkImage
+              ? Image.network(
                   thumbnailUrl,
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, _, _) => const SizedBox.expand(),
+                  errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
                 )
-              else if (thumbnailUrl.isNotEmpty)
-                Image.asset(
+              : Image.asset(
                   thumbnailUrl,
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.medium,
-                  errorBuilder: (_, _, _) => const SizedBox.expand(),
+                  errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
                 ),
-            ],
-          ),
         ),
       ),
     );
@@ -1899,35 +1904,23 @@ class _CreationTaskImage extends StatelessWidget {
     );
 
     if (!isNetworkImage) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          const PatternDisplayPlaceholder(),
-          Image.asset(
-            imageUrl,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.medium,
-            errorBuilder: (_, _, _) => const SizedBox.expand(),
-          ),
-        ],
+      return Image.asset(
+        imageUrl,
+        fit: BoxFit.cover,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
       );
     }
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const PatternDisplayPlaceholder(),
-        CachedNetworkImage(
-          imageUrl: imageUrl,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.medium,
-          memCacheWidth: thumbnailCacheSize,
-          memCacheHeight: thumbnailCacheSize,
-          fadeInDuration: const Duration(milliseconds: 120),
-          placeholder: (_, _) => const SizedBox.expand(),
-          errorWidget: (_, _, _) => const SizedBox.expand(),
-        ),
-      ],
+    return CachedNetworkImage(
+      imageUrl: imageUrl,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
+      memCacheWidth: thumbnailCacheSize,
+      memCacheHeight: thumbnailCacheSize,
+      fadeInDuration: const Duration(milliseconds: 120),
+      placeholder: (_, _) => const PatternDisplayPlaceholder(),
+      errorWidget: (_, _, _) => const PatternDisplayPlaceholder(),
     );
   }
 }
@@ -2263,25 +2256,20 @@ class _PatternPreview extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(7.5),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const PatternDisplayPlaceholder(),
-            if (_isNetworkImage(imageUrl))
-              CachedNetworkImage(
+        child: imageUrl.isEmpty
+            ? const PatternDisplayPlaceholder()
+            : _isNetworkImage(imageUrl)
+            ? CachedNetworkImage(
                 imageUrl: imageUrl,
                 fit: BoxFit.cover,
-                placeholder: (_, _) => const SizedBox.expand(),
-                errorWidget: (_, _, _) => const SizedBox.expand(),
+                placeholder: (_, _) => const PatternDisplayPlaceholder(),
+                errorWidget: (_, _, _) => const PatternDisplayPlaceholder(),
               )
-            else if (imageUrl.isNotEmpty)
-              Image.asset(
+            : Image.asset(
                 imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox.expand(),
+                errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
               ),
-          ],
-        ),
       ),
     );
   }
@@ -2499,19 +2487,11 @@ class _FinishedProductSlot extends StatelessWidget {
       height: 96,
       child: product == null || product.displayUrl.isEmpty
           ? const PatternDisplayPlaceholder()
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                const PatternDisplayPlaceholder(),
-                Image.network(
-                  product.displayUrl,
-                  key: ValueKey(
-                    'finished-product-${product.finishedProductId}',
-                  ),
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, _, _) => const SizedBox.expand(),
-                ),
-              ],
+          : Image.network(
+              product.displayUrl,
+              key: ValueKey('finished-product-${product.finishedProductId}'),
+              fit: BoxFit.contain,
+              errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
             ),
     );
   }

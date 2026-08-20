@@ -28,4 +28,32 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('图纸缩略图可用时不在图片下方保留占位图', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HomePatternGallery(
+            templates: const [],
+            items: const [
+              PatternGalleryItem(
+                id: 'available-work',
+                thumbnailUrl: 'assets/figma_home/gallery_pattern_1.png',
+              ),
+            ],
+            categoryName: '我的图纸',
+            onFilter: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('gallery-thumbnail-available-work')),
+        matching: find.byType(PatternDisplayPlaceholder),
+      ),
+      findsNothing,
+    );
+  });
 }

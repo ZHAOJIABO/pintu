@@ -656,6 +656,15 @@ class WorkRepository {
     );
   }
 
+  /// Deletes a user work.
+  ///
+  /// [workId] comes from the works list and must be kept intact when it is
+  /// appended to the API path.
+  Future<void> deleteWork(String workId) async {
+    await auth.ensureSignedIn();
+    await apiClient.delete('/api/v1/works/$workId');
+  }
+
   Future<String> saveWork({
     required String title,
     required String originalImageUrl,

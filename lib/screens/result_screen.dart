@@ -35,6 +35,7 @@ class ResultScreen extends StatefulWidget {
   final String? boardSpec;
   final bool isEditingLocked;
   final bool showGeneratedHint;
+  final ValueChanged<String>? onWorkDeleted;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
 
@@ -46,6 +47,7 @@ class ResultScreen extends StatefulWidget {
     this.boardSpec,
     this.isEditingLocked = false,
     this.showGeneratedHint = false,
+    this.onWorkDeleted,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
   });
@@ -60,8 +62,13 @@ class _ResultScreenState extends State<ResultScreen> {
   late TemplateItem? _template = widget.template;
   bool _exporting = false;
   bool _updatingFavorite = false;
+  bool _deletingWork = false;
 
   bool get _editingEnabled => _template == null && !widget.isEditingLocked;
+  bool get _canDeleteWork =>
+      _template == null &&
+      widget.workId?.isNotEmpty == true &&
+      widget.onWorkDeleted != null;
 
   @override
   void initState() {
@@ -171,6 +178,57 @@ class _ResultScreenState extends State<ResultScreen> {
     }
   }
 
+  Future<void> _deleteWork() async {
+    final workId = widget.workId;
+    final services = BackendScope.maybeOf(context);
+    if (_deletingWork || workId == null || workId.isEmpty || services == null) {
+      return;
+    }
+
+    setState(() => _deletingWork = true);
+    try {
+      await services.works.deleteWork(workId);
+      if (!mounted) return;
+      widget.onWorkDeleted?.call(workId);
+      Navigator.of(context).pop<void>();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      _showToast(switch (error.code) {
+        2006 => '投稿审核中，暂时无法删除',
+        1101 => '图纸信息有误',
+        _ => '删除失败，请稍后重试',
+      });
+    } catch (_) {
+      if (mounted) _showToast('删除失败，请稍后重试');
+    } finally {
+      if (mounted) setState(() => _deletingWork = false);
+    }
+  }
+
+  Future<void> _confirmDeleteWork() async {
+    if (_deletingWork) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确定删除图纸？'),
+        content: const Text('删除后无法恢复。'),
+        actions: [
+          TextButton(
+            key: const ValueKey('result-delete-work-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            key: const ValueKey('result-delete-work-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _deleteWork();
+  }
+
   Future<Uint8List?> _loadWatermarkPngBytes() {
     final loader = widget.loadWatermarkPngBytes;
     if (loader != null) return loader();
@@ -212,7 +270,13 @@ class _ResultScreenState extends State<ResultScreen> {
         backgroundColor: _pageBackground,
         body: Column(
           children: [
-            _DrawingHeader(pattern: _pattern, onSaveImage: _saveImage),
+            _DrawingHeader(
+              pattern: _pattern,
+              onSaveImage: _saveImage,
+              onDeleteWork: _canDeleteWork && !_deletingWork
+                  ? _confirmDeleteWork
+                  : null,
+            ),
             Expanded(
               child: _MaterialSummary(
                 pattern: _pattern,
@@ -239,8 +303,13 @@ class _ResultScreenState extends State<ResultScreen> {
 class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
   final VoidCallback onSaveImage;
+  final VoidCallback? onDeleteWork;
 
-  const _DrawingHeader({required this.pattern, required this.onSaveImage});
+  const _DrawingHeader({
+    required this.pattern,
+    required this.onSaveImage,
+    this.onDeleteWork,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -252,7 +321,10 @@ class _DrawingHeader extends StatelessWidget {
           bottom: false,
           child: Column(
             children: [
-              _ResultNavigationBar(onSaveImage: onSaveImage),
+              _ResultNavigationBar(
+                onSaveImage: onSaveImage,
+                onDeleteWork: onDeleteWork,
+              ),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final chartAreaSize = constraints.maxWidth;
@@ -276,8 +348,9 @@ class _DrawingHeader extends StatelessWidget {
 
 class _ResultNavigationBar extends StatelessWidget {
   final VoidCallback onSaveImage;
+  final VoidCallback? onDeleteWork;
 
-  const _ResultNavigationBar({required this.onSaveImage});
+  const _ResultNavigationBar({required this.onSaveImage, this.onDeleteWork});
 
   @override
   Widget build(BuildContext context) {
@@ -285,38 +358,64 @@ class _ResultNavigationBar extends StatelessWidget {
       height: 44,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 30),
-        child: Row(
+        child: Stack(
+          alignment: Alignment.center,
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => returnToHome(context),
-              child: const SizedBox(
-                width: 24,
-                height: 44,
-                child: Icon(Icons.chevron_left, color: Colors.black, size: 30),
-              ),
-            ),
-            const Expanded(
-              child: Text(
-                '图纸',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.black,
-                  fontSize: 18,
-                  fontFamily: _roundFontFamily,
-                  fontFamilyFallback: _fontFallbacks,
-                  fontWeight: FontWeight.w500,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => returnToHome(context),
+                child: const SizedBox(
+                  width: 24,
+                  height: 44,
+                  child: Icon(
+                    Icons.chevron_left,
+                    color: Colors.black,
+                    size: 30,
+                  ),
                 ),
               ),
             ),
-            GestureDetector(
-              key: const ValueKey('result-save-image-button'),
-              behavior: HitTestBehavior.opaque,
-              onTap: onSaveImage,
-              child: const SizedBox(
-                width: 24,
-                height: 44,
-                child: Center(child: _PatternSaveIcon()),
+            const Text(
+              '图纸',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.black,
+                fontSize: 18,
+                fontFamily: _roundFontFamily,
+                fontFamilyFallback: _fontFallbacks,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onDeleteWork != null)
+                    GestureDetector(
+                      key: const ValueKey('result-delete-work-button'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onDeleteWork,
+                      child: const SizedBox(
+                        width: 24,
+                        height: 44,
+                        child: Center(child: _DeleteWorkIcon()),
+                      ),
+                    ),
+                  if (onDeleteWork != null) const SizedBox(width: 6),
+                  GestureDetector(
+                    key: const ValueKey('result-save-image-button'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onSaveImage,
+                    child: const SizedBox(
+                      width: 24,
+                      height: 44,
+                      child: Center(child: _PatternSaveIcon()),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -324,6 +423,51 @@ class _ResultNavigationBar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DeleteWorkIcon extends StatelessWidget {
+  const _DeleteWorkIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 18.6729,
+      height: 18.666,
+      child: CustomPaint(painter: _DeleteWorkIconPainter()),
+    );
+  }
+}
+
+class _DeleteWorkIconPainter extends CustomPainter {
+  const _DeleteWorkIconPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const designWidth = 18.6729;
+    const designHeight = 18.666;
+    final scaleX = size.width / designWidth;
+    final scaleY = size.height / designHeight;
+    Rect rect(double left, double top, double width, double height) =>
+        Rect.fromLTWH(
+          left * scaleX,
+          top * scaleY,
+          width * scaleX,
+          height * scaleY,
+        );
+
+    final black = Paint()..color = Colors.black;
+    final gray = Paint()..color = const Color(0xFFBDBDBD);
+    canvas.drawRect(rect(6.79, 0, 6.79, 2.7), black);
+    canvas.drawRect(rect(0, 2.9, designWidth, 2.7), black);
+    canvas.drawRect(rect(2.55, 8.09, 13.58, 10.58), black);
+
+    canvas.drawRect(rect(5.09, 8.09, 2.55, 8.09), gray);
+    canvas.drawRect(rect(7.64, 10.78, 2.55, 5.4), gray);
+    canvas.drawRect(rect(10.19, 13.47, 2.55, 2.71), gray);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DeleteWorkIconPainter oldDelegate) => false;
 }
 
 class _PatternSaveIcon extends StatelessWidget {
