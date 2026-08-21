@@ -215,6 +215,16 @@ class TemplateCategory {
 
 class TemplateItem {
   final String templateId;
+
+  /// Server-assigned category identifier for selecting local presentation.
+  ///
+  /// IDs are environment-specific. Do not assume an ID from staging maps to
+  /// the same category in production.
+  final int categoryId;
+
+  /// Server-provided category name used when the local presentation has not
+  /// yet been updated for a newly created category.
+  final String categoryName;
   final String title;
   final String authorName;
   final String previewUrl;
@@ -234,6 +244,8 @@ class TemplateItem {
 
   const TemplateItem({
     required this.templateId,
+    this.categoryId = 0,
+    this.categoryName = '',
     required this.title,
     this.authorName = '',
     required this.previewUrl,
@@ -255,6 +267,8 @@ class TemplateItem {
   factory TemplateItem.fromJson(JsonMap json) {
     return TemplateItem(
       templateId: _stringValue(json['templateId']),
+      categoryId: _intValue(json['categoryId']),
+      categoryName: _stringValue(json['categoryName']),
       title: _stringValue(json['title']),
       authorName: _stringValue(json['authorName']),
       previewUrl: _stringValue(json['previewUrl']),
@@ -274,9 +288,16 @@ class TemplateItem {
     );
   }
 
-  TemplateItem copyWith({bool? isFavorited, int? favoriteCount}) {
+  TemplateItem copyWith({
+    int? categoryId,
+    String? categoryName,
+    bool? isFavorited,
+    int? favoriteCount,
+  }) {
     return TemplateItem(
       templateId: templateId,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
       title: title,
       authorName: authorName,
       previewUrl: previewUrl,

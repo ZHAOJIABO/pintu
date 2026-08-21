@@ -10,17 +10,45 @@ class AdminCategory {
   final String name;
   final int templateCount;
 
+  /// Marks a category that only ever holds blind-box templates, so the client
+  /// never shows it in the normal gallery navigation.
+  final bool isBlindBox;
+
   const AdminCategory({
     required this.id,
     required this.name,
     required this.templateCount,
+    this.isBlindBox = false,
   });
 
   factory AdminCategory.fromJson(JsonMap json) => AdminCategory(
     id: (json['categoryId'] as num?)?.toInt() ?? 0,
     name: json['name']?.toString() ?? '',
     templateCount: (json['templateCount'] as num?)?.toInt() ?? 0,
+    isBlindBox: json['isBlindBox'] == true,
   );
+}
+
+/// Where a published template is allowed to show up.
+///
+/// This is not an operator-controlled switch: joining the blind-box pool moves a
+/// template to [blindBox] and leaving it moves it back to [public].
+enum AdminTemplateVisibility {
+  public('public', '普通上架'),
+  blindBox('blind_box', '盲盒专属');
+
+  const AdminTemplateVisibility(this.wireName, this.label);
+
+  final String wireName;
+  final String label;
+
+  /// Older responses carry no `visibility`, which means the template predates
+  /// the blind-box pool and is therefore public.
+  static AdminTemplateVisibility fromWire(Object? raw) {
+    return raw?.toString() == AdminTemplateVisibility.blindBox.wireName
+        ? AdminTemplateVisibility.blindBox
+        : AdminTemplateVisibility.public;
+  }
 }
 
 /// A published template as returned by the internal admin listing endpoint.
@@ -43,6 +71,7 @@ class AdminTemplate {
   final int colorCount;
   final bool hasDraft;
   final String draftId;
+  final AdminTemplateVisibility visibility;
   final PatternData? patternData;
 
   const AdminTemplate({
@@ -61,8 +90,13 @@ class AdminTemplate {
     required this.colorCount,
     this.hasDraft = false,
     this.draftId = '',
+    this.visibility = AdminTemplateVisibility.public,
     this.patternData,
   });
+
+  /// Whether the template is currently reserved for the blind box, which also
+  /// means it sits in the pool and cannot be unpublished directly.
+  bool get isBlindBoxOnly => visibility == AdminTemplateVisibility.blindBox;
 
   String get imageUrl {
     for (final value in [thumbnailUrl, previewUrl, previewFileKey]) {
@@ -101,6 +135,7 @@ class AdminTemplate {
       colorCount: (json['colorCount'] as num?)?.toInt() ?? 0,
       hasDraft: json['hasDraft'] == true,
       draftId: json['draftId']?.toString() ?? '',
+      visibility: AdminTemplateVisibility.fromWire(json['visibility']),
       patternData: json['patternData'] is Map
           ? PatternData.fromJson(
               (json['patternData'] as Map).cast<String, dynamic>(),
@@ -276,6 +311,84 @@ class AdminTemplateDetail {
   const AdminTemplateDetail({
     required this.template,
     required this.patternData,
+  });
+}
+
+/// One template sitting in the blind-box prize pool.
+///
+/// [itemId] identifies the pool entry, not the template: the same template can
+/// only be in the pool once, but its entry is edited and removed by [itemId].
+class AdminBlindBoxPoolItem {
+  /// Bounds enforced by the server; a disabled entry uses [status] `0` rather
+  /// than a zero weight.
+  static const minWeight = 1;
+  static const maxWeight = 10000;
+
+  final String itemId;
+  final String templateId;
+  final String title;
+  final String previewUrl;
+  final String thumbnailUrl;
+  final int categoryId;
+  final String categoryName;
+  final int weight;
+  final int sortOrder;
+
+  /// `1` when the entry takes part in draws, `0` when it is paused. This is
+  /// independent of whether the template itself is published.
+  final int status;
+
+  const AdminBlindBoxPoolItem({
+    required this.itemId,
+    required this.templateId,
+    required this.title,
+    required this.previewUrl,
+    required this.thumbnailUrl,
+    required this.categoryId,
+    required this.categoryName,
+    required this.weight,
+    required this.sortOrder,
+    required this.status,
+  });
+
+  bool get isActive => status == 1;
+
+  String get displayTitle => title.isEmpty ? '未命名图纸' : title;
+
+  String get imageUrl {
+    for (final value in [thumbnailUrl, previewUrl]) {
+      if (value.startsWith('https://') ||
+          value.startsWith('http://') ||
+          value.startsWith('/')) {
+        return value;
+      }
+    }
+    return '';
+  }
+
+  factory AdminBlindBoxPoolItem.fromJson(JsonMap json) => AdminBlindBoxPoolItem(
+    itemId: json['itemId']?.toString() ?? '',
+    templateId: json['templateId']?.toString() ?? '',
+    title: json['title']?.toString() ?? '',
+    previewUrl: _firstValue(json, const ['previewUrl', 'previewFileUrl']),
+    thumbnailUrl: _firstValue(json, const ['thumbnailUrl', 'thumbnailFileUrl']),
+    categoryId: (json['categoryId'] as num?)?.toInt() ?? 0,
+    categoryName: json['categoryName']?.toString() ?? '',
+    weight: (json['weight'] as num?)?.toInt() ?? 0,
+    sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
+    status: (json['status'] as num?)?.toInt() ?? 0,
+  );
+}
+
+class AdminBlindBoxPoolPage {
+  final List<AdminBlindBoxPoolItem> items;
+  final int total;
+  final bool hasMore;
+
+  const AdminBlindBoxPoolPage({
+    required this.items,
+    required this.total,
+    required this.hasMore,
   });
 }
 
@@ -455,10 +568,13 @@ class AdminApi {
         .toList();
   }
 
-  Future<AdminCategory> createCategory({required String name}) async {
+  Future<AdminCategory> createCategory({
+    required String name,
+    bool isBlindBox = false,
+  }) async {
     final data = await _client.post(
       '/api/v1/admin/template-categories',
-      body: {'name': name},
+      body: {'name': name, if (isBlindBox) 'isBlindBox': true},
     );
     final rawCategory = data['category'];
     final category = AdminCategory.fromJson(
@@ -473,7 +589,9 @@ class AdminApi {
   /// Loads every published template for the library page.
   ///
   /// API contract: `GET /api/v1/admin/templates?page.page=1&page.pageSize=100`
-  /// returns `templates` and the normal `{page: {hasMore: bool}}` envelope.
+  /// returns `templates` and the normal `{page: {hasMore: bool}}` envelope. The
+  /// result includes blind-box-only templates, which the customer-facing listing
+  /// hides; callers tell them apart through [AdminTemplate.visibility].
   Future<List<AdminTemplate>> listTemplates() async {
     const pageSize = 100;
     final templates = <AdminTemplate>[];
@@ -620,6 +738,77 @@ class AdminApi {
     return _client.post(
       '/api/v1/admin/templates/${Uri.encodeComponent(templateId)}/unpublish',
       body: {'reason': reason},
+    );
+  }
+
+  /// Loads one page of the blind-box prize pool.
+  Future<AdminBlindBoxPoolPage> listBlindBoxPool({
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final data = await _client.get(
+      '/api/v1/admin/blind-box-pool',
+      query: {'page.page': page, 'page.pageSize': pageSize},
+    );
+    final values = data['items'];
+    final items = values is List
+        ? values
+              .whereType<Map>()
+              .map(
+                (value) => AdminBlindBoxPoolItem.fromJson(
+                  value.cast<String, dynamic>(),
+                ),
+              )
+              .where((item) => item.itemId.isNotEmpty)
+              .toList()
+        : const <AdminBlindBoxPoolItem>[];
+    final pageInfo = data['page'];
+    return AdminBlindBoxPoolPage(
+      items: items,
+      total: pageInfo is Map ? (pageInfo['total'] as num?)?.toInt() ?? 0 : 0,
+      hasMore: pageInfo is Map && pageInfo['hasMore'] == true,
+    );
+  }
+
+  /// Adds a template to the prize pool, which also hides it from the customer
+  /// facing gallery — the server flips its visibility, there is no separate
+  /// switch to toggle.
+  Future<void> addToBlindBoxPool({
+    required String templateId,
+    int weight = 1,
+    int sortOrder = 0,
+  }) {
+    return _client.post(
+      '/api/v1/admin/blind-box-pool',
+      body: {
+        'templateId': templateId,
+        'weight': weight,
+        'sortOrder': sortOrder,
+      },
+    );
+  }
+
+  /// Patches a pool entry. Omitted fields keep their current value, and the
+  /// server rejects a request that changes nothing.
+  Future<void> updateBlindBoxPoolItem({
+    required String itemId,
+    int? weight,
+    int? sortOrder,
+    int? status,
+  }) {
+    if (weight == null && sortOrder == null && status == null) {
+      throw ArgumentError('修改奖池条目至少要指定权重、排序或启停状态中的一项');
+    }
+    return _client.put(
+      '/api/v1/admin/blind-box-pool/${Uri.encodeComponent(itemId)}',
+      body: {'weight': ?weight, 'sortOrder': ?sortOrder, 'status': ?status},
+    );
+  }
+
+  /// Removes a pool entry, which restores the template to the normal gallery.
+  Future<void> removeFromBlindBoxPool(String itemId) {
+    return _client.delete(
+      '/api/v1/admin/blind-box-pool/${Uri.encodeComponent(itemId)}',
     );
   }
 

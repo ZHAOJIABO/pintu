@@ -13,8 +13,8 @@ typedef ApiResponseHandler = Future<void> Function(http.Response response);
 class ApiClient {
   static const defaultBaseUrl = String.fromEnvironment(
     'BOBOBEADS_API_BASE_URL',
-    defaultValue: 'https://appbobo.cn',
-    //defaultValue: 'http://localhost:8080',
+    //defaultValue: 'https://appbobo.cn',
+    defaultValue: 'http://localhost:8080',
   );
 
   final Uri baseUri;

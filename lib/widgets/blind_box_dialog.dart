@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
 import 'pattern_display_placeholder.dart';
+import 'template_category_presentation.dart';
 
 enum BlindBoxRarity {
   superRare('超稀有', Color(0xFFFF7AC7)),
@@ -43,6 +44,20 @@ class BlindBoxReward {
 
   String get rarityLabel => rarity.label;
   Gradient get resolvedRarityGradient => rarityGradient ?? rarity.gradient;
+
+  BlindBoxReward copyWith({
+    String? patternAsset,
+    String? titleIconAsset,
+    String? patternBadgeAsset,
+  }) {
+    return BlindBoxReward(
+      patternAsset: patternAsset ?? this.patternAsset,
+      rarity: rarity,
+      titleIconAsset: titleIconAsset ?? this.titleIconAsset,
+      patternBadgeAsset: patternBadgeAsset ?? this.patternBadgeAsset,
+      rarityGradient: rarityGradient,
+    );
+  }
 }
 
 const _designWidth = 390.0;
@@ -390,6 +405,22 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
   @override
   Widget build(BuildContext context) {
     final template = widget.template;
+    final categoryPresentation = template == null
+        ? const TemplateCategoryPresentation()
+        : TemplateCategoryPresentations.resolve(template);
+    final reward = _reward.copyWith(
+      patternAsset: categoryPresentation.patternAsset,
+      titleIconAsset: categoryPresentation.titleIconAsset,
+    );
+    final titleGradientEndColor = categoryPresentation.titleGradientEndColor;
+    final titleGradient = titleGradientEndColor == null
+        ? reward.resolvedRarityGradient
+        : LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [Colors.white, Color(titleGradientEndColor)],
+            stops: const [0, 0.89359],
+          );
     final previewUrl = template == null
         ? ''
         : template.previewUrl.trim().isNotEmpty
@@ -423,9 +454,22 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
                 child: ScaleTransition(
                   scale: _titleScale,
                   child: _BlindBoxTitle(
-                    rarityLabel: _reward.rarityLabel,
-                    rarityGradient: _reward.resolvedRarityGradient,
-                    titleIconAsset: _reward.titleIconAsset,
+                    rarityLabel: categoryPresentation.displayCopy(
+                      template?.categoryName ?? '',
+                      fallback: reward.rarityLabel,
+                    ),
+                    rarityGradient: titleGradient,
+                    titleIconAsset: reward.titleIconAsset,
+                    titleIconLeft: categoryPresentation.titleIconLeft,
+                    titleIconTop: categoryPresentation.titleIconTop,
+                    titleIconWidth: categoryPresentation.titleIconWidth,
+                    titleIconHeight: categoryPresentation.titleIconHeight,
+                    titleIconAngleDegrees:
+                        categoryPresentation.titleIconAngleDegrees,
+                    titleIconFill: categoryPresentation.titleIconFill,
+                    titleIconFlipX: categoryPresentation.titleIconFlipX,
+                    titleIconOutlineScale:
+                        categoryPresentation.titleIconOutlineScale,
                   ),
                 ),
               ),
@@ -479,7 +523,7 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
               ),
             ),
             _PrintingPattern(
-              pattern: _reward.patternAsset,
+              pattern: reward.patternAsset,
               imageUrl: previewUrl,
               progress: CurvedAnimation(
                 parent: _printController,
@@ -488,7 +532,7 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
             ),
             Positioned(
               right: 20,
-              top: 470,
+              top: 470 + categoryPresentation.badgeOffsetY,
               width: 70,
               height: 40,
               child: FadeTransition(
@@ -496,9 +540,14 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
                 child: Container(
                   clipBehavior: Clip.antiAlias,
                   decoration: const BoxDecoration(),
-                  child: _BlindBoxAsset(
-                    assetPath: _reward.patternBadgeAsset,
-                    fit: BoxFit.contain,
+                  child: _BlindBoxBadge(
+                    fallbackAsset: reward.patternBadgeAsset,
+                    badgeAsset: categoryPresentation.badgeAsset,
+                    badgeAssetLeft: categoryPresentation.badgeAssetLeft,
+                    badgeAssetTop: categoryPresentation.badgeAssetTop,
+                    badgeAssetWidth: categoryPresentation.badgeAssetWidth,
+                    badgeAssetHeight: categoryPresentation.badgeAssetHeight,
+                    heartAsset: categoryPresentation.badgeHeartAsset,
                   ),
                 ),
               ),
@@ -582,11 +631,27 @@ class _BlindBoxTitle extends StatelessWidget {
   final String rarityLabel;
   final Gradient rarityGradient;
   final String titleIconAsset;
+  final double? titleIconLeft;
+  final double? titleIconTop;
+  final double? titleIconWidth;
+  final double? titleIconHeight;
+  final double? titleIconAngleDegrees;
+  final bool titleIconFill;
+  final bool titleIconFlipX;
+  final double titleIconOutlineScale;
 
   const _BlindBoxTitle({
     required this.rarityLabel,
     required this.rarityGradient,
     required this.titleIconAsset,
+    this.titleIconLeft,
+    this.titleIconTop,
+    this.titleIconWidth,
+    this.titleIconHeight,
+    this.titleIconAngleDegrees,
+    this.titleIconFill = false,
+    this.titleIconFlipX = false,
+    this.titleIconOutlineScale = 1,
   });
 
   @override
@@ -673,11 +738,36 @@ class _BlindBoxTitle extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: 205,
-          top: 13,
-          width: 61,
-          height: 26,
-          child: _BlindBoxAsset(assetPath: titleIconAsset, fit: BoxFit.contain),
+          left: titleIconLeft ?? 205,
+          top: titleIconTop ?? 13,
+          width: titleIconWidth ?? 61,
+          height: titleIconHeight ?? 26,
+          child: Transform.rotate(
+            angle: (titleIconAngleDegrees ?? 0) * math.pi / 180,
+            child: Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.diagonal3Values(titleIconFlipX ? -1 : 1, 1, 1),
+              child: Stack(
+                clipBehavior: Clip.none,
+                fit: StackFit.expand,
+                children: [
+                  if (titleIconOutlineScale > 1)
+                    Transform.scale(
+                      scale: titleIconOutlineScale,
+                      child: _BlindBoxAsset(
+                        assetPath: titleIconAsset,
+                        fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
+                        tintColor: Colors.black,
+                      ),
+                    ),
+                  _BlindBoxAsset(
+                    assetPath: titleIconAsset,
+                    fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
         const Positioned(
           left: 209,
@@ -735,16 +825,178 @@ class _TitleSpark extends StatelessWidget {
 class _BlindBoxAsset extends StatelessWidget {
   final String assetPath;
   final BoxFit fit;
+  final Color? tintColor;
 
-  const _BlindBoxAsset({required this.assetPath, required this.fit});
+  const _BlindBoxAsset({
+    required this.assetPath,
+    required this.fit,
+    this.tintColor,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final Widget asset;
     if (assetPath.toLowerCase().endsWith('.svg')) {
-      return SvgPicture.asset(assetPath, fit: fit);
+      asset = SvgPicture.asset(assetPath, fit: fit);
+    } else {
+      asset = Image.asset(assetPath, fit: fit);
     }
 
-    return Image.asset(assetPath, fit: fit);
+    final color = tintColor;
+    if (color == null) return asset;
+    return ColorFiltered(
+      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+      child: asset,
+    );
+  }
+}
+
+/// The Figma “超可爱” badge is two overlapping hearts, while other rarities
+/// retain their existing bitmap badge.
+class _BlindBoxBadge extends StatelessWidget {
+  final String fallbackAsset;
+  final String? badgeAsset;
+  final double? badgeAssetLeft;
+  final double? badgeAssetTop;
+  final double? badgeAssetWidth;
+  final double? badgeAssetHeight;
+  final String? heartAsset;
+
+  const _BlindBoxBadge({
+    required this.fallbackAsset,
+    this.badgeAsset,
+    this.badgeAssetLeft,
+    this.badgeAssetTop,
+    this.badgeAssetWidth,
+    this.badgeAssetHeight,
+    this.heartAsset,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final configuredBadgeAsset = badgeAsset;
+    if (configuredBadgeAsset != null && configuredBadgeAsset.isNotEmpty) {
+      final left = badgeAssetLeft;
+      final top = badgeAssetTop;
+      final width = badgeAssetWidth;
+      final height = badgeAssetHeight;
+      if (left != null && top != null && width != null && height != null) {
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: left,
+              top: top,
+              width: width,
+              height: height,
+              child: _BlindBoxAsset(
+                assetPath: configuredBadgeAsset,
+                fit: BoxFit.fill,
+              ),
+            ),
+          ],
+        );
+      }
+
+      return _BlindBoxAsset(
+        assetPath: configuredBadgeAsset,
+        fit: BoxFit.contain,
+      );
+    }
+
+    final asset = heartAsset;
+    if (asset == null || asset.isEmpty) {
+      return _BlindBoxAsset(assetPath: fallbackAsset, fit: BoxFit.contain);
+    }
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        _FigmaBadgeHeart(assetPath: asset, left: -3.78, top: -1.04),
+        _FigmaBadgeHeart(assetPath: asset, left: 24.34, top: -4.89),
+      ],
+    );
+  }
+}
+
+class _FigmaBadgeHeart extends StatelessWidget {
+  final String assetPath;
+  final double left;
+  final double top;
+
+  const _FigmaBadgeHeart({
+    required this.assetPath,
+    required this.left,
+    required this.top,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: left,
+      top: top,
+      width: 45.14,
+      height: 42.536,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 2.35,
+            top: 3.44,
+            width: 37.928,
+            height: 36.444,
+            child: Center(
+              child: Transform.rotate(
+                angle: -23.33 * math.pi / 180,
+                child: SizedBox(
+                  width: 35.2546,
+                  height: 32.412,
+                  child: SvgPicture.asset(
+                    'assets/figma_home/blind_box/badge_super_cute_heart_edge_outer.svg',
+                    fit: BoxFit.fill,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0.51,
+            top: 3.84,
+            width: 35.502,
+            height: 32.065,
+            child: Center(
+              child: Transform.rotate(
+                angle: 0.38 * math.pi / 180,
+                child: SizedBox(
+                  width: 35.293,
+                  height: 31.833,
+                  child: Image.asset(assetPath, fit: BoxFit.fill),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 2.35,
+            top: 3.44,
+            width: 37.928,
+            height: 36.444,
+            child: Center(
+              child: Transform.rotate(
+                angle: -23.33 * math.pi / 180,
+                child: SizedBox(
+                  width: 29.7158,
+                  height: 26.8735,
+                  child: SvgPicture.asset(
+                    'assets/figma_home/blind_box/badge_super_cute_heart_edge_inner.svg',
+                    fit: BoxFit.fill,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

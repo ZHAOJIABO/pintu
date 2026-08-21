@@ -19,7 +19,14 @@ import 'admin_submission_review.dart';
 import 'admin_template_editor.dart';
 import 'admin_widgets.dart';
 
-enum _AdminSection { publish, chartImport, submissions, library, drafts }
+enum _AdminSection {
+  publish,
+  chartImport,
+  submissions,
+  library,
+  drafts,
+  blindBox,
+}
 
 enum _AdminMenuAction {
   publish,
@@ -27,6 +34,7 @@ enum _AdminMenuAction {
   submissions,
   library,
   drafts,
+  blindBox,
   logout,
 }
 
@@ -119,10 +127,15 @@ class _AdminPortalState extends State<_AdminPortal> {
   List<AdminTemplate> _templates = const [];
   List<AdminSubmission> _submissions = const [];
   List<AdminTemplateDraft> _drafts = const [];
+  List<AdminBlindBoxPoolItem> _poolItems = const [];
   AdminSubmissionStatus? _submissionFilter = AdminSubmissionStatus.pending;
+  AdminTemplateVisibility? _visibilityFilter;
   int _submissionPage = 1;
   int _submissionTotal = 0;
   bool _submissionHasMore = false;
+  int _poolPage = 1;
+  int _poolTotal = 0;
+  bool _poolHasMore = false;
   bool _smoothing = true;
   bool _removeBackground = true;
   bool _patternFromImport = false;
@@ -133,13 +146,20 @@ class _AdminPortalState extends State<_AdminPortal> {
   bool _loadingTemplates = false;
   bool _loadingSubmissions = false;
   bool _loadingDrafts = false;
+  bool _loadingPool = false;
   bool _creatingCategory = false;
   bool _hasLoadedTemplates = false;
   bool _hasLoadedSubmissions = false;
   bool _hasLoadedDrafts = false;
+  bool _hasLoadedPool = false;
   String? _unpublishingTemplateId;
   String? _reviewingSubmissionId;
   String? _busyDraftId;
+  String? _busyPoolItemId;
+
+  /// The template whose "join the pool" request is in flight, so its card can
+  /// show progress while the library list is still on screen.
+  String? _joiningPoolTemplateId;
 
   /// The draft backing the publish workspace, so repeated saves update one draft
   /// instead of filling the draft box with near-identical copies.
@@ -344,7 +364,8 @@ class _AdminPortalState extends State<_AdminPortal> {
       final draftId = _workspaceDraftId;
       if (draftId == null) {
         final saved = await _api.createDraft(
-          idempotencyKey: 'admin-draft-${DateTime.now().microsecondsSinceEpoch}',
+          idempotencyKey:
+              'admin-draft-${DateTime.now().microsecondsSinceEpoch}',
           title: title,
           description: description,
           categoryId: _categoryId ?? 0,
@@ -443,6 +464,9 @@ class _AdminPortalState extends State<_AdminPortal> {
     }
     if (section == _AdminSection.drafts && !_hasLoadedDrafts) {
       _loadDrafts();
+    }
+    if (section == _AdminSection.blindBox && !_hasLoadedPool) {
+      _loadPool();
     }
   }
 
@@ -562,8 +586,192 @@ class _AdminPortalState extends State<_AdminPortal> {
     if (result != null) await _loadSubmissions();
   }
 
+  void _selectVisibilityFilter(AdminTemplateVisibility? visibility) {
+    if (_visibilityFilter == visibility) return;
+    setState(() {
+      _visibilityFilter = visibility;
+      _error = null;
+      _success = null;
+    });
+  }
+
+  /// Loads one page of the prize pool; [append] backs the "load more" button.
+  Future<void> _loadPool({bool append = false}) async {
+    if (_loadingPool) return;
+    final page = append ? _poolPage + 1 : 1;
+    setState(() {
+      _loadingPool = true;
+      _error = null;
+    });
+    try {
+      final result = await _api.listBlindBoxPool(page: page);
+      if (!mounted) return;
+      setState(() {
+        _poolItems = append ? [..._poolItems, ...result.items] : result.items;
+        _poolPage = page;
+        _poolTotal = result.total;
+        _poolHasMore = result.hasMore;
+        _hasLoadedPool = true;
+      });
+    } catch (error) {
+      _setError('加载盲盒奖池失败：${_errorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _loadingPool = false);
+    }
+  }
+
+  /// Adds a library template to the prize pool.
+  ///
+  /// The server flips the template to blind-box-only as part of this call, so the
+  /// library has to be refetched: the card must stop offering "join the pool" and
+  /// start showing the blind-box badge.
+  Future<void> _joinBlindBoxPool(AdminTemplate template) async {
+    if (_isBusy || _joiningPoolTemplateId != null) return;
+    final settings = await _askPoolSettings(
+      title: '把「${template.title}」加入盲盒奖池',
+      description: '加入后这张图纸只能通过盲盒抽到，会从客户端普通列表消失。',
+      confirmLabel: '加入奖池',
+    );
+    if (!mounted || settings == null) return;
+    setState(() {
+      _joiningPoolTemplateId = template.id;
+      _error = null;
+      _success = null;
+    });
+    try {
+      await _api.addToBlindBoxPool(
+        templateId: template.id,
+        weight: settings.weight,
+        sortOrder: settings.sortOrder,
+      );
+      if (!mounted) return;
+      setState(() => _hasLoadedPool = false);
+      await _loadTemplates();
+      if (!mounted) return;
+      setState(() => _success = '已把「${template.title}」加入盲盒奖池');
+    } catch (error) {
+      _setError('加入奖池失败：${_errorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _joiningPoolTemplateId = null);
+    }
+  }
+
+  Future<void> _editPoolItem(AdminBlindBoxPoolItem item) async {
+    if (_busyPoolItemId != null) return;
+    final settings = await _askPoolSettings(
+      title: '调整「${item.displayTitle}」',
+      confirmLabel: '保存',
+      weight: item.weight,
+      sortOrder: item.sortOrder,
+    );
+    if (!mounted || settings == null) return;
+    await _runPoolUpdate(
+      item,
+      weight: settings.weight,
+      sortOrder: settings.sortOrder,
+      success: '已更新「${item.displayTitle}」的权重与排序',
+    );
+  }
+
+  /// Pauses or resumes a pool entry. This only decides whether the entry takes
+  /// part in draws; the template itself stays published either way.
+  Future<void> _togglePoolItem(AdminBlindBoxPoolItem item) async {
+    if (_busyPoolItemId != null) return;
+    await _runPoolUpdate(
+      item,
+      status: item.isActive ? 0 : 1,
+      success: item.isActive
+          ? '已停用「${item.displayTitle}」，暂时不参与抽奖'
+          : '已启用「${item.displayTitle}」，重新参与抽奖',
+    );
+  }
+
+  Future<void> _runPoolUpdate(
+    AdminBlindBoxPoolItem item, {
+    int? weight,
+    int? sortOrder,
+    int? status,
+    required String success,
+  }) async {
+    setState(() {
+      _busyPoolItemId = item.itemId;
+      _error = null;
+      _success = null;
+    });
+    try {
+      await _api.updateBlindBoxPoolItem(
+        itemId: item.itemId,
+        weight: weight,
+        sortOrder: sortOrder,
+        status: status,
+      );
+      if (!mounted) return;
+      setState(() => _success = success);
+      await _loadPool();
+    } catch (error) {
+      _setError('更新奖池条目失败：${_errorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _busyPoolItemId = null);
+    }
+  }
+
+  /// Removes a pool entry, which also restores the template to normal listing —
+  /// so the library has to be refetched as well.
+  Future<void> _removePoolItem(AdminBlindBoxPoolItem item) async {
+    if (_busyPoolItemId != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('把「${item.displayTitle}」移出奖池？'),
+        content: const Text('移出后这张图纸会自动恢复普通上架，重新出现在客户端列表里。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFC6284A),
+            ),
+            child: const Text('移出奖池'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _busyPoolItemId = item.itemId;
+      _error = null;
+      _success = null;
+    });
+    try {
+      await _api.removeFromBlindBoxPool(item.itemId);
+      if (!mounted) return;
+      setState(() {
+        _poolItems = _poolItems
+            .where((entry) => entry.itemId != item.itemId)
+            .toList();
+        _poolTotal = _poolTotal > 0 ? _poolTotal - 1 : 0;
+        _success = '已把「${item.displayTitle}」移出奖池，图纸恢复普通上架';
+        // The library card still shows the blind-box badge.
+        _hasLoadedTemplates = false;
+      });
+    } catch (error) {
+      _setError('移出奖池失败：${_errorMessage(error)}');
+    } finally {
+      if (mounted) setState(() => _busyPoolItemId = null);
+    }
+  }
+
   Future<void> _unpublishTemplate(AdminTemplate template) async {
     if (_unpublishingTemplateId != null) return;
+    // The server refuses to unpublish a template that is still in the pool, so
+    // point the operator at the pool instead of letting them hit the 400.
+    if (template.isBlindBoxOnly) {
+      await _explainPoolBeforeUnpublish(template);
+      return;
+    }
     final reason = await _askUnpublishReason(template);
     if (!mounted || reason == null) return;
     setState(() {
@@ -624,7 +832,8 @@ class _AdminPortalState extends State<_AdminPortal> {
       _error = null;
       _success = switch (result.outcome) {
         AdminTemplateEditorOutcome.draftSaved => '已保存到草稿箱，线上版本未改动。',
-        AdminTemplateEditorOutcome.published => '已发布：模板 ID ${result.templateId}',
+        AdminTemplateEditorOutcome.published =>
+          '已发布：模板 ID ${result.templateId}',
         AdminTemplateEditorOutcome.draftDiscarded => '草稿已丢弃。',
         AdminTemplateEditorOutcome.draftMissing => '这份草稿已不存在，可能已被其他管理员发布或删除。',
       };
@@ -668,7 +877,8 @@ class _AdminPortalState extends State<_AdminPortal> {
       );
       final templateId = await _api.publishDraft(
         draftId: draft.draftId,
-        idempotencyKey: 'admin-publish-${DateTime.now().microsecondsSinceEpoch}',
+        idempotencyKey:
+            'admin-publish-${DateTime.now().microsecondsSinceEpoch}',
         baseUpdatedAt: detail.draft.updatedAt,
         thumbnailBytes: thumbnail,
       );
@@ -732,15 +942,18 @@ class _AdminPortalState extends State<_AdminPortal> {
 
   Future<void> _createCategory() async {
     if (_creatingCategory || _isBusy) return;
-    final name = await _askCategoryName();
-    if (!mounted || name == null) return;
+    final request = await _askCategoryName();
+    if (!mounted || request == null) return;
     setState(() {
       _creatingCategory = true;
       _error = null;
       _success = null;
     });
     try {
-      final category = await _api.createCategory(name: name);
+      final category = await _api.createCategory(
+        name: request.name,
+        isBlindBox: request.isBlindBox,
+      );
       if (!mounted) return;
       setState(() {
         _categories = [..._categories, category];
@@ -754,43 +967,105 @@ class _AdminPortalState extends State<_AdminPortal> {
     }
   }
 
-  Future<String?> _askCategoryName() async {
+  Future<_CategoryRequest?> _askCategoryName() async {
     final controller = TextEditingController();
-    final name = await showDialog<String>(
+    var isBlindBox = false;
+    final request = await showDialog<_CategoryRequest>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新建模板分类'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 30,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (value) {
-            final next = value.trim();
-            if (next.isNotEmpty) Navigator.pop(context, next);
-          },
-          decoration: const InputDecoration(
-            labelText: '分类名称',
-            hintText: '例如：节日',
-          ),
-        ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final next = controller.text.trim();
+            if (next.isEmpty) return;
+            Navigator.pop(
+              context,
+              _CategoryRequest(name: next, isBlindBox: isBlindBox),
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('新建模板分类'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: controller,
+                  autofocus: true,
+                  maxLength: 30,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => submit(),
+                  decoration: const InputDecoration(
+                    labelText: '分类名称',
+                    hintText: '例如：节日',
+                  ),
+                ),
+                CheckboxListTile(
+                  key: const ValueKey('admin-category-blind-box-toggle'),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: isBlindBox,
+                  onChanged: (value) =>
+                      setDialogState(() => isBlindBox = value == true),
+                  title: const Text('盲盒限定分类'),
+                  subtitle: const Text('用来收纳只在盲盒里出现的图纸。'),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              FilledButton(onPressed: submit, child: const Text('创建')),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+    return request;
+  }
+
+  Future<_PoolSettings?> _askPoolSettings({
+    required String title,
+    required String confirmLabel,
+    String? description,
+    int weight = 1,
+    int sortOrder = 0,
+  }) {
+    return showDialog<_PoolSettings>(
+      context: context,
+      builder: (context) => _PoolSettingsDialog(
+        title: title,
+        confirmLabel: confirmLabel,
+        description: description,
+        weight: weight,
+        sortOrder: sortOrder,
+      ),
+    );
+  }
+
+  Future<void> _explainPoolBeforeUnpublish(AdminTemplate template) async {
+    final goToPool = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('请先移出盲盒奖池'),
+        content: Text('「${template.title}」正在盲盒奖池中，需要先把它移出奖池，才能下架。'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('知道了'),
           ),
           FilledButton(
-            onPressed: () {
-              final next = controller.text.trim();
-              if (next.isNotEmpty) Navigator.pop(context, next);
-            },
-            child: const Text('创建'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('去奖池管理'),
           ),
         ],
       ),
     );
-    controller.dispose();
-    return name;
+    if (!mounted || goToPool != true) return;
+    _selectSection(_AdminSection.blindBox);
   }
 
   Future<String?> _askUnpublishReason(AdminTemplate template) async {
@@ -841,10 +1116,15 @@ class _AdminPortalState extends State<_AdminPortal> {
       _categories = const [];
       _templates = const [];
       _submissions = const [];
+      _poolItems = const [];
       _submissionFilter = AdminSubmissionStatus.pending;
+      _visibilityFilter = null;
       _submissionPage = 1;
       _submissionTotal = 0;
       _submissionHasMore = false;
+      _poolPage = 1;
+      _poolTotal = 0;
+      _poolHasMore = false;
       _categoryId = null;
       _pattern = null;
       _patternFromImport = false;
@@ -852,6 +1132,7 @@ class _AdminPortalState extends State<_AdminPortal> {
       _section = _AdminSection.publish;
       _hasLoadedTemplates = false;
       _hasLoadedSubmissions = false;
+      _hasLoadedPool = false;
       _creatingCategory = false;
       _error = null;
       _success = null;
@@ -986,6 +1267,8 @@ class _AdminPortalState extends State<_AdminPortal> {
                         _selectSection(_AdminSection.library);
                       case _AdminMenuAction.drafts:
                         _selectSection(_AdminSection.drafts);
+                      case _AdminMenuAction.blindBox:
+                        _selectSection(_AdminSection.blindBox);
                       case _AdminMenuAction.logout:
                         _logout();
                     }
@@ -1024,6 +1307,13 @@ class _AdminPortalState extends State<_AdminPortal> {
                       child: ListTile(
                         leading: Icon(Icons.bookmarks_outlined),
                         title: Text('草稿箱'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: _AdminMenuAction.blindBox,
+                      child: ListTile(
+                        leading: Icon(Icons.card_giftcard_outlined),
+                        title: Text('盲盒奖池'),
                       ),
                     ),
                     const PopupMenuDivider(),
@@ -1069,6 +1359,12 @@ class _AdminPortalState extends State<_AdminPortal> {
                   selected: _section == _AdminSection.drafts,
                   onTap: () => _selectSection(_AdminSection.drafts),
                 ),
+                _WorkspaceTab(
+                  icon: Icons.card_giftcard_outlined,
+                  label: '盲盒奖池',
+                  selected: _section == _AdminSection.blindBox,
+                  onTap: () => _selectSection(_AdminSection.blindBox),
+                ),
                 const _ModeChip(),
                 const SizedBox(width: 8),
                 TextButton.icon(
@@ -1085,6 +1381,7 @@ class _AdminPortalState extends State<_AdminPortal> {
         _AdminSection.submissions => _buildSubmissionQueue(context),
         _AdminSection.library => _buildTemplateLibrary(context),
         _AdminSection.drafts => _buildDraftBox(context),
+        _AdminSection.blindBox => _buildBlindBoxPool(context),
       },
     );
   }
@@ -1095,6 +1392,7 @@ class _AdminPortalState extends State<_AdminPortal> {
     _AdminSection.submissions => '用户投稿审核',
     _AdminSection.library => '官方模板库',
     _AdminSection.drafts => '草稿箱',
+    _AdminSection.blindBox => '盲盒奖池管理',
   };
 
   String get _sectionShortTitle => switch (_section) {
@@ -1103,6 +1401,7 @@ class _AdminPortalState extends State<_AdminPortal> {
     _AdminSection.submissions => '投稿审核',
     _AdminSection.library => '模板库',
     _AdminSection.drafts => '草稿箱',
+    _AdminSection.blindBox => '盲盒奖池',
   };
 
   Widget _buildChartImportWorkspace(BuildContext context) {
@@ -1703,7 +2002,7 @@ class _AdminPortalState extends State<_AdminPortal> {
                           ?.copyWith(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
-                    Text('共 ${_templates.length} 个模板，按客户端分类展示。'),
+                    Text(_libraryCountLine()),
                   ],
                 ),
               ),
@@ -1732,6 +2031,26 @@ class _AdminPortalState extends State<_AdminPortal> {
             const SizedBox(height: 16),
             AdminNotice(message: _error ?? _success!, isError: _error != null),
           ],
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final option in const <AdminTemplateVisibility?>[
+                null,
+                AdminTemplateVisibility.public,
+                AdminTemplateVisibility.blindBox,
+              ])
+                ChoiceChip(
+                  key: ValueKey(
+                    'template-visibility-${option?.wireName ?? 'all'}',
+                  ),
+                  label: Text(option?.label ?? '全部'),
+                  selected: _visibilityFilter == option,
+                  onSelected: (_) => _selectVisibilityFilter(option),
+                ),
+            ],
+          ),
           const SizedBox(height: 20),
           if (groups.isEmpty)
             const _EmptyTemplateLibrary()
@@ -1759,8 +2078,11 @@ class _AdminPortalState extends State<_AdminPortal> {
                             template: template,
                             isUnpublishing:
                                 _unpublishingTemplateId == template.id,
+                            isJoiningPool:
+                                _joiningPoolTemplateId == template.id,
                             onEdit: () => _openTemplateEditor(template),
                             onUnpublish: () => _unpublishTemplate(template),
+                            onJoinPool: () => _joinBlindBoxPool(template),
                           ),
                         ),
                     ],
@@ -1849,18 +2171,132 @@ class _AdminPortalState extends State<_AdminPortal> {
     );
   }
 
+  Widget _buildBlindBoxPool(BuildContext context) {
+    if (_loadingPool && !_hasLoadedPool) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return RefreshIndicator(
+      onRefresh: _loadPool,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '盲盒奖池',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _poolTotal > 0
+                          ? '共 $_poolTotal 张图纸，奖池内的图纸只能通过盲盒抽到。'
+                          : '在「模板库」里给图纸点「加入奖池」，它就会出现在这里。',
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: '刷新',
+                onPressed: _loadingPool ? null : _loadPool,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              const SizedBox(width: 4),
+              OutlinedButton.icon(
+                onPressed: () => _selectSection(_AdminSection.library),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('去模板库添加'),
+              ),
+            ],
+          ),
+          if (_error != null || _success != null) ...[
+            const SizedBox(height: 16),
+            AdminNotice(message: _error ?? _success!, isError: _error != null),
+          ],
+          const SizedBox(height: 20),
+          if (_poolItems.isEmpty)
+            const _EmptyBlindBoxPool()
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final count = constraints.maxWidth >= 1080
+                    ? 3
+                    : constraints.maxWidth >= 720
+                    ? 2
+                    : 1;
+                final width = (constraints.maxWidth - (count - 1) * 16) / count;
+                return Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    for (final item in _poolItems)
+                      SizedBox(
+                        width: width,
+                        child: _BlindBoxPoolCard(
+                          item: item,
+                          isBusy: _busyPoolItemId == item.itemId,
+                          onEdit: () => _editPoolItem(item),
+                          onToggle: () => _togglePoolItem(item),
+                          onRemove: () => _removePoolItem(item),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          if (_poolHasMore) ...[
+            const SizedBox(height: 20),
+            Center(
+              child: OutlinedButton.icon(
+                onPressed: _loadingPool ? null : () => _loadPool(append: true),
+                icon: _loadingPool
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.expand_more_rounded),
+                label: Text(_loadingPool ? '加载中…' : '加载更多'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
+  String _libraryCountLine() {
+    final blindBoxCount = _templates
+        .where((template) => template.isBlindBoxOnly)
+        .length;
+    if (blindBoxCount == 0) {
+      return '共 ${_templates.length} 个模板，按客户端分类展示。';
+    }
+    return '共 ${_templates.length} 个模板，其中 $blindBoxCount 张盲盒专属。';
+  }
+
   List<_TemplateGroup> _templateGroups() {
+    final visible = _visibilityFilter == null
+        ? _templates
+        : _templates
+              .where((template) => template.visibility == _visibilityFilter)
+              .toList();
     final groups = <_TemplateGroup>[];
     final assignedIds = <String>{};
     for (final category in _categories) {
-      final templates = _templates
+      final templates = visible
           .where((template) => template.categoryId == category.id)
           .toList();
       if (templates.isEmpty) continue;
       assignedIds.addAll(templates.map((template) => template.id));
       groups.add(_TemplateGroup(name: category.name, templates: templates));
     }
-    final remaining = _templates
+    final remaining = visible
         .where((template) => !assignedIds.contains(template.id))
         .toList();
     final byName = <String, List<AdminTemplate>>{};
@@ -1874,6 +2310,136 @@ class _AdminPortalState extends State<_AdminPortal> {
       groups.add(_TemplateGroup(name: name, templates: templates));
     });
     return groups;
+  }
+}
+
+class _CategoryRequest {
+  final String name;
+  final bool isBlindBox;
+
+  const _CategoryRequest({required this.name, required this.isBlindBox});
+}
+
+class _PoolSettings {
+  final int weight;
+  final int sortOrder;
+
+  const _PoolSettings({required this.weight, required this.sortOrder});
+}
+
+/// Collects the weight and sort order for a pool entry.
+///
+/// Weight is validated here rather than left to the server so the operator sees
+/// the bounds while typing, and because `weight: 0` is a tempting but wrong way
+/// to pause an entry — that is what the status toggle is for.
+class _PoolSettingsDialog extends StatefulWidget {
+  final String title;
+  final String confirmLabel;
+  final String? description;
+  final int weight;
+  final int sortOrder;
+
+  const _PoolSettingsDialog({
+    required this.title,
+    required this.confirmLabel,
+    this.description,
+    required this.weight,
+    required this.sortOrder,
+  });
+
+  @override
+  State<_PoolSettingsDialog> createState() => _PoolSettingsDialogState();
+}
+
+class _PoolSettingsDialogState extends State<_PoolSettingsDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _weightController = TextEditingController(
+    text: '${widget.weight}',
+  );
+  late final TextEditingController _sortController = TextEditingController(
+    text: '${widget.sortOrder}',
+  );
+
+  @override
+  void dispose() {
+    _weightController.dispose();
+    _sortController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_formKey.currentState?.validate() != true) return;
+    Navigator.pop(
+      context,
+      _PoolSettings(
+        weight: int.parse(_weightController.text.trim()),
+        sortOrder: int.parse(_sortController.text.trim()),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final description = widget.description;
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (description != null) ...[
+              Text(description),
+              const SizedBox(height: 14),
+            ],
+            TextFormField(
+              key: const ValueKey('admin-pool-weight-field'),
+              controller: _weightController,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '抽中权重',
+                helperText: '范围 1–10000，越大越容易被抽到。停用请用启停开关。',
+                helperMaxLines: 2,
+              ),
+              validator: (value) {
+                final parsed = int.tryParse(value?.trim() ?? '');
+                if (parsed == null) return '请填写整数权重';
+                if (parsed < AdminBlindBoxPoolItem.minWeight ||
+                    parsed > AdminBlindBoxPoolItem.maxWeight) {
+                  return '权重需要在 '
+                      '${AdminBlindBoxPoolItem.minWeight}–'
+                      '${AdminBlindBoxPoolItem.maxWeight} 之间';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              key: const ValueKey('admin-pool-sort-field'),
+              controller: _sortController,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) => _submit(),
+              decoration: const InputDecoration(
+                labelText: '排序',
+                helperText: '仅影响奖池列表的展示顺序。',
+              ),
+              validator: (value) =>
+                  int.tryParse(value?.trim() ?? '') == null ? '请填写整数' : null,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
+      ],
+    );
   }
 }
 
@@ -2203,7 +2769,9 @@ class _DraftKindBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isRevision ? const Color(0xFF8C3450) : const Color(0xFF2F6E4F);
+    final color = isRevision
+        ? const Color(0xFF8C3450)
+        : const Color(0xFF2F6E4F);
     final background = isRevision
         ? const Color(0xFFF7EAF0)
         : const Color(0xFFE6F3EB);
@@ -2406,18 +2974,23 @@ class _SubmissionPreview extends StatelessWidget {
 class _TemplateLibraryCard extends StatelessWidget {
   final AdminTemplate template;
   final bool isUnpublishing;
+  final bool isJoiningPool;
   final VoidCallback onEdit;
   final VoidCallback onUnpublish;
+  final VoidCallback onJoinPool;
 
   const _TemplateLibraryCard({
     required this.template,
     required this.isUnpublishing,
+    required this.isJoiningPool,
     required this.onEdit,
     required this.onUnpublish,
+    required this.onJoinPool,
   });
 
   @override
   Widget build(BuildContext context) {
+    final locked = isUnpublishing || isJoiningPool;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: const Color(0xFFFFFBFC),
@@ -2432,7 +3005,7 @@ class _TemplateLibraryCard extends StatelessWidget {
             Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: isUnpublishing ? null : onEdit,
+                onTap: locked ? null : onEdit,
                 borderRadius: BorderRadius.circular(12),
                 child: _TemplatePreview(
                   url: template.imageUrl,
@@ -2454,6 +3027,10 @@ class _TemplateLibraryCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (template.isBlindBoxOnly) ...[
+                  const SizedBox(width: 8),
+                  const _BlindBoxBadge(),
+                ],
                 if (template.hasDraft) ...[
                   const SizedBox(width: 8),
                   const _DraftPendingBadge(),
@@ -2488,7 +3065,7 @@ class _TemplateLibraryCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: isUnpublishing ? null : onEdit,
+                    onPressed: locked ? null : onEdit,
                     icon: const Icon(Icons.edit_outlined, size: 18),
                     label: Text(template.hasDraft ? '编辑草稿' : '编辑'),
                   ),
@@ -2496,7 +3073,7 @@ class _TemplateLibraryCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: isUnpublishing ? null : onUnpublish,
+                    onPressed: locked ? null : onUnpublish,
                     icon: isUnpublishing
                         ? const SizedBox(
                             width: 16,
@@ -2511,6 +3088,22 @@ class _TemplateLibraryCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                // A template already in the pool is managed from the pool page:
+                // adding it twice is rejected, and leaving is a removal there.
+                if (!template.isBlindBoxOnly)
+                  IconButton(
+                    key: ValueKey('template-join-pool-${template.id}'),
+                    onPressed: locked ? null : onJoinPool,
+                    tooltip: '加入盲盒奖池',
+                    icon: isJoiningPool
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.card_giftcard_outlined, size: 20),
+                    color: const Color(0xFF8C3450),
+                  ),
               ],
             ),
           ],
@@ -2526,6 +3119,204 @@ class _TemplateLibraryCard extends StatelessWidget {
       3 => '挑战',
       _ => '难度 $difficulty',
     };
+  }
+}
+
+class _BlindBoxBadge extends StatelessWidget {
+  const _BlindBoxBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDE7FB),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Text(
+          '盲盒专属',
+          style: TextStyle(
+            color: Color(0xFF5B3E9C),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyBlindBoxPool extends StatelessWidget {
+  const _EmptyBlindBoxPool();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 72, horizontal: 24),
+        child: Column(
+          children: [
+            Icon(
+              Icons.card_giftcard_outlined,
+              size: 48,
+              color: Color(0xFFB7AEB7),
+            ),
+            SizedBox(height: 12),
+            Text('奖池里还没有图纸'),
+            SizedBox(height: 4),
+            Text('到「模板库」给想做成盲盒的图纸点「加入奖池」。'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BlindBoxPoolCard extends StatelessWidget {
+  final AdminBlindBoxPoolItem item;
+  final bool isBusy;
+  final VoidCallback onEdit;
+  final VoidCallback onToggle;
+  final VoidCallback onRemove;
+
+  const _BlindBoxPoolCard({
+    required this.item,
+    required this.isBusy,
+    required this.onEdit,
+    required this.onToggle,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFC),
+        border: Border.all(color: const Color(0xFFECE3EA)),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: isBusy ? null : onEdit,
+                borderRadius: BorderRadius.circular(12),
+                child: _TemplatePreview(url: item.imageUrl),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    item.displayTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _PoolStatusBadge(isActive: item.isActive),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _CardMeta(label: '权重 ${item.weight}'),
+                _CardMeta(label: '排序 ${item.sortOrder}'),
+                if (item.categoryName.isNotEmpty)
+                  _CardMeta(label: item.categoryName),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: isBusy ? null : onEdit,
+                    icon: const Icon(Icons.tune_rounded, size: 18),
+                    label: const Text('权重排序'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: ValueKey('pool-toggle-${item.itemId}'),
+                    onPressed: isBusy ? null : onToggle,
+                    icon: isBusy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            item.isActive
+                                ? Icons.pause_circle_outline
+                                : Icons.play_circle_outline,
+                            size: 18,
+                          ),
+                    label: Text(item.isActive ? '停用' : '启用'),
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('pool-remove-${item.itemId}'),
+                  onPressed: isBusy ? null : onRemove,
+                  tooltip: '移出奖池',
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  color: const Color(0xFFC6284A),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PoolStatusBadge extends StatelessWidget {
+  final bool isActive;
+
+  const _PoolStatusBadge({required this.isActive});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? const Color(0xFF2F6E4F) : const Color(0xFF6A6470);
+    final background = isActive
+        ? const Color(0xFFE6F3EB)
+        : const Color(0xFFEFECF1);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Text(
+          isActive ? '参与抽奖' : '已停用',
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -1,0 +1,25 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="31.0165" height="55.8743" viewBox="0 0 31.0165 55.8743" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Group 1942188735">
+<g id="Vector 962">
+<path d="M2.21586 22.5613C0.796385 19.7842 5.68722 14.5643 8.31008 12.3014L9.93026 12.9957V34.5183C11.1902 35.1612 12.4759 36.9869 7.53885 39.1469C2.6376 41.2912 3.51426 36.061 4.58386 33.1169C4.39393 33.6096 3.99203 34.0052 2.21586 33.0526C-0.804948 31.4326 2.49875 26.6756 4.60736 24.3356C4.04144 24.7531 3.63533 25.3384 2.21586 22.5613Z" fill="#FF7AE0"/>
+<path d="M8.31008 12.3014C5.68722 14.5643 0.796385 19.7842 2.21586 22.5613C3.63533 25.3384 4.04144 24.7531 4.60736 24.3356C2.49875 26.6756 -0.804948 31.4326 2.21586 33.0526C4.06869 34.0463 4.42607 33.5729 4.60736 33.0526C3.5274 35.9841 2.60175 41.3069 7.53885 39.1469C12.4759 36.9869 11.1902 35.1612 9.93026 34.5183V12.9957L8.31008 12.3014Z" stroke="black" stroke-width="2" stroke-linejoin="round"/>
+</g>
+<path id="Vector 963" d="M6.27343 22.0414L9.37585 19.4957" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector 965" d="M7.06835 36.6464L10.1708 34.1007" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector 964" d="M5.31832 30.6194L10.1709 26.7213" stroke="black" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Rectangle 34625346" d="M8.11829 10.3042C7.95441 8.72535 8.14957 7.13465 8.69943 5.64562C9.87503 2.46205 13.1375 0.553876 16.4886 1.08983L19.189 1.5217C24.9229 2.43875 29.2245 7.25523 29.4545 13.0575C29.6613 18.2717 29.8881 24.5028 29.9907 29.0698C30.2028 38.505 29.0366 54.8743 29.0366 54.8743H8.68189C8.68189 54.8743 10.1661 39.4592 9.74203 30.236C9.42911 23.4299 8.55498 14.5114 8.11829 10.3042Z" fill="url(#paint0_linear_0_4)" stroke="black" stroke-width="2"/>
+<ellipse id="Ellipse 11" cx="25.2686" cy="11.007" rx="4.24078" ry="7.33526" transform="rotate(-9.41701 25.2686 11.007)" fill="white" stroke="black" stroke-width="1.2"/>
+<ellipse id="Ellipse 10" cx="19.0596" cy="11.007" rx="4.24078" ry="7.33526" transform="rotate(-9.41701 19.0596 11.007)" fill="white" stroke="black" stroke-width="1.2"/>
+<ellipse id="Ellipse 12" cx="20.5093" cy="10.8868" rx="1.25039" ry="2.07501" transform="rotate(-13.1277 20.5093 10.8868)" fill="black"/>
+<ellipse id="Ellipse 13" cx="26.1499" cy="10.8868" rx="1.25039" ry="2.07501" transform="rotate(-13.1277 26.1499 10.8868)" fill="black"/>
+<path id="Vector 959" d="M30.1276 21.7832C31.6622 19.2509 17.2372 18.4831 14.7051 26.9239C23.6059 18.3296 28.593 24.3154 30.1276 21.7832Z" fill="#2389FF" stroke="black" stroke-width="0.72" stroke-linejoin="round"/>
+<path id="Vector 960" d="M30.2273 24.0899C31.9356 21.6714 17.5997 19.8948 14.4825 28.1376C23.9636 20.1879 28.519 26.5084 30.2273 24.0899Z" fill="#2389FF" stroke="black" stroke-width="0.72" stroke-linejoin="round"/>
+<path id="Vector 961" d="M13.2075 27.1642C12.6475 29.004 13.1174 32.2533 14.8912 30.4464C15.7544 29.5671 16.0445 29.2344 17.02 28.8402" stroke="black" stroke-width="0.72" stroke-linejoin="round"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_4" x1="18.9399" y1="54.8743" x2="18.9399" y2="0.167611" gradientUnits="userSpaceOnUse">
+<stop stop-color="#7AFFF4"/>
+<stop offset="1" stop-color="#2BE3FF"/>
+</linearGradient>
+</defs>
+</svg>

@@ -560,22 +560,28 @@ void main() {
     ]);
   });
 
-  test('admin API saves a draft without a thumbnail when none was rendered', () async {
-    Map<String, dynamic>? body;
-    final calls = <String>[];
-    final client = await _authenticatedClient((request) async {
-      calls.add('${request.method} ${request.url.path}');
-      body = jsonDecode(request.body) as Map<String, dynamic>;
-      return _jsonResponse({
-        'draft': {'draftId': 'draft-1', 'updatedAt': '2026-08-19T10:03:00.1Z'},
+  test(
+    'admin API saves a draft without a thumbnail when none was rendered',
+    () async {
+      Map<String, dynamic>? body;
+      final calls = <String>[];
+      final client = await _authenticatedClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        body = jsonDecode(request.body) as Map<String, dynamic>;
+        return _jsonResponse({
+          'draft': {
+            'draftId': 'draft-1',
+            'updatedAt': '2026-08-19T10:03:00.1Z',
+          },
+        });
       });
-    });
 
-    await client.createDraft(idempotencyKey: 'key', patternData: _pattern);
+      await client.createDraft(idempotencyKey: 'key', patternData: _pattern);
 
-    expect(body!['previewFileKey'], '');
-    expect(calls, ['POST /api/v1/admin/template-drafts']);
-  });
+      expect(body!['previewFileKey'], '');
+      expect(calls, ['POST /api/v1/admin/template-drafts']);
+    },
+  );
 
   test('admin API refuses to create a draft without an idempotency key', () {
     final client = AdminApi(
@@ -679,41 +685,44 @@ void main() {
     }
   });
 
-  test('admin API publishes a draft with only the three publish fields', () async {
-    final calls = <String>[];
-    Map<String, dynamic>? publishBody;
-    final client = await _authenticatedClient((request) async {
-      calls.add('${request.method} ${request.url.path}');
-      switch (request.url.path) {
-        case '/api/v1/admin/media/upload':
-          expect(request.bodyBytes, Uint8List.fromList([7, 8, 9]));
-          return _jsonResponse({'fileKey': 'admin_preview/draft.png'});
-        case '/api/v1/admin/template-drafts/draft-1/publish':
-          publishBody = jsonDecode(request.body) as Map<String, dynamic>;
-          return _jsonResponse({'templateId': 'template-777'});
-        default:
-          throw StateError('Unexpected request: ${request.url}');
-      }
-    });
+  test(
+    'admin API publishes a draft with only the three publish fields',
+    () async {
+      final calls = <String>[];
+      Map<String, dynamic>? publishBody;
+      final client = await _authenticatedClient((request) async {
+        calls.add('${request.method} ${request.url.path}');
+        switch (request.url.path) {
+          case '/api/v1/admin/media/upload':
+            expect(request.bodyBytes, Uint8List.fromList([7, 8, 9]));
+            return _jsonResponse({'fileKey': 'admin_preview/draft.png'});
+          case '/api/v1/admin/template-drafts/draft-1/publish':
+            publishBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return _jsonResponse({'templateId': 'template-777'});
+          default:
+            throw StateError('Unexpected request: ${request.url}');
+        }
+      });
 
-    final templateId = await client.publishDraft(
-      draftId: 'draft-1',
-      idempotencyKey: 'publish-request-1',
-      baseUpdatedAt: '2026-08-19T10:05:12.007Z',
-      thumbnailBytes: Uint8List.fromList([7, 8, 9]),
-    );
+      final templateId = await client.publishDraft(
+        draftId: 'draft-1',
+        idempotencyKey: 'publish-request-1',
+        baseUpdatedAt: '2026-08-19T10:05:12.007Z',
+        thumbnailBytes: Uint8List.fromList([7, 8, 9]),
+      );
 
-    expect(templateId, 'template-777');
-    expect(publishBody, {
-      'idempotencyKey': 'publish-request-1',
-      'previewFileKey': 'admin_preview/draft.png',
-      'baseUpdatedAt': '2026-08-19T10:05:12.007Z',
-    });
-    expect(calls, [
-      'POST /api/v1/admin/media/upload',
-      'POST /api/v1/admin/template-drafts/draft-1/publish',
-    ]);
-  });
+      expect(templateId, 'template-777');
+      expect(publishBody, {
+        'idempotencyKey': 'publish-request-1',
+        'previewFileKey': 'admin_preview/draft.png',
+        'baseUpdatedAt': '2026-08-19T10:05:12.007Z',
+      });
+      expect(calls, [
+        'POST /api/v1/admin/media/upload',
+        'POST /api/v1/admin/template-drafts/draft-1/publish',
+      ]);
+    },
+  );
 
   test('admin API lists drafts without pattern data', () async {
     final client = await _authenticatedClient((request) async {
@@ -839,6 +848,196 @@ void main() {
     expect(templates.first.draftId, 'draft-1');
     expect(templates.last.hasDraft, isFalse);
     expect(templates.last.draftId, '');
+  });
+
+  test('admin templates report blind-box visibility', () async {
+    final client = await _authenticatedClient((request) async {
+      return _jsonResponse({
+        'templates': [
+          {
+            'templateId': 'template-001',
+            'title': '小猫咪',
+            'visibility': 'blind_box',
+          },
+          {
+            'templateId': 'template-002',
+            'title': '小兔子',
+            'visibility': 'public',
+          },
+          {'templateId': 'template-003', 'title': '樱花'},
+        ],
+        'page': {'hasMore': false},
+      });
+    });
+
+    final templates = await client.listTemplates();
+
+    expect(templates[0].visibility, AdminTemplateVisibility.blindBox);
+    expect(templates[0].isBlindBoxOnly, isTrue);
+    expect(templates[1].visibility, AdminTemplateVisibility.public);
+    // A template from before the blind box existed carries no visibility.
+    expect(templates[2].visibility, AdminTemplateVisibility.public);
+  });
+
+  test('admin categories report and create the blind-box flag', () async {
+    Map<String, Object?>? createBody;
+    final client = await _authenticatedClient((request) async {
+      expect(request.url.path, '/api/v1/admin/template-categories');
+      if (request.method == 'POST') {
+        createBody = jsonDecode(request.body) as Map<String, Object?>;
+        return _jsonResponse({
+          'category': {
+            'categoryId': 9,
+            'name': '盲盒限定',
+            'templateCount': 0,
+            'isBlindBox': true,
+          },
+        });
+      }
+      return _jsonResponse({
+        'categories': [
+          {'categoryId': 3, 'name': '盲盒限定', 'isBlindBox': true},
+          {'categoryId': 4, 'name': '动物'},
+        ],
+      });
+    });
+
+    final categories = await client.listCategories();
+    final created = await client.createCategory(name: '盲盒限定', isBlindBox: true);
+
+    expect(categories.first.isBlindBox, isTrue);
+    expect(categories.last.isBlindBox, isFalse);
+    expect(createBody, {'name': '盲盒限定', 'isBlindBox': true});
+    expect(created.isBlindBox, isTrue);
+  });
+
+  test('blind-box pool listing parses entries and paging', () async {
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/admin/blind-box-pool');
+      expect(request.url.queryParameters, {
+        'page.page': '2',
+        'page.pageSize': '20',
+      });
+      return _jsonResponse({
+        'items': [
+          {
+            'itemId': '1',
+            'templateId': '12',
+            'title': '小猫咪',
+            'previewUrl': 'https://cdn.example.test/preview.png',
+            'thumbnailUrl': 'https://cdn.example.test/thumb.png',
+            'categoryId': 3,
+            'categoryName': '盲盒限定',
+            'weight': 10,
+            'sortOrder': 0,
+            'status': 1,
+          },
+          {'itemId': '', 'templateId': '13'},
+        ],
+        'page': {'total': 21, 'page': 2, 'pageSize': 20, 'hasMore': false},
+      });
+    });
+
+    final result = await client.listBlindBoxPool(page: 2);
+
+    // The entry without an itemId cannot be edited or removed, so it is dropped.
+    expect(result.items, hasLength(1));
+    expect(result.total, 21);
+    expect(result.hasMore, isFalse);
+    final item = result.items.single;
+    expect(item.itemId, '1');
+    expect(item.templateId, '12');
+    expect(item.categoryName, '盲盒限定');
+    expect(item.weight, 10);
+    expect(item.isActive, isTrue);
+    expect(item.imageUrl, 'https://cdn.example.test/thumb.png');
+  });
+
+  test('joining the blind-box pool posts the template id and weight', () async {
+    Map<String, Object?>? body;
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/admin/blind-box-pool');
+      body = jsonDecode(request.body) as Map<String, Object?>;
+      return _jsonResponse(const {});
+    });
+
+    await client.addToBlindBoxPool(templateId: '12', weight: 10, sortOrder: 3);
+
+    expect(body, {'templateId': '12', 'weight': 10, 'sortOrder': 3});
+  });
+
+  test('updating a pool entry sends only the changed fields', () async {
+    final bodies = <Map<String, Object?>>[];
+    final client = await _authenticatedClient((request) async {
+      expect(request.method, 'PUT');
+      expect(request.url.path, '/api/v1/admin/blind-box-pool/item%201');
+      bodies.add(jsonDecode(request.body) as Map<String, Object?>);
+      return _jsonResponse(const {});
+    });
+
+    await client.updateBlindBoxPoolItem(itemId: 'item 1', status: 0);
+    await client.updateBlindBoxPoolItem(
+      itemId: 'item 1',
+      weight: 5,
+      sortOrder: 1,
+    );
+
+    expect(bodies, [
+      {'status': 0},
+      {'weight': 5, 'sortOrder': 1},
+    ]);
+  });
+
+  test('updating a pool entry without any field is rejected locally', () async {
+    var requested = false;
+    final client = await _authenticatedClient((request) async {
+      requested = true;
+      return _jsonResponse(const {});
+    });
+
+    expect(
+      () => client.updateBlindBoxPoolItem(itemId: '1'),
+      throwsArgumentError,
+    );
+    expect(requested, isFalse);
+  });
+
+  test('removing a pool entry deletes it by item id', () async {
+    var method = '';
+    var path = '';
+    final client = await _authenticatedClient((request) async {
+      method = request.method;
+      path = request.url.path;
+      return _jsonResponse(const {});
+    });
+
+    await client.removeFromBlindBoxPool('1');
+
+    expect(method, 'DELETE');
+    expect(path, '/api/v1/admin/blind-box-pool/1');
+  });
+
+  test('a duplicate pool entry surfaces the server message', () async {
+    final client = await _authenticatedClient((request) async {
+      return http.Response(
+        jsonEncode({
+          'header': {'code': 3001, 'message': '该图纸已在盲盒奖池中'},
+        }),
+        400,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+
+    await expectLater(
+      client.addToBlindBoxPool(templateId: '12'),
+      throwsA(
+        isA<ApiException>()
+            .having((error) => error.message, 'message', '该图纸已在盲盒奖池中')
+            .having((error) => error.httpStatusCode, 'httpStatusCode', 400),
+      ),
+    );
   });
 }
 
