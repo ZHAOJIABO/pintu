@@ -331,6 +331,61 @@ class TemplateDetail {
   const TemplateDetail({required this.template, required this.patternData});
 }
 
+/// Server-authoritative daily allowance for blind-box draws.
+///
+/// [resetAt] is the protojson string form of a Unix timestamp in seconds.
+class BlindBoxQuota {
+  final int dailyLimit;
+  final int used;
+  final int remaining;
+  final int resetAt;
+
+  const BlindBoxQuota({
+    required this.dailyLimit,
+    required this.used,
+    required this.remaining,
+    required this.resetAt,
+  });
+
+  factory BlindBoxQuota.fromJson(JsonMap? json) {
+    final data = json ?? const {};
+    return BlindBoxQuota(
+      dailyLimit: _intValue(data['dailyLimit']),
+      used: _intValue(data['used']),
+      remaining: _intValue(data['remaining']),
+      resetAt: _intValue(data['resetAt']),
+    );
+  }
+
+  bool get canDraw => remaining > 0;
+
+  BlindBoxQuota copyWith({
+    int? dailyLimit,
+    int? used,
+    int? remaining,
+    int? resetAt,
+  }) {
+    return BlindBoxQuota(
+      dailyLimit: dailyLimit ?? this.dailyLimit,
+      used: used ?? this.used,
+      remaining: remaining ?? this.remaining,
+      resetAt: resetAt ?? this.resetAt,
+    );
+  }
+}
+
+class BlindBoxDrawResult {
+  final TemplateItem template;
+  final PatternData patternData;
+  final BlindBoxQuota quota;
+
+  const BlindBoxDrawResult({
+    required this.template,
+    required this.patternData,
+    required this.quota,
+  });
+}
+
 class TemplateFavoriteResult {
   final bool isFavorited;
   final int favoriteCount;

@@ -4,6 +4,7 @@ import 'package:bobobeads/screens/upload_screen.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
+import 'package:bobobeads/services/api/vendor_identifier.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -84,6 +85,14 @@ void main() {
               ],
             },
           },
+          '/api/v1/templates/random/quota' => {
+            'quota': {
+              'dailyLimit': 1,
+              'used': 0,
+              'remaining': 1,
+              'resetAt': '1755792000',
+            },
+          },
           '/api/v1/templates/random' => {
             'template': {
               'templateId': 'template-random',
@@ -113,6 +122,12 @@ void main() {
                 },
               ],
             },
+            'quota': {
+              'dailyLimit': 1,
+              'used': 1,
+              'remaining': 0,
+              'resetAt': '1755792000',
+            },
           },
           _ => throw StateError('Unexpected request: ${request.url}'),
         };
@@ -139,8 +154,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    expect(find.text('今日剩余 1 次'), findsOneWidget);
+
     await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
 
     final blindBoxRequest = requests.lastWhere(
       (request) => request.url.path == '/api/v1/templates/random',
@@ -148,6 +165,7 @@ void main() {
     expect(blindBoxRequest.method, 'GET');
     expect(jsonDecode(blindBoxRequest.body), {'header': {}});
     expect(find.byKey(const ValueKey('blind-box-dialog')), findsOneWidget);
+    expect(find.textContaining('恢复'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('blind-box-template-preview')),
       findsOneWidget,
@@ -229,10 +247,88 @@ void main() {
     );
     expect(find.text('图纸'), findsOneWidget);
   });
+
+  testWidgets('盲盒 2007 显示中文次数用完提示且不重试抽取', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/templates' => {
+            'templates': const [],
+            'page': {'total': 0, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          '/api/v1/templates/random/quota' => {
+            'quota': {
+              'dailyLimit': 1,
+              'used': 0,
+              'remaining': 1,
+              'resetAt': '1755792000',
+            },
+          },
+          _ => <String, Object?>{},
+        };
+        final header = request.url.path == '/api/v1/templates/random'
+            ? {
+                'code': 2007,
+                'message': 'daily blind box quota used up: limit 1',
+              }
+            : {'code': 0, 'message': 'success'};
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'header': header, ...body})),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+    await services.loadHomeTemplates();
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: UploadScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('今日剩余 1 次'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('今日盲盒次数已用完，明天再来吧'), findsOneWidget);
+    expect(find.textContaining('今日剩余 0 次'), findsOneWidget);
+    expect(find.textContaining('恢复'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
+    await tester.pump();
+    expect(
+      requests.where(
+        (request) => request.url.path == '/api/v1/templates/random',
+      ),
+      hasLength(1),
+    );
+  });
 }
 
 class _MemoryApiSessionStore extends ApiSessionStore {
   AuthSession? _session;
+
+  @override
+  Future<DeviceInfo> readDeviceInfo() async => const DeviceInfo();
 
   @override
   Future<String> readOrCreateDeviceId() async => 'device-1';

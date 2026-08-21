@@ -39,6 +39,21 @@ void main() {
     expect(parsed.copyWith(categoryName: '可爱').categoryName, '可爱');
   });
 
+  test('BlindBoxQuota parses the protojson reset timestamp string', () {
+    final quota = BlindBoxQuota.fromJson({
+      'dailyLimit': 3,
+      'used': 1,
+      'remaining': 2,
+      'resetAt': '1755792000',
+    });
+
+    expect(quota.dailyLimit, 3);
+    expect(quota.used, 1);
+    expect(quota.remaining, 2);
+    expect(quota.resetAt, 1755792000);
+    expect(quota.canDraw, isTrue);
+  });
+
   test('unknown category uses the default rare treatment', () {
     final presentation = TemplateCategoryPresentations.resolve(item);
 

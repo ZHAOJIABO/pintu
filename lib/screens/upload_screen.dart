@@ -98,6 +98,8 @@ class _UploadScreenState extends State<UploadScreen> {
   int _galleryRequestVersion = 0;
   bool _picking = false;
   bool _openingBlindBox = false;
+  bool _loadingBlindBoxQuota = false;
+  BlindBoxQuota? _blindBoxQuota;
   bool _showingMyPage = false;
 
   @override
@@ -109,7 +111,52 @@ class _UploadScreenState extends State<UploadScreen> {
     _backendServices = services;
     if (services != null) {
       _loadGalleryTemplates(services);
+      _loadBlindBoxQuota(services);
     }
+  }
+
+  Future<void> _loadBlindBoxQuota(BackendServices services) async {
+    if (mounted && identical(_backendServices, services)) {
+      setState(() => _loadingBlindBoxQuota = true);
+    }
+    try {
+      final quota = await services.templates.getRandomQuota();
+      if (!mounted || !identical(_backendServices, services)) return;
+      setState(() => _blindBoxQuota = quota);
+    } catch (_) {
+      // The card stays disabled until a server-authoritative allowance is
+      // available; never infer the remaining count locally.
+    } finally {
+      if (mounted && identical(_backendServices, services)) {
+        setState(() => _loadingBlindBoxQuota = false);
+      }
+    }
+  }
+
+  String _blindBoxQuotaText() {
+    final quota = _blindBoxQuota;
+    if (_loadingBlindBoxQuota) return '正在获取今日次数';
+    if (quota == null) return '次数暂不可用';
+    if (quota.canDraw) return '今日剩余 ${quota.remaining} 次';
+    return '今日剩余 0 次 · ${_blindBoxResetText(quota.resetAt)}';
+  }
+
+  String _blindBoxResetText(int resetAt) {
+    if (resetAt <= 0) return '明日 00:00 恢复';
+
+    // The server fixes reset time to UTC+8. This label is presentation-only;
+    // the server remains the sole authority for whether a draw is allowed.
+    final reset = DateTime.fromMillisecondsSinceEpoch(
+      resetAt * Duration.millisecondsPerSecond,
+      isUtc: true,
+    ).add(const Duration(hours: 8));
+    final now = DateTime.now().toUtc().add(const Duration(hours: 8));
+    final resetDate = DateTime(reset.year, reset.month, reset.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final daysUntilReset = resetDate.difference(today).inDays;
+    if (daysUntilReset == 1) return '明日 00:00 恢复';
+    if (daysUntilReset == 0) return '今日 00:00 恢复';
+    return '${reset.month}月${reset.day}日 00:00 恢复';
   }
 
   Future<void> _loadGalleryTemplates(
@@ -184,12 +231,20 @@ class _UploadScreenState extends State<UploadScreen> {
 
   Future<void> _openBlindBox() async {
     final services = _backendServices;
-    if (services == null || _openingBlindBox) return;
+    final quota = _blindBoxQuota;
+    if (services == null ||
+        _openingBlindBox ||
+        quota == null ||
+        !quota.canDraw) {
+      return;
+    }
+    final drawQuota = quota;
 
     setState(() => _openingBlindBox = true);
     try {
       final detail = await services.templates.getRandomTemplate();
       if (!mounted || !identical(_backendServices, services)) return;
+      setState(() => _blindBoxQuota = detail.quota);
       await showBlindBoxDialog(
         context,
         rewards: _blindBoxRewards,
@@ -207,8 +262,29 @@ class _UploadScreenState extends State<UploadScreen> {
           );
         },
       );
-    } catch (_) {
+    } on ApiException catch (error) {
       if (!mounted) return;
+      if (error.code == 2007) {
+        setState(
+          () => _blindBoxQuota = drawQuota.copyWith(
+            remaining: 0,
+            used: drawQuota.dailyLimit,
+          ),
+        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('今日盲盒次数已用完，明天再来吧')));
+        return;
+      }
+      await _loadBlindBoxQuota(services);
+      if (!mounted || !identical(_backendServices, services)) return;
+      final message = error.code == 1002 ? '盲盒暂时没有可抽图纸，请稍后再试' : '盲盒加载失败，请重试';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      await _loadBlindBoxQuota(services);
+      if (!mounted || !identical(_backendServices, services)) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('盲盒加载失败，请重试')));
@@ -303,7 +379,11 @@ class _UploadScreenState extends State<UploadScreen> {
                                           imageSource:
                                               DraftImageSource.illustration,
                                         ),
-                                  onBlindBox: _openingBlindBox
+                                  blindBoxQuotaText: _blindBoxQuotaText(),
+                                  onBlindBox:
+                                      _openingBlindBox ||
+                                          _loadingBlindBoxQuota ||
+                                          _blindBoxQuota?.canDraw != true
                                       ? null
                                       : _openBlindBox,
                                   onFilter: _openFilterDialog,
@@ -398,6 +478,7 @@ class _HomeDesignCanvas extends StatelessWidget {
   final VoidCallback? onPhotoStart;
   final VoidCallback? onIllustrationStart;
   final VoidCallback? onBlindBox;
+  final String blindBoxQuotaText;
   final VoidCallback? onFilter;
 
   const _HomeDesignCanvas({
@@ -409,6 +490,7 @@ class _HomeDesignCanvas extends StatelessWidget {
     required this.onPhotoStart,
     required this.onIllustrationStart,
     required this.onBlindBox,
+    required this.blindBoxQuotaText,
     required this.onFilter,
   });
 
@@ -463,6 +545,7 @@ class _HomeDesignCanvas extends StatelessWidget {
               key: const ValueKey('home-blind-box-card'),
               icon: 'assets/figma_home/feature_blind_box_icon.png',
               textImage: 'assets/figma_home/feature_blind_box_text.png',
+              footerText: blindBoxQuotaText,
               onTap: onBlindBox,
             ),
           ),
@@ -1428,49 +1511,84 @@ class _StepPill extends StatelessWidget {
 class _FeatureCard extends StatelessWidget {
   final String icon;
   final String textImage;
+  final String? footerText;
   final VoidCallback? onTap;
 
   const _FeatureCard({
     super.key,
     required this.icon,
     required this.textImage,
+    this.footerText,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 177,
-        height: 132,
-        decoration: BoxDecoration(
-          gradient: const RadialGradient(
-            center: Alignment.center,
-            colors: [Color(0xFFFFF9C4), Colors.white],
-            radius: 0.57,
-          ),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Image.asset(icon, width: 56, height: 56),
-              const SizedBox(height: 4),
-              SizedBox(
-                width: double.infinity,
-                height: 24,
-                child: Image.asset(
-                  textImage,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.none,
-                ),
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Opacity(
+          opacity: onTap == null ? 0.55 : 1,
+          child: Container(
+            width: 177,
+            height: 132,
+            decoration: BoxDecoration(
+              gradient: const RadialGradient(
+                center: Alignment.center,
+                colors: [Color(0xFFFFF9C4), Colors.white],
+                radius: 0.57,
               ),
-            ],
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 48,
+                    vertical: 24,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Image.asset(icon, width: 56, height: 56),
+                      const SizedBox(height: 4),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 24,
+                        child: Image.asset(
+                          textImage,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.none,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (footerText != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 5,
+                    child: Text(
+                      footerText!,
+                      key: const ValueKey('home-blind-box-quota'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0x99000000),
+                        fontFamily: _roundFontFamily,
+                        fontFamilyFallback: _fontFallbacks,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

@@ -181,16 +181,27 @@ class TemplateRepository {
     );
   }
 
+  /// Returns the server-authoritative allowance for today's blind-box draws.
+  Future<BlindBoxQuota> getRandomQuota() async {
+    await auth.ensureSignedIn();
+    final data = await apiClient.get('/api/v1/templates/random/quota');
+    return BlindBoxQuota.fromJson(_map(data['quota']));
+  }
+
   /// Draws one published template for the home blind box.
-  Future<TemplateDetail> getRandomTemplate() async {
+  ///
+  /// The response quota reflects the post-draw balance and must replace any
+  /// locally displayed allowance.
+  Future<BlindBoxDrawResult> getRandomTemplate() async {
     await auth.ensureSignedIn();
     final data = await apiClient.get(
       '/api/v1/templates/random',
       body: const {'header': <String, Object?>{}},
     );
-    return TemplateDetail(
+    return BlindBoxDrawResult(
       template: TemplateItem.fromJson(_map(data['template']) ?? const {}),
       patternData: PatternData.fromJson(_map(data['patternData']) ?? const {}),
+      quota: BlindBoxQuota.fromJson(_map(data['quota'])),
     );
   }
 
