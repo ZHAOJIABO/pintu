@@ -137,9 +137,18 @@ class BackendServices {
     }
   }
 
-  Future<PagedResult<TemplateItem>> loadHomeTemplates({int? categoryId}) async {
-    if (categoryId != null) {
-      return templates.listTemplates(scene: 'home', categoryId: categoryId);
+  Future<PagedResult<TemplateItem>> loadHomeTemplates({
+    int? categoryId,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    if (categoryId != null || page != 1 || pageSize != 20) {
+      return templates.listTemplates(
+        scene: 'home',
+        categoryId: categoryId,
+        page: page,
+        pageSize: pageSize,
+      );
     }
 
     final existing = _homeTemplatesRequest;

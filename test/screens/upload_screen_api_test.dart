@@ -6,6 +6,7 @@ import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:bobobeads/services/api/vendor_identifier.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -202,7 +203,7 @@ void main() {
       tester
           .widget<Text>(find.byKey(const ValueKey('home-gallery-category')))
           .data,
-      '全部',
+      '动物',
     );
 
     await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
@@ -217,8 +218,31 @@ void main() {
       ),
       hasLength(1),
     );
-    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
+    final selectedCategory = find.byKey(
+      const ValueKey('home-filter-category-7'),
+    );
+    expect(
+      tester.getSemantics(selectedCategory).hasFlag(SemanticsFlag.isSelected),
+      isTrue,
+    );
+    final templateRequestCountBeforeClearing = requests
+        .where((request) => request.url.path == '/api/v1/templates')
+        .length;
+    await tester.tap(selectedCategory);
     await tester.pumpAndSettle();
+
+    // The unfiltered home response is cached, so clearing a category reuses it
+    // instead of issuing another category-specific request.
+    expect(
+      requests.where((request) => request.url.path == '/api/v1/templates'),
+      hasLength(templateRequestCountBeforeClearing),
+    );
+    expect(
+      tester
+          .widget<Text>(find.byKey(const ValueKey('home-gallery-category')))
+          .data,
+      '全部',
+    );
 
     expect(
       find.byKey(const ValueKey('gallery-thumbnail-template-001')),
@@ -246,6 +270,104 @@ void main() {
       hasLength(1),
     );
     expect(find.text('图纸'), findsOneWidget);
+  });
+
+  testWidgets('首页图纸滚动接近底部时追加加载下一页', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final page =
+            int.tryParse(request.url.queryParameters['page.page'] ?? '1') ?? 1;
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/templates' => {
+            'templates': page == 1
+                ? List.generate(
+                    20,
+                    (index) => {
+                      'templateId': 'template-${index + 1}',
+                      'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                    },
+                  )
+                : [
+                    {
+                      'templateId': 'template-21',
+                      'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                    },
+                  ],
+            'page': {
+              'total': 21,
+              'page': page,
+              'pageSize': 20,
+              'hasMore': page == 1,
+            },
+          },
+          '/api/v1/templates/random/quota' => {
+            'quota': {
+              'dailyLimit': 1,
+              'used': 0,
+              'remaining': 1,
+              'resetAt': '1755792000',
+            },
+          },
+          _ => <String, Object?>{},
+        };
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'header': {'code': 0, 'message': 'success'},
+              ...body,
+            }),
+          ),
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: UploadScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-template-20')),
+      findsOneWidget,
+    );
+    await tester.drag(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -1200),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      requests
+          .where((request) => request.url.path == '/api/v1/templates')
+          .map((request) => request.url.queryParameters['page.page']),
+      containsAllInOrder(['1', '2']),
+    );
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-template-21')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('盲盒 2007 显示中文次数用完提示且不重试抽取', (tester) async {

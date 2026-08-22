@@ -4,6 +4,7 @@ import 'package:bobobeads/main.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/widgets/home_filter_dialog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -174,7 +175,7 @@ void main() {
     expect(find.text('暂无筛选分类'), findsOneWidget);
   });
 
-  testWidgets('选择分类后返回所选分类及默认标记', (tester) async {
+  testWidgets('选择未选中分类后返回所选分类', (tester) async {
     setViewport(tester);
     HomeFilterSelection? selection;
 
@@ -208,8 +209,51 @@ void main() {
 
     expect(selection?.category.categoryId, 7);
     expect(selection?.category.name, '动物');
-    expect(selection?.isDefault, isTrue);
+    expect(selection?.isDefault, isFalse);
     expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
+  });
+
+  testWidgets('已选分类显示选中态，再次点击会清空筛选', (tester) async {
+    setViewport(tester);
+    HomeFilterSelection? selection;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              selection = await showHomeFilterDialog(
+                context,
+                selectedCategoryId: 7,
+                loadCategories: () async => const [
+                  TemplateCategory(
+                    categoryId: 7,
+                    name: '动物',
+                    iconUrl: '',
+                    templateCount: 3,
+                  ),
+                ],
+              );
+            },
+            child: const Text('打开筛选'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('打开筛选'));
+    await tester.pumpAndSettle();
+
+    final category = find.byKey(const ValueKey('home-filter-category-7'));
+    expect(
+      tester.getSemantics(category).hasFlag(SemanticsFlag.isSelected),
+      isTrue,
+    );
+
+    await tester.tap(category);
+    await tester.pumpAndSettle();
+
+    expect(selection?.isDefault, isTrue);
   });
 
   testWidgets('长分类名称会在标签内单行省略', (tester) async {

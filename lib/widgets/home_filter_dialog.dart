@@ -19,6 +19,7 @@ Future<HomeFilterSelection?> showHomeFilterDialog(
   BuildContext context, {
   Future<List<TemplateCategory>> Function()? loadCategories,
   bool includeAllCategory = false,
+  int? selectedCategoryId,
 }) {
   return showGeneralDialog<HomeFilterSelection>(
     context: context,
@@ -29,6 +30,7 @@ Future<HomeFilterSelection?> showHomeFilterDialog(
     pageBuilder: (context, _, _) => HomeFilterDialog(
       loadCategories: loadCategories,
       includeAllCategory: includeAllCategory,
+      selectedCategoryId: selectedCategoryId,
     ),
   );
 }
@@ -43,10 +45,12 @@ class HomeFilterSelection {
 class HomeFilterDialog extends StatefulWidget {
   final Future<List<TemplateCategory>> Function()? loadCategories;
   final bool includeAllCategory;
+  final int? selectedCategoryId;
 
   const HomeFilterDialog({
     this.loadCategories,
     this.includeAllCategory = false,
+    this.selectedCategoryId,
     super.key,
   });
 
@@ -233,6 +237,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
                               child: _HomeFilterSheet(
                                 categories: _categories,
                                 includeAllCategory: widget.includeAllCategory,
+                                selectedCategoryId: widget.selectedCategoryId,
                                 loading: _loading,
                                 loadFailed: _loadFailed,
                                 onRetry: widget.loadCategories == null
@@ -259,6 +264,7 @@ class _HomeFilterDialogState extends State<HomeFilterDialog>
 class _HomeFilterSheet extends StatelessWidget {
   final List<TemplateCategory> categories;
   final bool includeAllCategory;
+  final int? selectedCategoryId;
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
@@ -267,6 +273,7 @@ class _HomeFilterSheet extends StatelessWidget {
   const _HomeFilterSheet({
     required this.categories,
     required this.includeAllCategory,
+    required this.selectedCategoryId,
     required this.loading,
     required this.loadFailed,
     required this.onRetry,
@@ -325,6 +332,7 @@ class _HomeFilterSheet extends StatelessWidget {
               child: _FilterCategoryContent(
                 categories: categories,
                 includeAllCategory: includeAllCategory,
+                selectedCategoryId: selectedCategoryId,
                 loading: loading,
                 loadFailed: loadFailed,
                 onRetry: onRetry,
@@ -341,6 +349,7 @@ class _HomeFilterSheet extends StatelessWidget {
 class _FilterCategoryContent extends StatelessWidget {
   final List<TemplateCategory> categories;
   final bool includeAllCategory;
+  final int? selectedCategoryId;
   final bool loading;
   final bool loadFailed;
   final VoidCallback? onRetry;
@@ -349,6 +358,7 @@ class _FilterCategoryContent extends StatelessWidget {
   const _FilterCategoryContent({
     required this.categories,
     required this.includeAllCategory,
+    required this.selectedCategoryId,
     required this.loading,
     required this.loadFailed,
     required this.onRetry,
@@ -402,15 +412,24 @@ class _FilterCategoryContent extends StatelessWidget {
       itemCount: displayCategories.length,
       itemBuilder: (context, index) {
         final category = displayCategories[index];
+        final isSelected =
+            category.categoryId == selectedCategoryId ||
+            (includeAllCategory &&
+                category.categoryId == 0 &&
+                selectedCategoryId == null);
         return _FilterTile(
           key: ValueKey('home-filter-category-${category.categoryId}'),
           label: category.name,
+          selected: isSelected,
           onTap: () => onCategorySelected(
             HomeFilterSelection(
               category: category,
-              isDefault: includeAllCategory
-                  ? category.categoryId == 0
-                  : index == 0,
+              // Tapping an already selected category clears the filter. The
+              // optional “全部” entry has the same meaning in contexts that
+              // display it explicitly.
+              isDefault:
+                  isSelected ||
+                  (includeAllCategory && category.categoryId == 0),
             ),
           ),
         );
@@ -421,28 +440,35 @@ class _FilterCategoryContent extends StatelessWidget {
 
 class _FilterTile extends StatelessWidget {
   final String label;
+  final bool selected;
   final VoidCallback onTap;
 
-  const _FilterTile({required this.label, required this.onTap, super.key});
+  const _FilterTile({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
+      selected: selected,
       label: label,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: const Color(0xFFEEF0F6),
+            color: selected ? const Color(0xFF6F4BDB) : const Color(0xFFEEF0F6),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Center(
             child: Text(
               label,
-              style: const TextStyle(
-                color: Colors.black,
+              style: TextStyle(
+                color: selected ? Colors.white : Colors.black,
                 fontFamily: _roundFontFamily,
                 fontFamilyFallback: _fontFallbacks,
                 fontSize: 14,
