@@ -2,8 +2,10 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show compute, debugPrint, kIsWeb;
 
+import '../algorithms/color_cleanup.dart';
 import '../algorithms/color_reducer.dart';
 import '../models/draft_project.dart';
+import '../models/denoise_strength.dart';
 import '../models/generated_pattern.dart';
 import '../models/palette.dart';
 import '../models/project.dart';
@@ -52,6 +54,14 @@ class PatternGenerationService {
     if (draft.saturation != ImageService.maxSaturation) {
       pixels = imageService.adjustSaturation(pixels, draft.saturation);
     }
+    if (draft.denoiseEnabled) {
+      pixels = denoiseRgbaPixels(
+        pixels: pixels,
+        width: width,
+        height: height,
+        strength: draft.denoiseStrength,
+      );
+    }
     if (draft.removeBackground) {
       final transparentCount = _countTransparentPixels(pixels);
       debugPrint(
@@ -78,6 +88,8 @@ class PatternGenerationService {
       palettes: [constrainedPalette],
       matchingAlgorithm: matchingAlgorithm,
       ditheringEnabled: draft.smoothingEnabled,
+      denoiseEnabled: draft.denoiseEnabled,
+      denoiseStrength: draft.denoiseStrength,
       ditheringHardness: 50,
       drawingPosition: ImagePosition(0, 0, width, height),
     );
@@ -112,6 +124,8 @@ class _ReduceColorParams {
   final List<Palette> palettes;
   final MatchingAlgorithm matchingAlgorithm;
   final bool ditheringEnabled;
+  final bool denoiseEnabled;
+  final DenoiseStrength denoiseStrength;
   final int ditheringHardness;
   final ImagePosition drawingPosition;
 
@@ -122,6 +136,8 @@ class _ReduceColorParams {
     required this.palettes,
     required this.matchingAlgorithm,
     required this.ditheringEnabled,
+    required this.denoiseEnabled,
+    required this.denoiseStrength,
     required this.ditheringHardness,
     required this.drawingPosition,
   });
@@ -135,6 +151,8 @@ ColorReducerResult _reduceColorIsolate(_ReduceColorParams params) {
     palettes: params.palettes,
     matching: params.matchingAlgorithm.matcher,
     ditheringEnabled: params.ditheringEnabled,
+    denoiseEnabled: params.denoiseEnabled,
+    denoiseStrength: params.denoiseStrength,
     ditheringHardness: params.ditheringHardness,
     drawingPosition: params.drawingPosition,
   );

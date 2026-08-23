@@ -19,7 +19,7 @@ class _ColorSelectionScreenState extends State<ColorSelectionScreen> {
   final PaletteService _paletteService = PaletteService();
   String? _brandId;
   ColorLimit _limit = ColorLimit.unlimited;
-  bool _smoothing = true;
+  bool _smoothing = false;
 
   @override
   void initState() {
@@ -87,7 +87,8 @@ class _ColorSelectionScreenState extends State<ColorSelectionScreen> {
             ),
             const SizedBox(height: 24),
             SwitchListTile(
-              title: const Text('颜色平滑'),
+              title: const Text('渐变过渡'),
+              subtitle: const Text('开启后颜色更接近原图渐变，但会增加交错色块、拼制难度。'),
               value: _smoothing,
               onChanged: (value) => setState(() => _smoothing = value),
             ),

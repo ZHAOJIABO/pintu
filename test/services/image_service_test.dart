@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:bobobeads/models/color.dart';
+import 'package:bobobeads/models/denoise_strength.dart';
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/palette.dart';
 import 'package:bobobeads/models/product_template.dart';
@@ -200,6 +201,31 @@ void main() {
 
     expect(updated.saturation, 60);
     expect(updated.toJson()['saturation'], 60);
+  });
+
+  test('draft preserves the denoise option for generation', () {
+    final updated = draft(
+      removeBackground: false,
+    ).copyWith(denoiseEnabled: true);
+
+    expect(updated.denoiseEnabled, isTrue);
+    expect(updated.toJson()['denoiseEnabled'], isTrue);
+  });
+
+  test('draft enables standard denoise by default', () {
+    final project = draft(removeBackground: false);
+
+    expect(project.denoiseEnabled, isTrue);
+    expect(project.denoiseStrength, DenoiseStrength.standard);
+  });
+
+  test('draft preserves denoise strength for generation', () {
+    final updated = draft(
+      removeBackground: false,
+    ).copyWith(denoiseStrength: DenoiseStrength.strong);
+
+    expect(updated.denoiseStrength, DenoiseStrength.strong);
+    expect(updated.toJson()['denoiseStrength'], 'strong');
   });
 
   test(

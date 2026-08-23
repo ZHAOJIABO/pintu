@@ -1,5 +1,8 @@
 import 'dart:typed_data';
+
+import 'color_cleanup.dart';
 import '../models/color.dart';
+import '../models/denoise_strength.dart';
 import '../models/palette.dart';
 import 'matching.dart';
 
@@ -129,6 +132,8 @@ ColorReducerResult reduceColor({
   required List<Palette> palettes,
   required Matching matching,
   required bool ditheringEnabled,
+  bool denoiseEnabled = false,
+  DenoiseStrength denoiseStrength = DenoiseStrength.standard,
   required int ditheringHardness,
   required ImagePosition drawingPosition,
 }) {
@@ -176,6 +181,16 @@ ColorReducerResult reduceColor({
         }
       }
     }
+  }
+
+  if (denoiseEnabled) {
+    mergeSmallSimilarColorIslands(
+      pixels: data,
+      width: width,
+      height: height,
+      matching: matching,
+      strength: denoiseStrength,
+    );
   }
 
   final usage = computeUsage(data, width, height, palettes);

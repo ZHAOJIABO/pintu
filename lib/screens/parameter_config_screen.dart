@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 
 import '../models/color_limit.dart';
+import '../models/denoise_strength.dart';
 import '../models/draft_project.dart';
 import '../models/generated_pattern.dart';
 import '../models/product_template.dart';
@@ -111,7 +112,8 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late ColorLimit _limit = widget.draft.colorLimit;
   late bool _smoothing = widget.draft.smoothingEnabled;
   late bool _removeBackground = widget.draft.removeBackground;
-  bool _denoise = false;
+  late bool _denoise = widget.draft.denoiseEnabled;
+  late DenoiseStrength _denoiseStrength = widget.draft.denoiseStrength;
   late int _saturation = _clampSaturation(widget.draft.saturation);
   bool _generating = false;
   bool _savingAiImage = false;
@@ -217,6 +219,8 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       colorLimit: _limit,
       paletteBrandId: brandId,
       saturation: _saturation,
+      denoise: _denoise,
+      denoiseStrength: _denoiseStrength,
     );
     final cachedPreview = _previewCache[cacheKey];
     if (cachedPreview != null) {
@@ -248,6 +252,8 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         colorLimit: _limit,
         // 参数页只做低清效果预览；背景移除与抖动留给最终生成。
         smoothingEnabled: false,
+        denoiseEnabled: _denoise,
+        denoiseStrength: _denoiseStrength,
         removeBackground: false,
         saturation: _saturation,
       );
@@ -317,6 +323,8 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       paletteBrandId: brandId,
       colorLimit: _limit,
       smoothingEnabled: _smoothing,
+      denoiseEnabled: _denoise,
+      denoiseStrength: _denoiseStrength,
       removeBackground: _removeBackground,
       saturation: _saturation,
     );
@@ -420,6 +428,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           smoothing: _smoothing,
                           removeBackground: _removeBackground,
                           denoise: _denoise,
+                          denoiseStrength: _denoiseStrength,
                           saturation: _saturation,
                           canGenerate: _canGenerate,
                           selectedBrandId: _brandId,
@@ -450,6 +459,11 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           },
                           onDenoiseChanged: () {
                             setState(() => _denoise = !_denoise);
+                            _scheduleParameterPreview();
+                          },
+                          onDenoiseStrengthChanged: (strength) {
+                            setState(() => _denoiseStrength = strength);
+                            _scheduleParameterPreview();
                           },
                           onSaturationDecrease: () {
                             _setSaturation(_saturation - 10);
@@ -803,12 +817,16 @@ class _ParameterPreviewCacheKey {
   final ColorLimit colorLimit;
   final String paletteBrandId;
   final int saturation;
+  final bool denoise;
+  final DenoiseStrength denoiseStrength;
 
   const _ParameterPreviewCacheKey({
     required this.dimension,
     required this.colorLimit,
     required this.paletteBrandId,
     required this.saturation,
+    required this.denoise,
+    required this.denoiseStrength,
   });
 
   @override
@@ -817,11 +835,19 @@ class _ParameterPreviewCacheKey {
       dimension == other.dimension &&
       colorLimit == other.colorLimit &&
       paletteBrandId == other.paletteBrandId &&
-      saturation == other.saturation;
+      saturation == other.saturation &&
+      denoise == other.denoise &&
+      denoiseStrength == other.denoiseStrength;
 
   @override
-  int get hashCode =>
-      Object.hash(dimension, colorLimit, paletteBrandId, saturation);
+  int get hashCode => Object.hash(
+    dimension,
+    colorLimit,
+    paletteBrandId,
+    saturation,
+    denoise,
+    denoiseStrength,
+  );
 }
 
 class _ParameterLoadingOverlay extends StatelessWidget {
@@ -876,6 +902,7 @@ class _ParameterPanel extends StatelessWidget {
   final bool smoothing;
   final bool removeBackground;
   final bool denoise;
+  final DenoiseStrength denoiseStrength;
   final int saturation;
   final bool canGenerate;
   final String? selectedBrandId;
@@ -885,6 +912,7 @@ class _ParameterPanel extends StatelessWidget {
   final VoidCallback onSmoothingChanged;
   final VoidCallback onRemoveBackgroundChanged;
   final VoidCallback onDenoiseChanged;
+  final ValueChanged<DenoiseStrength> onDenoiseStrengthChanged;
   final VoidCallback onSaturationDecrease;
   final VoidCallback onSaturationIncrease;
   final ValueChanged<int> onSaturationChanged;
@@ -900,6 +928,7 @@ class _ParameterPanel extends StatelessWidget {
     required this.smoothing,
     required this.removeBackground,
     required this.denoise,
+    required this.denoiseStrength,
     required this.saturation,
     required this.canGenerate,
     required this.selectedBrandId,
@@ -909,6 +938,7 @@ class _ParameterPanel extends StatelessWidget {
     required this.onSmoothingChanged,
     required this.onRemoveBackgroundChanged,
     required this.onDenoiseChanged,
+    required this.onDenoiseStrengthChanged,
     required this.onSaturationDecrease,
     required this.onSaturationIncrease,
     required this.onSaturationChanged,
@@ -944,12 +974,14 @@ class _ParameterPanel extends StatelessWidget {
                     smoothing: smoothing,
                     removeBackground: removeBackground,
                     denoise: denoise,
+                    denoiseStrength: denoiseStrength,
                     saturation: saturation,
                     selectedBrandId: selectedBrandId,
                     palettes: palettes,
                     onSmoothingChanged: onSmoothingChanged,
                     onRemoveBackgroundChanged: onRemoveBackgroundChanged,
                     onDenoiseChanged: onDenoiseChanged,
+                    onDenoiseStrengthChanged: onDenoiseStrengthChanged,
                     onSaturationDecrease: onSaturationDecrease,
                     onSaturationIncrease: onSaturationIncrease,
                     onSaturationChanged: onSaturationChanged,
@@ -1205,12 +1237,14 @@ class _ParameterRows extends StatelessWidget {
   final bool smoothing;
   final bool removeBackground;
   final bool denoise;
+  final DenoiseStrength denoiseStrength;
   final int saturation;
   final String? selectedBrandId;
   final List<PaletteDefinition> palettes;
   final VoidCallback onSmoothingChanged;
   final VoidCallback onRemoveBackgroundChanged;
   final VoidCallback onDenoiseChanged;
+  final ValueChanged<DenoiseStrength> onDenoiseStrengthChanged;
   final VoidCallback onSaturationDecrease;
   final VoidCallback onSaturationIncrease;
   final ValueChanged<int> onSaturationChanged;
@@ -1222,12 +1256,14 @@ class _ParameterRows extends StatelessWidget {
     required this.smoothing,
     required this.removeBackground,
     required this.denoise,
+    required this.denoiseStrength,
     required this.saturation,
     required this.selectedBrandId,
     required this.palettes,
     required this.onSmoothingChanged,
     required this.onRemoveBackgroundChanged,
     required this.onDenoiseChanged,
+    required this.onDenoiseStrengthChanged,
     required this.onSaturationDecrease,
     required this.onSaturationIncrease,
     required this.onSaturationChanged,
@@ -1260,10 +1296,23 @@ class _ParameterRows extends StatelessWidget {
             child: _ControlSwitch(value: denoise),
           ),
         ),
-        const SizedBox(height: 32),
+        if (denoise) ...[
+          const SizedBox(height: 16),
+          _ParameterRow(
+            label: '去杂色强度',
+            height: 28,
+            trailing: _DenoiseStrengthSelector(
+              selected: denoiseStrength,
+              onSelected: onDenoiseStrengthChanged,
+            ),
+          ),
+          const SizedBox(height: 16),
+        ] else
+          const SizedBox(height: 32),
         _ParameterRow(
-          label: '平滑边缘',
-          height: 28,
+          label: '渐变过渡',
+          helperText: '开启后颜色更接近原图渐变，但会增加交错色块、拼制难度。',
+          height: 68,
           trailing: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: onSmoothingChanged,
@@ -1303,11 +1352,13 @@ class _ParameterRows extends StatelessWidget {
 
 class _ParameterRow extends StatelessWidget {
   final String label;
+  final String? helperText;
   final double height;
   final Widget trailing;
 
   const _ParameterRow({
     required this.label,
+    this.helperText,
     required this.height,
     required this.trailing,
   });
@@ -1318,20 +1369,89 @@ class _ParameterRow extends StatelessWidget {
       height: height,
       child: Row(
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.black,
-              fontSize: 15,
-              fontFamily: _roundFontFamily,
-              fontFamilyFallback: _fontFallbacks,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 15,
+                    fontFamily: _roundFontFamily,
+                    fontFamilyFallback: _fontFallbacks,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (helperText != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    helperText!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFF74777F),
+                      fontSize: 11,
+                      height: 1.25,
+                      fontFamily: _roundFontFamily,
+                      fontFamilyFallback: _fontFallbacks,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           trailing,
         ],
       ),
+    );
+  }
+}
+
+class _DenoiseStrengthSelector extends StatelessWidget {
+  final DenoiseStrength selected;
+  final ValueChanged<DenoiseStrength> onSelected;
+
+  const _DenoiseStrengthSelector({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final strength in DenoiseStrength.values) ...[
+          GestureDetector(
+            key: ValueKey('parameter-denoise-strength-${strength.name}'),
+            behavior: HitTestBehavior.opaque,
+            onTap: () => onSelected(strength),
+            child: Container(
+              width: 48,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected == strength ? _activeSwitchTrack : _switchTrack,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Text(
+                strength.label,
+                style: TextStyle(
+                  color: selected == strength ? Colors.black : Colors.black54,
+                  fontSize: 12,
+                  fontFamily: _roundFontFamily,
+                  fontFamilyFallback: _fontFallbacks,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          if (strength != DenoiseStrength.values.last) const SizedBox(width: 4),
+        ],
+      ],
     );
   }
 }

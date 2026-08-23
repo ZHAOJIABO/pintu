@@ -136,7 +136,7 @@ class _AdminPortalState extends State<_AdminPortal> {
   int _poolPage = 1;
   int _poolTotal = 0;
   bool _poolHasMore = false;
-  bool _smoothing = true;
+  bool _smoothing = false;
   bool _removeBackground = true;
   bool _patternFromImport = false;
   bool _loggingIn = false;
@@ -1599,8 +1599,8 @@ class _AdminPortalState extends State<_AdminPortal> {
                   _smoothing = value;
                   _pattern = null;
                 }),
-          title: const Text('平滑过渡'),
-          subtitle: const Text('保留现有客户端的抖动算法'),
+          title: const Text('渐变过渡'),
+          subtitle: const Text('开启后颜色更接近原图渐变，但会增加交错色块、拼制难度。'),
         ),
         FilledButton.icon(
           onPressed: _generationLocked ? null : _generatePattern,

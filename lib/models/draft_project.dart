@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'color_limit.dart';
+import 'denoise_strength.dart';
 import 'product_template.dart';
 
 enum DraftImageSource {
@@ -25,6 +26,8 @@ class DraftProject {
   final String? paletteBrandId;
   final ColorLimit colorLimit;
   final bool smoothingEnabled;
+  final bool denoiseEnabled;
+  final DenoiseStrength denoiseStrength;
   final bool removeBackground;
   final int saturation;
 
@@ -39,7 +42,9 @@ class DraftProject {
     this.customBeadHeight,
     this.paletteBrandId,
     this.colorLimit = ColorLimit.unlimited,
-    this.smoothingEnabled = true,
+    this.smoothingEnabled = false,
+    this.denoiseEnabled = true,
+    this.denoiseStrength = DenoiseStrength.standard,
     this.removeBackground = true,
     this.saturation = 100,
   });
@@ -84,6 +89,8 @@ class DraftProject {
     String? paletteBrandId,
     ColorLimit? colorLimit,
     bool? smoothingEnabled,
+    bool? denoiseEnabled,
+    DenoiseStrength? denoiseStrength,
     bool? removeBackground,
     int? saturation,
   }) {
@@ -99,6 +106,8 @@ class DraftProject {
       paletteBrandId: paletteBrandId ?? this.paletteBrandId,
       colorLimit: colorLimit ?? this.colorLimit,
       smoothingEnabled: smoothingEnabled ?? this.smoothingEnabled,
+      denoiseEnabled: denoiseEnabled ?? this.denoiseEnabled,
+      denoiseStrength: denoiseStrength ?? this.denoiseStrength,
       removeBackground: removeBackground ?? this.removeBackground,
       saturation: saturation ?? this.saturation,
     );
@@ -118,6 +127,8 @@ class DraftProject {
     'paletteBrandId': paletteBrandId,
     'colorLimit': colorLimit.name,
     'smoothingEnabled': smoothingEnabled,
+    'denoiseEnabled': denoiseEnabled,
+    'denoiseStrength': denoiseStrength.name,
     'removeBackground': removeBackground,
     'saturation': saturation,
   };
