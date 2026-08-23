@@ -125,6 +125,54 @@ void main() {
     expect(find.text('图纸'), findsNothing);
   });
 
+  testWidgets('library result back returns to the preceding library route', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    const libraryPageKey = ValueKey('library-page-placeholder');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: libraryPageKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                final navigator = Navigator.of(context);
+                final libraryRoute = ModalRoute.of(context)!;
+                navigator.push(
+                  MaterialPageRoute(
+                    builder: (_) => ResultScreen(
+                      pattern: _pattern(),
+                      onReturnToLibrary: () => navigator.popUntil(
+                        (route) => identical(route, libraryRoute),
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(libraryPageKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(libraryPageKey), findsOneWidget);
+    expect(find.text('图纸'), findsNothing);
+  });
+
   testWidgets('regenerate returns to the preceding parameter route', (
     tester,
   ) async {

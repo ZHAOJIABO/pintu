@@ -182,6 +182,104 @@ void main() {
   });
 
   testWidgets(
+    'recent creation style back returns to the preceding library route',
+    (tester) async {
+      usePhoneViewport(tester);
+      final image = sampleImagePng();
+      const libraryPageKey = ValueKey('library-page-placeholder');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: GestureDetector(
+                key: libraryPageKey,
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StyleConversionScreen(
+                      draft: DraftProject(
+                        originalImageBytes: image,
+                        croppedImageBytes: image,
+                      ),
+                      initialConvertedImage: image,
+                      styleSelectionLocked: true,
+                      popToPreviousOnBack: true,
+                    ),
+                  ),
+                ),
+                child: const SizedBox.expand(),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(libraryPageKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.chevron_left));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(libraryPageKey), findsOneWidget);
+      expect(find.text('转换风格'), findsNothing);
+    },
+  );
+
+  testWidgets('recent creation parameter back returns to the library route', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final image = sampleImagePng();
+    const libraryPageKey = ValueKey('library-page-placeholder');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: libraryPageKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                final navigator = Navigator.of(context);
+                final libraryRoute = ModalRoute.of(context)!;
+                navigator.push(
+                  MaterialPageRoute(
+                    builder: (_) => StyleConversionScreen(
+                      draft: DraftProject(
+                        originalImageBytes: image,
+                        croppedImageBytes: image,
+                      ),
+                      initialConvertedImage: image,
+                      styleSelectionLocked: true,
+                      onReturnToLibrary: () => navigator.popUntil(
+                        (route) => identical(route, libraryRoute),
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(libraryPageKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('style-generate-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('确定参数'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(libraryPageKey), findsOneWidget);
+    expect(find.text('确定参数'), findsNothing);
+  });
+
+  testWidgets(
     'recent creation style page shows save but parameter page does not',
     (tester) async {
       usePhoneViewport(tester);

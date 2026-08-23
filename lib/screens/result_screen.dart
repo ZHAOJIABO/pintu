@@ -37,6 +37,8 @@ class ResultScreen extends StatefulWidget {
   final bool isEditingLocked;
   final bool showGeneratedHint;
   final bool showRegenerateAction;
+  final bool popToPreviousOnBack;
+  final VoidCallback? onReturnToLibrary;
   final ValueChanged<String>? onWorkDeleted;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
@@ -50,6 +52,8 @@ class ResultScreen extends StatefulWidget {
     this.isEditingLocked = false,
     this.showGeneratedHint = false,
     this.showRegenerateAction = false,
+    this.popToPreviousOnBack = false,
+    this.onReturnToLibrary,
     this.onWorkDeleted,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
@@ -300,6 +304,8 @@ class _ResultScreenState extends State<ResultScreen> {
               pattern: _pattern,
               onSaveImage: _saveImage,
               showRegenerateAction: widget.showRegenerateAction,
+              popToPreviousOnBack: widget.popToPreviousOnBack,
+              onReturnToLibrary: widget.onReturnToLibrary,
               onDeleteWork: _canDeleteWork && !_deletingWork
                   ? _confirmDeleteWork
                   : null,
@@ -331,12 +337,16 @@ class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
   final VoidCallback onSaveImage;
   final bool showRegenerateAction;
+  final bool popToPreviousOnBack;
+  final VoidCallback? onReturnToLibrary;
   final VoidCallback? onDeleteWork;
 
   const _DrawingHeader({
     required this.pattern,
     required this.onSaveImage,
     required this.showRegenerateAction,
+    required this.popToPreviousOnBack,
+    required this.onReturnToLibrary,
     this.onDeleteWork,
   });
 
@@ -353,6 +363,8 @@ class _DrawingHeader extends StatelessWidget {
               _ResultNavigationBar(
                 onSaveImage: onSaveImage,
                 showRegenerateAction: showRegenerateAction,
+                popToPreviousOnBack: popToPreviousOnBack,
+                onReturnToLibrary: onReturnToLibrary,
                 onDeleteWork: onDeleteWork,
               ),
               LayoutBuilder(
@@ -379,11 +391,15 @@ class _DrawingHeader extends StatelessWidget {
 class _ResultNavigationBar extends StatelessWidget {
   final VoidCallback onSaveImage;
   final bool showRegenerateAction;
+  final bool popToPreviousOnBack;
+  final VoidCallback? onReturnToLibrary;
   final VoidCallback? onDeleteWork;
 
   const _ResultNavigationBar({
     required this.onSaveImage,
     required this.showRegenerateAction,
+    required this.popToPreviousOnBack,
+    required this.onReturnToLibrary,
     this.onDeleteWork,
   });
 
@@ -400,7 +416,11 @@ class _ResultNavigationBar extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () => returnToHome(context),
+                onTap:
+                    onReturnToLibrary ??
+                    (popToPreviousOnBack
+                        ? () => Navigator.of(context).maybePop()
+                        : () => returnToHome(context)),
                 child: const SizedBox(
                   width: 24,
                   height: 44,

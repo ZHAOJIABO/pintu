@@ -107,6 +107,7 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _loadingBlindBoxQuota = false;
   BlindBoxQuota? _blindBoxQuota;
   bool _showingMyPage = false;
+  Future<void>? _homeRefreshFuture;
 
   @override
   void didChangeDependencies() {
@@ -121,17 +122,19 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  Future<void> _loadBlindBoxQuota(BackendServices services) async {
+  Future<bool> _loadBlindBoxQuota(BackendServices services) async {
     if (mounted && identical(_backendServices, services)) {
       setState(() => _loadingBlindBoxQuota = true);
     }
     try {
       final quota = await services.templates.getRandomQuota();
-      if (!mounted || !identical(_backendServices, services)) return;
+      if (!mounted || !identical(_backendServices, services)) return false;
       setState(() => _blindBoxQuota = quota);
+      return true;
     } catch (_) {
       // The card stays disabled until a server-authoritative allowance is
       // available; never infer the remaining count locally.
+      return false;
     } finally {
       if (mounted && identical(_backendServices, services)) {
         setState(() => _loadingBlindBoxQuota = false);
@@ -165,9 +168,10 @@ class _UploadScreenState extends State<UploadScreen> {
     return '${reset.month}月${reset.day}日 00:00 恢复';
   }
 
-  Future<void> _loadGalleryTemplates(
+  Future<bool> _loadGalleryTemplates(
     BackendServices services, {
     int? categoryId,
+    bool forceRefresh = false,
   }) async {
     final requestVersion = ++_galleryRequestVersion;
     if (mounted && identical(_backendServices, services)) {
@@ -177,11 +181,12 @@ class _UploadScreenState extends State<UploadScreen> {
       final result = await services.loadHomeTemplates(
         categoryId: categoryId,
         pageSize: _galleryPageSize,
+        forceRefresh: forceRefresh,
       );
       if (!mounted ||
           !identical(_backendServices, services) ||
           requestVersion != _galleryRequestVersion) {
-        return;
+        return false;
       }
       setState(() {
         _galleryTemplates = result.items;
@@ -189,6 +194,7 @@ class _UploadScreenState extends State<UploadScreen> {
         _galleryHasMore = result.page.hasMore;
         _galleryLoadingMore = false;
       });
+      return true;
     } catch (_) {
       if (mounted &&
           identical(_backendServices, services) &&
@@ -196,6 +202,40 @@ class _UploadScreenState extends State<UploadScreen> {
         setState(() => _galleryLoadingMore = false);
       }
       // Keep the existing local thumbnails when the gallery cannot load.
+      return false;
+    }
+  }
+
+  Future<void> _refreshHome() {
+    final existing = _homeRefreshFuture;
+    if (existing != null) return existing;
+
+    final refresh = _refreshHomeData();
+    _homeRefreshFuture = refresh;
+    return refresh.whenComplete(() {
+      if (identical(_homeRefreshFuture, refresh)) {
+        _homeRefreshFuture = null;
+      }
+    });
+  }
+
+  Future<void> _refreshHomeData() async {
+    final services = _backendServices;
+    if (services == null || _showingMyPage) return;
+
+    final results = await Future.wait([
+      _loadGalleryTemplates(
+        services,
+        categoryId: _galleryCategoryId,
+        forceRefresh: true,
+      ),
+      _loadBlindBoxQuota(services),
+    ]);
+    if (!mounted || !identical(_backendServices, services)) return;
+    if (!results.first) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('模板刷新失败，已保留当前内容')));
     }
   }
 
@@ -442,47 +482,57 @@ class _UploadScreenState extends State<UploadScreen> {
                       index: _showingMyPage ? 1 : 0,
                       sizing: StackFit.expand,
                       children: [
-                        NotificationListener<ScrollNotification>(
-                          onNotification: _onHomeScroll,
-                          child: SingleChildScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            child: SizedBox(
-                              width: metrics.pageWidth,
-                              height:
-                                  metrics.scaledDesignHeight +
-                                  _scrollBottomPadding,
-                              child: Align(
-                                alignment: Alignment.topCenter,
-                                child: _ScaledDesignSurface(
-                                  designWidth: _designWidth,
-                                  designHeight: metrics.designContentHeight,
-                                  scale: metrics.scale,
-                                  child: _HomeDesignCanvas(
-                                    designContentHeight:
-                                        metrics.designContentHeight,
-                                    picking: _picking,
-                                    galleryTemplates: _galleryTemplates,
-                                    galleryCategoryName: _galleryCategoryName,
-                                    onGalleryTemplateTap: _openTemplateDetail,
-                                    onPhotoStart: _picking
-                                        ? null
-                                        : () => _pickImage(
-                                            imageSource: DraftImageSource.photo,
-                                          ),
-                                    onIllustrationStart: _picking
-                                        ? null
-                                        : () => _pickImage(
-                                            imageSource:
-                                                DraftImageSource.illustration,
-                                          ),
-                                    blindBoxQuotaText: _blindBoxQuotaText(),
-                                    onBlindBox:
-                                        _openingBlindBox ||
-                                            _loadingBlindBoxQuota ||
-                                            _blindBoxQuota?.canDraw != true
-                                        ? null
-                                        : _openBlindBox,
-                                    onFilter: _openFilterDialog,
+                        RefreshIndicator(
+                          key: const ValueKey('home-template-refresh'),
+                          color: const Color(0xFFFF55BE),
+                          backgroundColor: Colors.white,
+                          displacement: 52,
+                          onRefresh: _refreshHome,
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _onHomeScroll,
+                            child: SingleChildScrollView(
+                              physics: const AlwaysScrollableScrollPhysics(
+                                parent: BouncingScrollPhysics(),
+                              ),
+                              child: SizedBox(
+                                width: metrics.pageWidth,
+                                height:
+                                    metrics.scaledDesignHeight +
+                                    _scrollBottomPadding,
+                                child: Align(
+                                  alignment: Alignment.topCenter,
+                                  child: _ScaledDesignSurface(
+                                    designWidth: _designWidth,
+                                    designHeight: metrics.designContentHeight,
+                                    scale: metrics.scale,
+                                    child: _HomeDesignCanvas(
+                                      designContentHeight:
+                                          metrics.designContentHeight,
+                                      picking: _picking,
+                                      galleryTemplates: _galleryTemplates,
+                                      galleryCategoryName: _galleryCategoryName,
+                                      onGalleryTemplateTap: _openTemplateDetail,
+                                      onPhotoStart: _picking
+                                          ? null
+                                          : () => _pickImage(
+                                              imageSource:
+                                                  DraftImageSource.photo,
+                                            ),
+                                      onIllustrationStart: _picking
+                                          ? null
+                                          : () => _pickImage(
+                                              imageSource:
+                                                  DraftImageSource.illustration,
+                                            ),
+                                      blindBoxQuotaText: _blindBoxQuotaText(),
+                                      onBlindBox:
+                                          _openingBlindBox ||
+                                              _loadingBlindBoxQuota ||
+                                              _blindBoxQuota?.canDraw != true
+                                          ? null
+                                          : _openBlindBox,
+                                      onFilter: _openFilterDialog,
+                                    ),
                                   ),
                                 ),
                               ),

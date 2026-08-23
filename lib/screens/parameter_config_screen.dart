@@ -82,12 +82,14 @@ class ParameterConfigScreen extends StatefulWidget {
   final DraftProject draft;
   final bool popToPreviousOnBack;
   final bool showRecropAction;
+  final VoidCallback? onReturnToLibrary;
 
   const ParameterConfigScreen({
     super.key,
     required this.draft,
     this.popToPreviousOnBack = false,
     this.showRecropAction = false,
+    this.onReturnToLibrary,
   });
 
   @override
@@ -347,6 +349,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
             workId: workId,
             showGeneratedHint: true,
             showRegenerateAction: true,
+            onReturnToLibrary: widget.onReturnToLibrary,
           ),
         ),
       );
@@ -388,6 +391,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                       _ParameterNavigationBar(
                         popToPrevious: widget.popToPreviousOnBack,
                         showRecropAction: widget.showRecropAction,
+                        onReturnToLibrary: widget.onReturnToLibrary,
                         comparing: _showingOriginalPreview,
                         onCompareStart: _showOriginalPreview,
                         onCompareEnd: _restoreParameterPreview,
@@ -493,6 +497,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 class _ParameterNavigationBar extends StatelessWidget {
   final bool popToPrevious;
   final bool showRecropAction;
+  final VoidCallback? onReturnToLibrary;
   final bool comparing;
   final VoidCallback onCompareStart;
   final VoidCallback onCompareEnd;
@@ -500,6 +505,7 @@ class _ParameterNavigationBar extends StatelessWidget {
   const _ParameterNavigationBar({
     required this.popToPrevious,
     required this.showRecropAction,
+    required this.onReturnToLibrary,
     required this.comparing,
     required this.onCompareStart,
     required this.onCompareEnd,
@@ -519,9 +525,11 @@ class _ParameterNavigationBar extends StatelessWidget {
               height: 40,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: popToPrevious
-                    ? () => Navigator.of(context).maybePop()
-                    : () => returnToHome(context),
+                onTap:
+                    onReturnToLibrary ??
+                    (popToPrevious
+                        ? () => Navigator.of(context).maybePop()
+                        : () => returnToHome(context)),
                 child: const Align(
                   alignment: Alignment.centerLeft,
                   child: SizedBox(

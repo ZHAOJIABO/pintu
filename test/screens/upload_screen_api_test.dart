@@ -12,6 +12,110 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets('首页下拉刷新会重新请求模板首屏和盲盒次数', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final requests = <http.Request>[];
+    var templateRequestCount = 0;
+    var quotaRequestCount = 0;
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' => {
+            'data': {
+              'works': const [],
+              'page': {'total': 0, 'page': 1, 'pageSize': 1, 'hasMore': false},
+            },
+          },
+          '/api/v1/templates/favorites' => {
+            'templates': const [],
+            'page': {'total': 0, 'page': 1, 'pageSize': 1, 'hasMore': false},
+          },
+          '/api/v1/templates' => {
+            'templates': [
+              {
+                'templateId': 'template-${++templateRequestCount}',
+                'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+              },
+            ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 20, 'hasMore': false},
+          },
+          '/api/v1/templates/random/quota' => {
+            'quota': {
+              'dailyLimit': 2,
+              'used': quotaRequestCount++,
+              'remaining': 2 - quotaRequestCount,
+              'resetAt': '1755792000',
+            },
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: UploadScreen()),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(templateRequestCount, 1);
+    expect(quotaRequestCount, 1);
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-template-1')),
+      findsOneWidget,
+    );
+
+    final refresh = tester
+        .state<RefreshIndicatorState>(
+          find.byKey(const ValueKey('home-template-refresh')),
+        )
+        .show();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    await refresh;
+
+    expect(templateRequestCount, 2);
+    expect(quotaRequestCount, 2);
+    expect(
+      find.byKey(const ValueKey('gallery-thumbnail-template-2')),
+      findsOneWidget,
+    );
+    expect(
+      requests
+          .where((request) => request.url.path == '/api/v1/templates')
+          .every((request) => request.url.queryParameters['page.page'] == '1'),
+      isTrue,
+    );
+  });
+
   testWidgets('首页图纸和筛选分类均从 API 加载', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;

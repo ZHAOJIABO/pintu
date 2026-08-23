@@ -969,6 +969,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
           builder: (_) => ResultScreen(
             pattern: detail.patternData.toGeneratedPattern(),
             template: detail.template,
+            popToPreviousOnBack: true,
           ),
         ),
       );
@@ -993,6 +994,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
             isEditingLocked:
                 !_pendingSubmissionLocksLoaded ||
                 _pendingSubmissionWorkIds.contains(workId),
+            popToPreviousOnBack: true,
             onWorkDeleted: _removeWorkFromLibrary,
           ),
         ),
@@ -1007,6 +1009,8 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     if (services == null || !task.isSucceeded || task.outputImageUrl.isEmpty) {
       return;
     }
+    final navigator = Navigator.of(context);
+    final libraryRoute = ModalRoute.of(context);
 
     setState(() {
       _newCreationIds = {..._newCreationIds}..remove(task.taskId);
@@ -1019,11 +1023,17 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         task.outputImageUrl,
       );
       if (!mounted || !identical(services, _backendServices)) return;
-      await Navigator.of(context).push<void>(
+      await navigator.push<void>(
         MaterialPageRoute(
           builder: (_) => StyleConversionScreen(
             initialConvertedImage: outputImage,
             styleSelectionLocked: true,
+            popToPreviousOnBack: true,
+            onReturnToLibrary: libraryRoute == null
+                ? null
+                : () => navigator.popUntil(
+                    (route) => identical(route, libraryRoute),
+                  ),
             draft: DraftProject(
               originalImageBytes: outputImage,
               croppedImageBytes: outputImage,

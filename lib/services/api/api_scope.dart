@@ -145,6 +145,7 @@ class BackendServices {
     int? categoryId,
     int page = 1,
     int pageSize = 20,
+    bool forceRefresh = false,
   }) async {
     if (categoryId != null || page != 1 || pageSize != 20) {
       return templates.listTemplates(
@@ -154,6 +155,8 @@ class BackendServices {
         pageSize: pageSize,
       );
     }
+
+    if (forceRefresh) _homeTemplatesRequest = null;
 
     final existing = _homeTemplatesRequest;
     if (existing != null) return existing;

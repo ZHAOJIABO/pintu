@@ -26,12 +26,16 @@ class StyleConversionScreen extends StatefulWidget {
   final DraftProject draft;
   final Uint8List? initialConvertedImage;
   final bool styleSelectionLocked;
+  final bool popToPreviousOnBack;
+  final VoidCallback? onReturnToLibrary;
 
   const StyleConversionScreen({
     super.key,
     required this.draft,
     this.initialConvertedImage,
     this.styleSelectionLocked = false,
+    this.popToPreviousOnBack = false,
+    this.onReturnToLibrary,
   });
 
   @override
@@ -240,7 +244,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
   Future<void> _handleBack() async {
     if (_leaving) return;
     if (!_hasSubmittedTask) {
-      returnToHome(context);
+      _returnFromStyleFlow();
       return;
     }
 
@@ -249,7 +253,20 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
       context,
       destination: PatternsHintDestination.drafts,
     );
-    if (mounted) returnToHome(context);
+    if (mounted) _returnFromStyleFlow();
+  }
+
+  void _returnFromStyleFlow() {
+    final onReturnToLibrary = widget.onReturnToLibrary;
+    if (onReturnToLibrary != null) {
+      onReturnToLibrary();
+      return;
+    }
+    if (widget.popToPreviousOnBack) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+    returnToHome(context);
   }
 
   Future<void> _continueToParameters() async {
@@ -261,7 +278,10 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParameterConfigScreen(draft: nextDraft),
+        builder: (_) => ParameterConfigScreen(
+          draft: nextDraft,
+          onReturnToLibrary: widget.onReturnToLibrary,
+        ),
       ),
     );
   }

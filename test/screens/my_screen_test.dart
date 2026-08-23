@@ -495,6 +495,7 @@ void main() {
     );
     expect(styleScreen.initialConvertedImage, isNotEmpty);
     expect(styleScreen.styleSelectionLocked, isTrue);
+    expect(styleScreen.popToPreviousOnBack, isTrue);
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     expect(find.byType(MyPatternsScreen), findsOneWidget);

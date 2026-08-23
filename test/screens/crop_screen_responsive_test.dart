@@ -84,7 +84,12 @@ void main() {
     expect(tester.widget<Text>(find.text('1:1')).style?.color, Colors.black);
 
     final initialHandleCenter = tester.getCenter(topLeftHandle);
-    await tester.drag(topLeftHandle, const Offset(24, 36));
+    final outerHitPoint =
+        tester.getRect(topLeftHandle).topLeft + const Offset(4, 4);
+    final resizeGesture = await tester.startGesture(outerHitPoint);
+    await tester.pump();
+    await resizeGesture.moveBy(const Offset(24, 36));
+    await resizeGesture.up();
     await tester.pumpAndSettle();
     final resizedHandleCenter = tester.getCenter(topLeftHandle);
     expect(resizedHandleCenter.dx, greaterThan(initialHandleCenter.dx));

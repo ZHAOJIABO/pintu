@@ -647,10 +647,13 @@ class _CropScreenState extends State<CropScreen>
         ),
         if (_ratio == null)
           Positioned(
-            left: cropLeft,
-            top: cropTop,
-            width: cropSize.width,
-            height: cropSize.height,
+            // The handles are allowed to extend beyond the visible crop frame.
+            // Keeping their parent equally large makes the entire 64pt hit area
+            // reachable instead of clipping the outer half at the frame edge.
+            left: cropLeft - _cropHandleTouchRadius,
+            top: cropTop - _cropHandleTouchRadius,
+            width: cropSize.width + _cropHandleTouchSize,
+            height: cropSize.height + _cropHandleTouchSize,
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -719,41 +722,27 @@ class _FreeformCropHandle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Align(
       alignment: handle.alignment,
-      child: Transform.translate(
-        offset: Offset(
-          handle.movesLeft
-              ? -_CropScreenState._cropHandleTouchRadius
-              : handle.movesRight
-              ? _CropScreenState._cropHandleTouchRadius
-              : 0,
-          handle.movesTop
-              ? -_CropScreenState._cropHandleTouchRadius
-              : handle.movesBottom
-              ? _CropScreenState._cropHandleTouchRadius
-              : 0,
-        ),
-        child: GestureDetector(
-          key: ValueKey('crop-handle-${handle.name}'),
-          behavior: HitTestBehavior.opaque,
-          onPanDown: (_) => onStart(),
-          onPanUpdate: (details) => onUpdate(details.delta),
-          onPanEnd: (_) => onEnd(),
-          onPanCancel: onEnd,
-          child: SizedBox(
-            width: _CropScreenState._cropHandleTouchSize,
-            height: _CropScreenState._cropHandleTouchSize,
-            child: Center(
-              child: Container(
-                width: _handleVisualSize.width,
-                height: _handleVisualSize.height,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: _accentColor, width: 2),
-                  borderRadius: BorderRadius.circular(5),
-                  boxShadow: const [
-                    BoxShadow(color: Color(0x59000000), blurRadius: 3),
-                  ],
-                ),
+      child: GestureDetector(
+        key: ValueKey('crop-handle-${handle.name}'),
+        behavior: HitTestBehavior.opaque,
+        onPanDown: (_) => onStart(),
+        onPanUpdate: (details) => onUpdate(details.delta),
+        onPanEnd: (_) => onEnd(),
+        onPanCancel: onEnd,
+        child: SizedBox(
+          width: _CropScreenState._cropHandleTouchSize,
+          height: _CropScreenState._cropHandleTouchSize,
+          child: Center(
+            child: Container(
+              width: _handleVisualSize.width,
+              height: _handleVisualSize.height,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: _accentColor, width: 2),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x59000000), blurRadius: 3),
+                ],
               ),
             ),
           ),
@@ -766,9 +755,9 @@ class _FreeformCropHandle extends StatelessWidget {
     final isCorner =
         (handle.movesLeft || handle.movesRight) &&
         (handle.movesTop || handle.movesBottom);
-    if (isCorner) return const Size(20, 20);
-    if (handle.movesTop || handle.movesBottom) return const Size(28, 22);
-    return const Size(22, 28);
+    if (isCorner) return const Size(28, 28);
+    if (handle.movesTop || handle.movesBottom) return const Size(34, 26);
+    return const Size(26, 34);
   }
 }
 
