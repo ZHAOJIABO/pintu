@@ -231,6 +231,16 @@ void main() {
 
     expect(find.text('转换风格'), findsNothing);
     expect(find.text('确定参数'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('parameter-recrop-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('parameter-recrop-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('确定参数'), findsNothing);
+    expect(find.byKey(const ValueKey('crop-visible-image')), findsOneWidget);
   });
 
   testWidgets(

@@ -413,7 +413,7 @@ class _CropScreenState extends State<CropScreen>
       );
       final nextScreen = nextDraft.imageSource == DraftImageSource.photo
           ? StyleConversionScreen(draft: nextDraft)
-          : ParameterConfigScreen(draft: nextDraft);
+          : ParameterConfigScreen(draft: nextDraft, showRecropAction: true);
       await Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => nextScreen),

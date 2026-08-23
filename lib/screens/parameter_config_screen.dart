@@ -81,11 +81,13 @@ const _colorLimitOptions = <ColorLimit>[
 class ParameterConfigScreen extends StatefulWidget {
   final DraftProject draft;
   final bool popToPreviousOnBack;
+  final bool showRecropAction;
 
   const ParameterConfigScreen({
     super.key,
     required this.draft,
     this.popToPreviousOnBack = false,
+    this.showRecropAction = false,
   });
 
   @override
@@ -343,6 +345,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
             pattern: pattern,
             workId: workId,
             showGeneratedHint: true,
+            showRegenerateAction: true,
           ),
         ),
       );
@@ -383,6 +386,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                     children: [
                       _ParameterNavigationBar(
                         popToPrevious: widget.popToPreviousOnBack,
+                        showRecropAction: widget.showRecropAction,
                         comparing: _showingOriginalPreview,
                         onCompareStart: _showOriginalPreview,
                         onCompareEnd: _restoreParameterPreview,
@@ -487,12 +491,14 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 
 class _ParameterNavigationBar extends StatelessWidget {
   final bool popToPrevious;
+  final bool showRecropAction;
   final bool comparing;
   final VoidCallback onCompareStart;
   final VoidCallback onCompareEnd;
 
   const _ParameterNavigationBar({
     required this.popToPrevious,
+    required this.showRecropAction,
     required this.comparing,
     required this.onCompareStart,
     required this.onCompareEnd,
@@ -500,6 +506,7 @@ class _ParameterNavigationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actionWidth = showRecropAction ? 108.0 : 44.0;
     return SizedBox(
       height: 40,
       child: Padding(
@@ -507,7 +514,7 @@ class _ParameterNavigationBar extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 44,
+              width: actionWidth,
               height: 40,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -541,34 +548,70 @@ class _ParameterNavigationBar extends StatelessWidget {
                 ),
               ),
             ),
-            Semantics(
-              button: true,
-              label: '按住对比原图',
-              child: GestureDetector(
-                key: const ValueKey('parameter-compare-button'),
-                behavior: HitTestBehavior.opaque,
-                onTapDown: (_) => onCompareStart(),
-                onTapUp: (_) => onCompareEnd(),
-                onTapCancel: onCompareEnd,
-                child: SizedBox(
-                  width: 44,
-                  height: 40,
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '对比',
-                      style: TextStyle(
-                        color: comparing
-                            ? const Color(0xFFFF55BE)
-                            : Colors.black,
-                        fontFamily: _roundFontFamily,
-                        fontFamilyFallback: _fontFallbacks,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+            SizedBox(
+              width: actionWidth,
+              height: 40,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Semantics(
+                    button: true,
+                    label: '按住对比原图',
+                    child: GestureDetector(
+                      key: const ValueKey('parameter-compare-button'),
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (_) => onCompareStart(),
+                      onTapUp: (_) => onCompareEnd(),
+                      onTapCancel: onCompareEnd,
+                      child: SizedBox(
+                        width: 44,
+                        height: 40,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            '对比',
+                            style: TextStyle(
+                              color: comparing
+                                  ? const Color(0xFFFF55BE)
+                                  : Colors.black,
+                              fontFamily: _roundFontFamily,
+                              fontFamilyFallback: _fontFallbacks,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  if (showRecropAction)
+                    Semantics(
+                      button: true,
+                      label: '重新裁切',
+                      child: GestureDetector(
+                        key: const ValueKey('parameter-recrop-button'),
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => Navigator.of(context).maybePop(),
+                        child: const SizedBox(
+                          width: 64,
+                          height: 40,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              '重新裁切',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontFamily: _roundFontFamily,
+                                fontFamilyFallback: _fontFallbacks,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ],

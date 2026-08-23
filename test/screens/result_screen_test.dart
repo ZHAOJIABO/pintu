@@ -125,6 +125,53 @@ void main() {
     expect(find.text('图纸'), findsNothing);
   });
 
+  testWidgets('regenerate returns to the preceding parameter route', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    const parameterPageKey = ValueKey('parameter-page-placeholder');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: GestureDetector(
+              key: parameterPageKey,
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ResultScreen(
+                    pattern: _pattern(),
+                    showRegenerateAction: true,
+                  ),
+                ),
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(parameterPageKey));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('result-regenerate-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-regenerate-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(parameterPageKey), findsOneWidget);
+    expect(find.text('图纸'), findsNothing);
+  });
+
   testWidgets('drawing navigation bar and actions are 44pt tall', (
     tester,
   ) async {

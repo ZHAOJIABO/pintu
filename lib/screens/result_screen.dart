@@ -36,6 +36,7 @@ class ResultScreen extends StatefulWidget {
   final String? boardSpec;
   final bool isEditingLocked;
   final bool showGeneratedHint;
+  final bool showRegenerateAction;
   final ValueChanged<String>? onWorkDeleted;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
@@ -48,6 +49,7 @@ class ResultScreen extends StatefulWidget {
     this.boardSpec,
     this.isEditingLocked = false,
     this.showGeneratedHint = false,
+    this.showRegenerateAction = false,
     this.onWorkDeleted,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
@@ -295,6 +297,7 @@ class _ResultScreenState extends State<ResultScreen> {
             _DrawingHeader(
               pattern: _pattern,
               onSaveImage: _saveImage,
+              showRegenerateAction: widget.showRegenerateAction,
               onDeleteWork: _canDeleteWork && !_deletingWork
                   ? _confirmDeleteWork
                   : null,
@@ -325,11 +328,13 @@ class _ResultScreenState extends State<ResultScreen> {
 class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
   final VoidCallback onSaveImage;
+  final bool showRegenerateAction;
   final VoidCallback? onDeleteWork;
 
   const _DrawingHeader({
     required this.pattern,
     required this.onSaveImage,
+    required this.showRegenerateAction,
     this.onDeleteWork,
   });
 
@@ -345,6 +350,7 @@ class _DrawingHeader extends StatelessWidget {
             children: [
               _ResultNavigationBar(
                 onSaveImage: onSaveImage,
+                showRegenerateAction: showRegenerateAction,
                 onDeleteWork: onDeleteWork,
               ),
               LayoutBuilder(
@@ -370,9 +376,14 @@ class _DrawingHeader extends StatelessWidget {
 
 class _ResultNavigationBar extends StatelessWidget {
   final VoidCallback onSaveImage;
+  final bool showRegenerateAction;
   final VoidCallback? onDeleteWork;
 
-  const _ResultNavigationBar({required this.onSaveImage, this.onDeleteWork});
+  const _ResultNavigationBar({
+    required this.onSaveImage,
+    required this.showRegenerateAction,
+    this.onDeleteWork,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -427,6 +438,30 @@ class _ResultNavigationBar extends StatelessWidget {
                       ),
                     ),
                   if (onDeleteWork != null) const SizedBox(width: 6),
+                  if (showRegenerateAction)
+                    GestureDetector(
+                      key: const ValueKey('result-regenerate-button'),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => Navigator.of(context).maybePop(),
+                      child: const SizedBox(
+                        width: 60,
+                        height: 44,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '重新生成',
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontFamily: _roundFontFamily,
+                              fontFamilyFallback: _fontFallbacks,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (showRegenerateAction) const SizedBox(width: 4),
                   GestureDetector(
                     key: const ValueKey('result-save-image-button'),
                     behavior: HitTestBehavior.opaque,
