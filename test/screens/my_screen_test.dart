@@ -407,6 +407,7 @@ void main() {
       find.byType(StyleConversionScreen),
     );
     expect(styleScreen.initialConvertedImage, isNotEmpty);
+    expect(styleScreen.styleSelectionLocked, isTrue);
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
     expect(find.byType(MyPatternsScreen), findsOneWidget);

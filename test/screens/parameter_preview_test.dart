@@ -47,6 +47,30 @@ void main() {
       findsOneWidget,
     );
 
+    final compareButton = find.byKey(
+      const ValueKey('parameter-compare-button'),
+    );
+    expect(compareButton, findsOneWidget);
+    final compareGesture = await tester.startGesture(
+      tester.getCenter(compareButton),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('parameter-original-image')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('parameter-pattern-preview')),
+      findsNothing,
+    );
+
+    await compareGesture.up();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('parameter-pattern-preview')),
+      findsOneWidget,
+    );
+
     await tester.tap(
       find.byKey(const ValueKey('parameter-size-figma_small_charm')),
     );

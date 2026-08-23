@@ -14,7 +14,6 @@ import '../navigation/home_navigation.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../services/palette_service.dart';
-import '../services/pattern_export_service.dart';
 import '../services/pattern_generation_service.dart';
 import '../services/project_storage_service.dart';
 import 'result_screen.dart';
@@ -82,13 +81,11 @@ const _colorLimitOptions = <ColorLimit>[
 class ParameterConfigScreen extends StatefulWidget {
   final DraftProject draft;
   final bool popToPreviousOnBack;
-  final bool showAiImageSaveAction;
 
   const ParameterConfigScreen({
     super.key,
     required this.draft,
     this.popToPreviousOnBack = false,
-    this.showAiImageSaveAction = false,
   });
 
   @override
@@ -100,7 +97,6 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   final ProjectStorageService _projectStorageService = ProjectStorageService();
   late final PatternGenerationService _generationService =
       PatternGenerationService(imageService: ImageService());
-  final PatternExportService _imageExportService = const PatternExportService();
 
   late final Uint8List _previewImage = widget.draft.imageForGeneration;
   late final double _previewAspectRatio = _decodeImageAspectRatio(
@@ -116,12 +112,12 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late DenoiseStrength _denoiseStrength = widget.draft.denoiseStrength;
   late int _saturation = _clampSaturation(widget.draft.saturation);
   bool _generating = false;
-  bool _savingAiImage = false;
   final Map<_ParameterPreviewCacheKey, GeneratedPattern> _previewCache = {};
   Timer? _previewDebounce;
   int _previewRequestVersion = 0;
   GeneratedPattern? _parameterPreview;
   bool _updatingParameterPreview = false;
+  bool _showingOriginalPreview = false;
 
   @override
   void initState() {
@@ -183,6 +179,16 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     final nextSaturation = _clampSaturation(value);
     if (nextSaturation == _saturation) return;
     setState(() => _saturation = nextSaturation);
+  }
+
+  void _showOriginalPreview() {
+    if (_showingOriginalPreview) return;
+    setState(() => _showingOriginalPreview = true);
+  }
+
+  void _restoreParameterPreview() {
+    if (!_showingOriginalPreview) return;
+    setState(() => _showingOriginalPreview = false);
   }
 
   int get _parameterPreviewDimension {
@@ -270,29 +276,6 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     } catch (_) {
       if (!mounted || requestVersion != _previewRequestVersion) return;
       setState(() => _updatingParameterPreview = false);
-    }
-  }
-
-  Future<void> _saveAiGeneratedImage() async {
-    final image = widget.draft.styledImageBytes;
-    if (_savingAiImage || image == null || image.isEmpty) return;
-
-    setState(() => _savingAiImage = true);
-    try {
-      await _imageExportService.saveImageBytesToPhotoLibrary(image);
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('AI 图片已保存')));
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
-      }
-    } finally {
-      if (mounted) setState(() => _savingAiImage = false);
     }
   }
 
@@ -400,11 +383,9 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                     children: [
                       _ParameterNavigationBar(
                         popToPrevious: widget.popToPreviousOnBack,
-                        showSaveAction:
-                            widget.showAiImageSaveAction &&
-                            widget.draft.styledImageBytes?.isNotEmpty == true,
-                        saving: _savingAiImage,
-                        onSave: _saveAiGeneratedImage,
+                        comparing: _showingOriginalPreview,
+                        onCompareStart: _showOriginalPreview,
+                        onCompareEnd: _restoreParameterPreview,
                       ),
                       SizedBox(
                         height: stageHeight,
@@ -417,6 +398,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           previewUpdating: _updatingParameterPreview,
                           previewDimension: _parameterPreviewDimension,
                           colorLimit: _limit,
+                          showingOriginal: _showingOriginalPreview,
                         ),
                       ),
                       Expanded(
@@ -505,15 +487,15 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
 
 class _ParameterNavigationBar extends StatelessWidget {
   final bool popToPrevious;
-  final bool showSaveAction;
-  final bool saving;
-  final VoidCallback onSave;
+  final bool comparing;
+  final VoidCallback onCompareStart;
+  final VoidCallback onCompareEnd;
 
   const _ParameterNavigationBar({
     required this.popToPrevious,
-    required this.showSaveAction,
-    required this.saving,
-    required this.onSave,
+    required this.comparing,
+    required this.onCompareStart,
+    required this.onCompareEnd,
   });
 
   @override
@@ -559,27 +541,35 @@ class _ParameterNavigationBar extends StatelessWidget {
                 ),
               ),
             ),
-            SizedBox(
-              width: 44,
-              height: 40,
-              child: showSaveAction
-                  ? TextButton(
-                      onPressed: saving ? null : onSave,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        foregroundColor: Colors.black,
+            Semantics(
+              button: true,
+              label: '按住对比原图',
+              child: GestureDetector(
+                key: const ValueKey('parameter-compare-button'),
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (_) => onCompareStart(),
+                onTapUp: (_) => onCompareEnd(),
+                onTapCancel: onCompareEnd,
+                child: SizedBox(
+                  width: 44,
+                  height: 40,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '对比',
+                      style: TextStyle(
+                        color: comparing
+                            ? const Color(0xFFFF55BE)
+                            : Colors.black,
+                        fontFamily: _roundFontFamily,
+                        fontFamilyFallback: _fontFallbacks,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
-                      child: Text(
-                        saving ? '保存中' : '保存',
-                        style: const TextStyle(
-                          fontFamily: _roundFontFamily,
-                          fontFamilyFallback: _fontFallbacks,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    )
-                  : const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -603,6 +593,7 @@ class _ImagePreviewStage extends StatelessWidget {
   final bool previewUpdating;
   final int previewDimension;
   final ColorLimit colorLimit;
+  final bool showingOriginal;
 
   const _ImagePreviewStage({
     required this.imageBytes,
@@ -613,6 +604,7 @@ class _ImagePreviewStage extends StatelessWidget {
     required this.previewUpdating,
     required this.previewDimension,
     required this.colorLimit,
+    required this.showingOriginal,
   });
 
   @override
@@ -656,15 +648,19 @@ class _ImagePreviewStage extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        _previewImage(),
-                        if (preview != null)
-                          _ParameterPatternPreview(pattern: preview!),
-                        _ParameterPreviewCaption(
-                          dimension: previewDimension,
-                          colorLimit: colorLimit,
-                          updating: previewUpdating,
-                        ),
-                        if (loading) const _ParameterLoadingOverlay(),
+                        if (showingOriginal)
+                          _originalImage()
+                        else ...[
+                          _previewImage(),
+                          if (preview != null)
+                            _ParameterPatternPreview(pattern: preview!),
+                          _ParameterPreviewCaption(
+                            dimension: previewDimension,
+                            colorLimit: colorLimit,
+                            updating: previewUpdating,
+                          ),
+                          if (loading) const _ParameterLoadingOverlay(),
+                        ],
                       ],
                     ),
                   ),
@@ -690,6 +686,15 @@ class _ImagePreviewStage extends StatelessWidget {
         ImageService.saturationColorMatrix(saturation),
       ),
       child: image,
+    );
+  }
+
+  Widget _originalImage() {
+    return Image.memory(
+      imageBytes,
+      key: const ValueKey('parameter-original-image'),
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
     );
   }
 

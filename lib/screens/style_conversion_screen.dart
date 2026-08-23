@@ -11,6 +11,7 @@ import '../navigation/home_navigation.dart';
 import '../services/ai_style_transfer_service.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../services/pattern_export_service.dart';
 import '../services/style_thumbnail_cache.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import 'parameter_config_screen.dart';
@@ -24,11 +25,13 @@ const _loadingRabbitIconAsset = 'assets/figma_style/loading_rabbit_icon.png';
 class StyleConversionScreen extends StatefulWidget {
   final DraftProject draft;
   final Uint8List? initialConvertedImage;
+  final bool styleSelectionLocked;
 
   const StyleConversionScreen({
     super.key,
     required this.draft,
     this.initialConvertedImage,
+    this.styleSelectionLocked = false,
   });
 
   @override
@@ -42,6 +45,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
 
   BackendServices? _services;
   AiStyleTransferService? _styleTransfer;
+  final PatternExportService _imageExportService = const PatternExportService();
   List<AIStyleItem> _styles = const [];
   String? _selectedStyleId;
   late Uint8List? _convertedImage = widget.initialConvertedImage;
@@ -49,12 +53,14 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
   bool _stylesLoading = true;
   bool _hasSubmittedTask = false;
   bool _leaving = false;
+  bool _savingAiImage = false;
   String? _stylesError;
   bool _didResolveServices = false;
   final _styleScrollController = ScrollController();
 
   Uint8List get _displayImage => _convertedImage ?? _sourceImage;
   bool get _canGenerate => !_converting;
+  bool get _canSelectStyle => !_converting && !widget.styleSelectionLocked;
 
   double _decodeImageAspectRatio(Uint8List bytes) {
     final decoded = img.decodeImage(bytes);
@@ -154,7 +160,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
   }
 
   Future<void> _confirmAndStartConversion(AIStyleItem style) async {
-    if (_converting) return;
+    if (!_canSelectStyle) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -189,6 +195,29 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     _showMessage(
       task.errorMessage.isNotEmpty ? task.errorMessage : '风格转换未完成，请重试',
     );
+  }
+
+  Future<void> _saveAiGeneratedImage() async {
+    final image = _convertedImage;
+    if (_savingAiImage || image == null || image.isEmpty) return;
+
+    setState(() => _savingAiImage = true);
+    try {
+      await _imageExportService.saveImageBytesToPhotoLibrary(image);
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('AI 图片已保存')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingAiImage = false);
+    }
   }
 
   String _submissionErrorMessage(ApiException error) {
@@ -232,10 +261,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ParameterConfigScreen(
-          draft: nextDraft,
-          showAiImageSaveAction: true,
-        ),
+        builder: (_) => ParameterConfigScreen(draft: nextDraft),
       ),
     );
   }
@@ -263,7 +289,14 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
               bottom: false,
               child: Column(
                 children: [
-                  _StyleNavigationBar(onBack: _handleBack),
+                  _StyleNavigationBar(
+                    onBack: _handleBack,
+                    showSaveAction:
+                        widget.styleSelectionLocked &&
+                        _convertedImage?.isNotEmpty == true,
+                    saving: _savingAiImage,
+                    onSave: _saveAiGeneratedImage,
+                  ),
                   Expanded(
                     child: _ImageStage(
                       imageBytes: _displayImage,
@@ -280,6 +313,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
                     thumbnailCache: _services?.styleThumbnails,
                     selectedStyleId: _selectedStyleId,
                     canGenerate: _canGenerate,
+                    canSelectStyle: _canSelectStyle,
                     onStyleTap: _confirmAndStartConversion,
                     onRetry: _loadStyles,
                     onGenerate: _continueToParameters,
@@ -296,8 +330,16 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
 
 class _StyleNavigationBar extends StatelessWidget {
   final VoidCallback onBack;
+  final bool showSaveAction;
+  final bool saving;
+  final VoidCallback onSave;
 
-  const _StyleNavigationBar({required this.onBack});
+  const _StyleNavigationBar({
+    required this.onBack,
+    required this.showSaveAction,
+    required this.saving,
+    required this.onSave,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -307,13 +349,24 @@ class _StyleNavigationBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(
           children: [
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onBack,
-              child: const SizedBox(
-                width: 24,
-                height: 40,
-                child: Icon(Icons.chevron_left, color: Colors.black, size: 30),
+            SizedBox(
+              width: 44,
+              height: 40,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onBack,
+                child: const Align(
+                  alignment: Alignment.centerLeft,
+                  child: SizedBox(
+                    width: 24,
+                    height: 40,
+                    child: Icon(
+                      Icons.chevron_left,
+                      color: Colors.black,
+                      size: 30,
+                    ),
+                  ),
+                ),
               ),
             ),
             const Expanded(
@@ -329,7 +382,29 @@ class _StyleNavigationBar extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 24, height: 40),
+            SizedBox(
+              width: 44,
+              height: 40,
+              child: showSaveAction
+                  ? TextButton(
+                      key: const ValueKey('style-save-ai-image'),
+                      onPressed: saving ? null : onSave,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Text(
+                        saving ? '保存中' : '保存',
+                        style: const TextStyle(
+                          fontFamily: _roundFontFamily,
+                          fontFamilyFallback: _fontFallbacks,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),
@@ -566,6 +641,7 @@ class _BottomStylePanel extends StatelessWidget {
   final StyleThumbnailCache? thumbnailCache;
   final String? selectedStyleId;
   final bool canGenerate;
+  final bool canSelectStyle;
   final ValueChanged<AIStyleItem> onStyleTap;
   final VoidCallback onRetry;
   final VoidCallback onGenerate;
@@ -579,6 +655,7 @@ class _BottomStylePanel extends StatelessWidget {
     required this.thumbnailCache,
     required this.selectedStyleId,
     required this.canGenerate,
+    required this.canSelectStyle,
     required this.onStyleTap,
     required this.onRetry,
     required this.onGenerate,
@@ -676,10 +753,13 @@ class _BottomStylePanel extends StatelessWidget {
               style: style,
               thumbnailCache: thumbnailCache,
               selected: style.styleId == selectedStyleId,
-              onTap: () {
-                _scrollStyleIntoView(index, constraints.maxWidth);
-                onStyleTap(style);
-              },
+              enabled: canSelectStyle,
+              onTap: canSelectStyle
+                  ? () {
+                      _scrollStyleIntoView(index, constraints.maxWidth);
+                      onStyleTap(style);
+                    }
+                  : null,
             );
           },
         );
@@ -692,46 +772,51 @@ class _StyleThumbnail extends StatelessWidget {
   final AIStyleItem style;
   final StyleThumbnailCache? thumbnailCache;
   final bool selected;
-  final VoidCallback onTap;
+  final bool enabled;
+  final VoidCallback? onTap;
 
   const _StyleThumbnail({
     required this.style,
     required this.thumbnailCache,
     required this.selected,
+    required this.enabled,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: ValueKey('style-option-${style.styleKey}'),
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: 74,
-        height: 88,
-        decoration: BoxDecoration(
-          color: const Color(0xFFC6E0EF),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? _styleAccentColor : Colors.transparent,
-            width: selected ? 2 : 0,
+    return Opacity(
+      opacity: enabled ? 1 : 0.45,
+      child: GestureDetector(
+        key: ValueKey('style-option-${style.styleKey}'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          width: 74,
+          height: 88,
+          decoration: BoxDecoration(
+            color: const Color(0xFFC6E0EF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? _styleAccentColor : Colors.transparent,
+              width: selected ? 2 : 0,
+            ),
           ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(selected ? 6 : 8),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (style.coverUrl.isNotEmpty && thumbnailCache != null)
-                _CachedStyleImage(
-                  url: style.coverUrl,
-                  thumbnailCache: thumbnailCache!,
-                )
-              else
-                const _StyleImageFallback(),
-            ],
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(selected ? 6 : 8),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (style.coverUrl.isNotEmpty && thumbnailCache != null)
+                  _CachedStyleImage(
+                    url: style.coverUrl,
+                    thumbnailCache: thumbnailCache!,
+                  )
+                else
+                  const _StyleImageFallback(),
+              ],
+            ),
           ),
         ),
       ),

@@ -181,6 +181,45 @@ void main() {
     expect(find.text('确定参数'), findsNothing);
   });
 
+  testWidgets(
+    'recent creation style page shows save but parameter page does not',
+    (tester) async {
+      usePhoneViewport(tester);
+      final image = sampleImagePng();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StyleConversionScreen(
+            draft: DraftProject(
+              originalImageBytes: image,
+              croppedImageBytes: image,
+            ),
+            initialConvertedImage: image,
+            styleSelectionLocked: true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('style-save-ai-image')), findsOneWidget);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ParameterConfigScreen(
+            draft: DraftProject(
+              originalImageBytes: image,
+              croppedImageBytes: image,
+              styledImageBytes: image,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('保存'), findsNothing);
+    },
+  );
+
   testWidgets('illustration flow skips style conversion after crop', (
     tester,
   ) async {

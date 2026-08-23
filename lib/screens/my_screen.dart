@@ -1004,6 +1004,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
         MaterialPageRoute(
           builder: (_) => StyleConversionScreen(
             initialConvertedImage: outputImage,
+            styleSelectionLocked: true,
             draft: DraftProject(
               originalImageBytes: outputImage,
               croppedImageBytes: outputImage,
