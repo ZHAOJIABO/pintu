@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -28,6 +29,8 @@ const _chartMajorGrid = PatternChartPainter.defaultMajorGridColor;
 const _patternSaveIconAsset = 'assets/pin_icon/pattern_save.svg';
 
 typedef WatermarkPngBytesLoader = Future<Uint8List?> Function();
+typedef PersistGeneratedPattern =
+    Future<String> Function(GeneratedPattern pattern);
 
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
@@ -36,10 +39,13 @@ class ResultScreen extends StatefulWidget {
   final String? boardSpec;
   final bool isEditingLocked;
   final bool showGeneratedHint;
-  final bool showRegenerateAction;
   final bool popToPreviousOnBack;
   final VoidCallback? onReturnToLibrary;
   final ValueChanged<String>? onWorkDeleted;
+
+  /// Saves a newly generated pattern only after the user explicitly confirms
+  /// an action that needs it in "我的图纸".
+  final PersistGeneratedPattern? persistGeneratedPattern;
   final PatternExportService exportService;
   final WatermarkPngBytesLoader? loadWatermarkPngBytes;
 
@@ -51,10 +57,10 @@ class ResultScreen extends StatefulWidget {
     this.boardSpec,
     this.isEditingLocked = false,
     this.showGeneratedHint = false,
-    this.showRegenerateAction = false,
     this.popToPreviousOnBack = false,
     this.onReturnToLibrary,
     this.onWorkDeleted,
+    this.persistGeneratedPattern,
     this.exportService = const PatternExportService(),
     this.loadWatermarkPngBytes,
   });
@@ -67,14 +73,21 @@ class _ResultScreenState extends State<ResultScreen> {
   late final PatternExportService _exportService = widget.exportService;
   late GeneratedPattern _pattern = widget.pattern;
   late TemplateItem? _template = widget.template;
+  late String? _workId = widget.workId;
   bool _exporting = false;
+  Future<bool>? _persistingGeneratedWorkTask;
+  bool _discardUnsavedResult = false;
+  bool _returnToParametersAfterDiscard = false;
   bool _updatingFavorite = false;
   bool _deletingWork = false;
 
   bool get _editingEnabled => _template == null && !widget.isEditingLocked;
+  bool get _hasUnsavedGeneratedWork =>
+      widget.persistGeneratedPattern != null &&
+      (_workId == null || _workId!.isEmpty);
   bool get _canDeleteWork =>
       _template == null &&
-      widget.workId?.isNotEmpty == true &&
+      _workId?.isNotEmpty == true &&
       widget.onWorkDeleted != null;
 
   @override
@@ -88,13 +101,15 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _openBeadMode() async {
+    if (!await _persistGeneratedWorkIfNeeded()) return;
+    if (!mounted) return;
     final editedPattern = await Navigator.push<GeneratedPattern>(
       context,
       MaterialPageRoute(
         builder: (_) => BeadModeScreen(
           pattern: _pattern,
           editingEnabled: _editingEnabled,
-          workId: widget.workId,
+          workId: _workId,
           boardSpec: widget.boardSpec,
         ),
       ),
@@ -109,8 +124,11 @@ class _ResultScreenState extends State<ResultScreen> {
       MaterialPageRoute(
         builder: (_) => PatternEditorScreen(
           pattern: _pattern,
-          workId: widget.workId,
+          workId: _workId,
           boardSpec: widget.boardSpec,
+          onSaveUnsavedPattern: _hasUnsavedGeneratedWork
+              ? _persistGeneratedWorkIfNeeded
+              : null,
         ),
       ),
     );
@@ -164,6 +182,8 @@ class _ResultScreenState extends State<ResultScreen> {
 
     setState(() => _exporting = true);
     try {
+      if (!await _persistGeneratedWorkIfNeeded()) return;
+      if (!mounted) return;
       Uint8List? watermarkPngBytes;
       try {
         watermarkPngBytes = await _loadWatermarkPngBytes();
@@ -208,7 +228,7 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _deleteWork() async {
-    final workId = widget.workId;
+    final workId = _workId;
     final services = BackendScope.maybeOf(context);
     if (_deletingWork || workId == null || workId.isEmpty || services == null) {
       return;
@@ -289,6 +309,83 @@ class _ResultScreenState extends State<ResultScreen> {
     return showPatternsHintDialog(context);
   }
 
+  Future<bool> _persistGeneratedWorkIfNeeded([GeneratedPattern? pattern]) {
+    if (!_hasUnsavedGeneratedWork) return Future.value(true);
+    final activeTask = _persistingGeneratedWorkTask;
+    if (activeTask != null) return activeTask;
+
+    final task = _persistGeneratedWork(pattern);
+    _persistingGeneratedWorkTask = task;
+    return task;
+  }
+
+  Future<bool> _persistGeneratedWork(GeneratedPattern? pattern) async {
+    final persist = widget.persistGeneratedPattern;
+    if (persist == null) return true;
+
+    try {
+      final patternToSave = pattern ?? _pattern;
+      final workId = await persist(patternToSave);
+      if (workId.isEmpty) throw StateError('保存图纸后未返回作品标识');
+      if (!mounted) return false;
+      setState(() {
+        _pattern = patternToSave;
+        _workId = workId;
+      });
+      return true;
+    } catch (_) {
+      if (mounted) _showToast('保存图纸失败，请重试');
+      return false;
+    } finally {
+      _persistingGeneratedWorkTask = null;
+    }
+  }
+
+  Future<bool> _confirmLeaveResult() async {
+    if (!_hasUnsavedGeneratedWork || _discardUnsavedResult) return true;
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('是否保存图纸？'),
+        content: const Text('保存后可在“我的图纸”中继续查看和编辑。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('不保存'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || shouldSave == null) return false;
+    if (shouldSave) return _persistGeneratedWorkIfNeeded();
+
+    _discardUnsavedResult = true;
+    _returnToParametersAfterDiscard = true;
+    return true;
+  }
+
+  void _leaveResult() {
+    if (_returnToParametersAfterDiscard) {
+      Navigator.of(context).maybePop();
+    } else if (widget.onReturnToLibrary != null) {
+      widget.onReturnToLibrary!.call();
+    } else if (widget.popToPreviousOnBack) {
+      Navigator.of(context).maybePop();
+    } else {
+      returnToHome(context);
+    }
+  }
+
+  Future<void> _handleBack() async {
+    if (!await _confirmLeaveResult() || !mounted) return;
+    _leaveResult();
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -296,37 +393,42 @@ class _ResultScreenState extends State<ResultScreen> {
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.white,
       ),
-      child: Scaffold(
-        backgroundColor: _pageBackground,
-        body: Column(
-          children: [
-            _DrawingHeader(
-              pattern: _pattern,
-              onSaveImage: _saveImage,
-              showRegenerateAction: widget.showRegenerateAction,
-              popToPreviousOnBack: widget.popToPreviousOnBack,
-              onReturnToLibrary: widget.onReturnToLibrary,
-              onDeleteWork: _canDeleteWork && !_deletingWork
-                  ? _confirmDeleteWork
-                  : null,
-            ),
-            Expanded(
-              child: _MaterialSummary(
+      // WillPopScope keeps the asynchronous save confirmation cancellable.
+      // ignore: deprecated_member_use
+      child: WillPopScope(
+        onWillPop: _confirmLeaveResult,
+        child: Scaffold(
+          backgroundColor: _pageBackground,
+          body: Column(
+            children: [
+              _DrawingHeader(
                 pattern: _pattern,
-                authorName: _template?.displayAuthorName,
+                onBack: () => unawaited(_handleBack()),
+                onSaveImage: _saveImage,
+                onDeleteWork: _canDeleteWork && !_deletingWork
+                    ? _confirmDeleteWork
+                    : null,
               ),
-            ),
-            _BottomActionBar(
-              onStart: _openBeadMode,
-              secondaryLabel: _template == null
-                  ? (widget.isEditingLocked ? '审核中' : '编辑')
-                  : (_template!.isFavorited ? '已收藏' : '收藏'),
-              onSecondary: _template == null
-                  ? (_editingEnabled ? _openEditor : _showEditingLockedMessage)
-                  : (_updatingFavorite ? null : _toggleTemplateFavorite),
-              secondaryEnabled: _template != null || _editingEnabled,
-            ),
-          ],
+              Expanded(
+                child: _MaterialSummary(
+                  pattern: _pattern,
+                  authorName: _template?.displayAuthorName,
+                ),
+              ),
+              _BottomActionBar(
+                onStart: _openBeadMode,
+                secondaryLabel: _template == null
+                    ? (widget.isEditingLocked ? '审核中' : '编辑')
+                    : (_template!.isFavorited ? '已收藏' : '收藏'),
+                onSecondary: _template == null
+                    ? (_editingEnabled
+                          ? _openEditor
+                          : _showEditingLockedMessage)
+                    : (_updatingFavorite ? null : _toggleTemplateFavorite),
+                secondaryEnabled: _template != null || _editingEnabled,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -335,18 +437,14 @@ class _ResultScreenState extends State<ResultScreen> {
 
 class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
+  final VoidCallback onBack;
   final VoidCallback onSaveImage;
-  final bool showRegenerateAction;
-  final bool popToPreviousOnBack;
-  final VoidCallback? onReturnToLibrary;
   final VoidCallback? onDeleteWork;
 
   const _DrawingHeader({
     required this.pattern,
+    required this.onBack,
     required this.onSaveImage,
-    required this.showRegenerateAction,
-    required this.popToPreviousOnBack,
-    required this.onReturnToLibrary,
     this.onDeleteWork,
   });
 
@@ -361,10 +459,8 @@ class _DrawingHeader extends StatelessWidget {
           child: Column(
             children: [
               _ResultNavigationBar(
+                onBack: onBack,
                 onSaveImage: onSaveImage,
-                showRegenerateAction: showRegenerateAction,
-                popToPreviousOnBack: popToPreviousOnBack,
-                onReturnToLibrary: onReturnToLibrary,
                 onDeleteWork: onDeleteWork,
               ),
               LayoutBuilder(
@@ -389,17 +485,13 @@ class _DrawingHeader extends StatelessWidget {
 }
 
 class _ResultNavigationBar extends StatelessWidget {
+  final VoidCallback onBack;
   final VoidCallback onSaveImage;
-  final bool showRegenerateAction;
-  final bool popToPreviousOnBack;
-  final VoidCallback? onReturnToLibrary;
   final VoidCallback? onDeleteWork;
 
   const _ResultNavigationBar({
+    required this.onBack,
     required this.onSaveImage,
-    required this.showRegenerateAction,
-    required this.popToPreviousOnBack,
-    required this.onReturnToLibrary,
     this.onDeleteWork,
   });
 
@@ -416,11 +508,7 @@ class _ResultNavigationBar extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap:
-                    onReturnToLibrary ??
-                    (popToPreviousOnBack
-                        ? () => Navigator.of(context).maybePop()
-                        : () => returnToHome(context)),
+                onTap: onBack,
                 child: const SizedBox(
                   width: 24,
                   height: 44,
@@ -460,30 +548,6 @@ class _ResultNavigationBar extends StatelessWidget {
                       ),
                     ),
                   if (onDeleteWork != null) const SizedBox(width: 6),
-                  if (showRegenerateAction)
-                    GestureDetector(
-                      key: const ValueKey('result-regenerate-button'),
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => Navigator.of(context).maybePop(),
-                      child: const SizedBox(
-                        width: 60,
-                        height: 44,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '重新生成',
-                            style: TextStyle(
-                              color: Colors.black,
-                              fontFamily: _roundFontFamily,
-                              fontFamilyFallback: _fontFallbacks,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (showRegenerateAction) const SizedBox(width: 4),
                   GestureDetector(
                     key: const ValueKey('result-save-image-button'),
                     behavior: HitTestBehavior.opaque,

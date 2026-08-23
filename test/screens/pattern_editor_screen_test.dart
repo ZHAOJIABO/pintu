@@ -70,6 +70,43 @@ void main() {
     ]);
   });
 
+  testWidgets('leaving an unsaved editor asks whether to save', (tester) async {
+    _setViewport(tester, const Size(390, 844));
+    var saveCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _pattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+          onSaveUnsavedPattern: (_) async {
+            saveCount++;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final canvas = find.byKey(const ValueKey('pattern-editor-canvas'));
+    final painter = _editorPainter(tester);
+    final firstCellCenter = Offset(
+      painter.labelBand + 24.5 * painter.cellSize,
+      painter.labelBand + 24.5 * painter.cellSize,
+    );
+    await tester.tapAt(tester.getTopLeft(canvas) + firstCellCenter);
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('返回'));
+    await tester.pumpAndSettle();
+    expect(find.text('是否保存图纸？'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '不保存'));
+    await tester.pumpAndSettle();
+    expect(saveCount, 0);
+  });
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('pattern editor fits the Figma layout on $viewport', (
       tester,

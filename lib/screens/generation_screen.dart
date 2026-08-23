@@ -42,7 +42,6 @@ class _GenerationScreenState extends State<GenerationScreen> {
     final token = _generationToken;
     try {
       final backendServices = BackendScope.maybeOf(context);
-      String? workId;
       if (backendServices != null) {
         await backendServices.generationCompletion.startNewAttempt();
       }
@@ -56,21 +55,19 @@ class _GenerationScreenState extends State<GenerationScreen> {
       );
       await _projectStorageService.saveGeneratedPattern(pattern);
       if (!mounted || token != _generationToken) return;
-      if (backendServices != null) {
-        final completed = await backendServices.generationCompletion
-            .completeGeneratedPattern(pattern);
-        workId = completed.workId;
-        backendServices.notifyMyShortcutPreviewsChanged();
-      }
-      if (!mounted || token != _generationToken) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => ResultScreen(
             pattern: pattern,
-            workId: workId,
-            showGeneratedHint: true,
-            showRegenerateAction: true,
+            persistGeneratedPattern: backendServices == null
+                ? null
+                : (patternToSave) async {
+                    final completed = await backendServices.generationCompletion
+                        .completeGeneratedPattern(patternToSave);
+                    backendServices.notifyMyShortcutPreviewsChanged();
+                    return completed.workId;
+                  },
           ),
         ),
       );

@@ -96,6 +96,10 @@ class PatternEditorScreen extends StatefulWidget {
   final PatternEditorPanel initialPanel;
   final PatternImageUploadService patternImageUploader;
 
+  /// Used when a freshly generated pattern has not been created on the
+  /// backend yet. The parent owns that creation so it can retain the work id.
+  final Future<bool> Function(GeneratedPattern pattern)? onSaveUnsavedPattern;
+
   const PatternEditorScreen({
     super.key,
     required this.pattern,
@@ -106,6 +110,7 @@ class PatternEditorScreen extends StatefulWidget {
     this.showBrushSize = false,
     this.initialPanel = PatternEditorPanel.brush,
     this.patternImageUploader = const PatternImageUploadService(),
+    this.onSaveUnsavedPattern,
   });
 
   @override
@@ -136,6 +141,8 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   bool _showPaletteGuideCompletion = false;
   int _paletteGuideStep = -1;
   bool _saving = false;
+  bool _discardUnsavedEdits = false;
+  bool _didExplicitlySave = false;
 
   @override
   void initState() {
@@ -460,12 +467,13 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     _selectPaletteColor(color);
   }
 
-  Future<void> _save() async {
-    if (_saving) return;
-    if (listEquals(_pixels, widget.pattern.pixels)) {
-      Navigator.pop(context, widget.pattern);
-      return;
-    }
+  bool get _hasUnsavedEdits => !listEquals(_pixels, widget.pattern.pixels);
+  bool get _requiresInitialSave =>
+      (widget.workId == null || widget.workId!.isEmpty) &&
+      widget.onSaveUnsavedPattern != null;
+
+  Future<bool> _save({bool closeAfterSave = true}) async {
+    if (_saving) return false;
 
     final edited = _editService.applyEditedPixels(
       pattern: widget.pattern,
@@ -473,11 +481,11 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     );
 
     final workId = widget.workId;
-    if (workId != null && workId.isNotEmpty) {
+    if (workId != null && workId.isNotEmpty && _hasUnsavedEdits) {
       final services = BackendScope.maybeOf(context);
       if (services == null) {
         _showSaveFailure();
-        return;
+        return false;
       }
 
       setState(() => _saving = true);
@@ -493,23 +501,77 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
           patternImageUrl: uploadedImages.patternImageUrl,
           thumbnailUrl: uploadedImages.thumbnailUrl,
         );
+        services.notifyMyShortcutPreviewsChanged();
       } on ApiException catch (error) {
         if (mounted) {
           setState(() => _saving = false);
           _showSaveFailure(message: _saveErrorMessage(error));
         }
-        return;
+        return false;
       } catch (_) {
         if (mounted) {
           setState(() => _saving = false);
           _showSaveFailure();
         }
-        return;
+        return false;
+      }
+    } else if (workId == null || workId.isEmpty) {
+      final saveUnsavedPattern = widget.onSaveUnsavedPattern;
+      if (saveUnsavedPattern != null) {
+        setState(() => _saving = true);
+        try {
+          final saved = await saveUnsavedPattern(edited);
+          if (!mounted) return false;
+          setState(() => _saving = false);
+          if (!saved) return false;
+        } catch (_) {
+          if (mounted) {
+            setState(() => _saving = false);
+            _showSaveFailure();
+          }
+          return false;
+        }
       }
     }
 
-    if (!mounted) return;
-    Navigator.pop(context, edited);
+    if (!mounted) return false;
+    _didExplicitlySave = true;
+    if (closeAfterSave) Navigator.pop(context, edited);
+    return true;
+  }
+
+  Future<bool> _confirmLeaveEditor() async {
+    if (_didExplicitlySave ||
+        _discardUnsavedEdits ||
+        (!_hasUnsavedEdits && !_requiresInitialSave)) {
+      return true;
+    }
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('是否保存图纸？'),
+        content: const Text('保存后将更新当前图纸。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('不保存'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || shouldSave == null) return false;
+    if (shouldSave) return _save(closeAfterSave: false);
+    _discardUnsavedEdits = true;
+    return true;
+  }
+
+  Future<void> _handleBack() async {
+    if (!await _confirmLeaveEditor() || !mounted) return;
+    Navigator.of(context).pop();
   }
 
   String _saveErrorMessage(ApiException error) {
@@ -638,90 +700,95 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.white,
       ),
-      child: Scaffold(
-        key: const ValueKey('pattern-editor-screen'),
-        backgroundColor: _editorBackground,
-        body: Stack(
-          children: [
-            SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-                  _EditorNavigationBar(
-                    panel: _panel,
-                    onBack: () => Navigator.maybePop(context),
-                    onPanelChanged: _onPanelChanged,
-                    onSave: _saving ? null : () => unawaited(_save()),
-                  ),
-                  Expanded(
-                    child: BeadBoardPreview(
-                      pixels: _pixels,
-                      layoutPixels: widget.pattern.pixels,
-                      width: widget.pattern.width,
-                      height: widget.pattern.height,
-                      revision: _revision,
-                      paletteEntries: widget.pattern.paletteEntries,
-                      showRulers: false,
-                      onCellStart: isPalettePanel
-                          ? _replacePaletteCell
-                          : canPaint
-                          ? _startStroke
-                          : null,
-                      onCellChanged: canPaint ? _continueStroke : null,
-                      onCellEnd: canPaint ? _finishStroke : null,
+      // WillPopScope keeps the asynchronous save confirmation cancellable.
+      // ignore: deprecated_member_use
+      child: WillPopScope(
+        onWillPop: _confirmLeaveEditor,
+        child: Scaffold(
+          key: const ValueKey('pattern-editor-screen'),
+          backgroundColor: _editorBackground,
+          body: Stack(
+            children: [
+              SafeArea(
+                bottom: false,
+                child: Column(
+                  children: [
+                    _EditorNavigationBar(
+                      panel: _panel,
+                      onBack: () => unawaited(_handleBack()),
+                      onPanelChanged: _onPanelChanged,
+                      onSave: _saving ? null : () => unawaited(_save()),
                     ),
-                  ),
-                  _panel == _EditorPanel.brush
-                      ? _EditorToolbar(
-                          selectedColor: _selectedColor,
-                          selectedColorRef: _selectedColorRef,
-                          activeTool: _tool,
-                          canUndo: _historyService.canUndo,
-                          canRedo: _historyService.canRedo,
-                          onToolSelected: _selectTool,
-                          onCurrentColorPressed: _showCurrentColorPicker,
-                          onUndo: _undo,
-                          onRedo: _redo,
-                          brushSize: _brushSize,
-                          onBrushSizeSelected: widget.showBrushSize
-                              ? _selectBrushSize
-                              : null,
-                        )
-                      : _PaletteToolbar(
-                          entries: _usedPaletteEntries(),
-                          canUndo: _historyService.canUndo,
-                          canRedo: _historyService.canRedo,
-                          onColorSelected: (item) => _showColorReplacement(
-                            source: item.entry.color,
-                            sourceRef: item.entry.ref,
+                    Expanded(
+                      child: BeadBoardPreview(
+                        pixels: _pixels,
+                        layoutPixels: widget.pattern.pixels,
+                        width: widget.pattern.width,
+                        height: widget.pattern.height,
+                        revision: _revision,
+                        paletteEntries: widget.pattern.paletteEntries,
+                        showRulers: false,
+                        onCellStart: isPalettePanel
+                            ? _replacePaletteCell
+                            : canPaint
+                            ? _startStroke
+                            : null,
+                        onCellChanged: canPaint ? _continueStroke : null,
+                        onCellEnd: canPaint ? _finishStroke : null,
+                      ),
+                    ),
+                    _panel == _EditorPanel.brush
+                        ? _EditorToolbar(
+                            selectedColor: _selectedColor,
+                            selectedColorRef: _selectedColorRef,
+                            activeTool: _tool,
+                            canUndo: _historyService.canUndo,
+                            canRedo: _historyService.canRedo,
+                            onToolSelected: _selectTool,
+                            onCurrentColorPressed: _showCurrentColorPicker,
+                            onUndo: _undo,
+                            onRedo: _redo,
+                            brushSize: _brushSize,
+                            onBrushSizeSelected: widget.showBrushSize
+                                ? _selectBrushSize
+                                : null,
+                          )
+                        : _PaletteToolbar(
+                            entries: _usedPaletteEntries(),
+                            canUndo: _historyService.canUndo,
+                            canRedo: _historyService.canRedo,
+                            onColorSelected: (item) => _showColorReplacement(
+                              source: item.entry.color,
+                              sourceRef: item.entry.ref,
+                            ),
+                            onUndo: _undo,
+                            onRedo: _redo,
                           ),
-                          onUndo: _undo,
-                          onRedo: _redo,
-                        ),
-                ],
-              ),
-            ),
-            if (_showBrushGuide)
-              Positioned.fill(
-                child: _BrushModeGuide(
-                  currentStep: _brushGuideStep,
-                  showCompletion: _showBrushGuideCompletion,
-                  panel: _panel,
-                  selectedColor: _selectedColor,
-                  selectedColorRef: _selectedColorRef,
-                  onSkip: _dismissBrushGuide,
+                  ],
                 ),
               ),
-            if (_showPaletteGuide)
-              Positioned.fill(
-                child: _PaletteModeGuide(
-                  currentStep: _paletteGuideStep,
-                  showCompletion: _showPaletteGuideCompletion,
-                  entries: _usedPaletteEntries(),
-                  onSkip: _dismissPaletteGuide,
+              if (_showBrushGuide)
+                Positioned.fill(
+                  child: _BrushModeGuide(
+                    currentStep: _brushGuideStep,
+                    showCompletion: _showBrushGuideCompletion,
+                    panel: _panel,
+                    selectedColor: _selectedColor,
+                    selectedColorRef: _selectedColorRef,
+                    onSkip: _dismissBrushGuide,
+                  ),
                 ),
-              ),
-          ],
+              if (_showPaletteGuide)
+                Positioned.fill(
+                  child: _PaletteModeGuide(
+                    currentStep: _paletteGuideStep,
+                    showCompletion: _showPaletteGuideCompletion,
+                    entries: _usedPaletteEntries(),
+                    onSkip: _dismissPaletteGuide,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

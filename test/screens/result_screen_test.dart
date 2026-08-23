@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:bobobeads/models/color.dart';
@@ -173,7 +174,7 @@ void main() {
     expect(find.text('图纸'), findsNothing);
   });
 
-  testWidgets('regenerate returns to the preceding parameter route', (
+  testWidgets('new result saves only after the user confirms leaving', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -182,20 +183,25 @@ void main() {
       tester.view.resetPhysicalSize();
       tester.view.resetDevicePixelRatio();
     });
-    const parameterPageKey = ValueKey('parameter-page-placeholder');
+    const homeKey = ValueKey('deferred-save-home');
+    var saveCount = 0;
 
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
           builder: (context) => Scaffold(
             body: GestureDetector(
-              key: parameterPageKey,
+              key: homeKey,
               behavior: HitTestBehavior.opaque,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => ResultScreen(
                     pattern: _pattern(),
-                    showRegenerateAction: true,
+                    popToPreviousOnBack: true,
+                    persistGeneratedPattern: (_) async {
+                      saveCount++;
+                      return 'work-$saveCount';
+                    },
                   ),
                 ),
               ),
@@ -206,18 +212,92 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byKey(parameterPageKey));
+    await tester.tap(find.byKey(homeKey));
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('result-regenerate-button')),
-      findsOneWidget,
+    expect(saveCount, 0);
+
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    expect(find.text('是否保存图纸？'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, '不保存'));
+    await tester.pumpAndSettle();
+    expect(saveCount, 0);
+    expect(find.byKey(homeKey), findsOneWidget);
+
+    await tester.tap(find.byKey(homeKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(saveCount, 1);
+    expect(find.byKey(homeKey), findsOneWidget);
+  });
+
+  testWidgets('opening the editor does not save a newly generated result', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    var saveCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          persistGeneratedPattern: (_) async {
+            saveCount++;
+            return 'work-$saveCount';
+          },
+        ),
+      ),
     );
 
-    await tester.tap(find.byKey(const ValueKey('result-regenerate-button')));
+    await tester.tap(find.text('编辑'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(parameterPageKey), findsOneWidget);
-    expect(find.text('图纸'), findsNothing);
+    expect(find.byKey(const ValueKey('pattern-editor-screen')), findsOneWidget);
+    expect(saveCount, 0);
+  });
+
+  testWidgets('multiple result actions share one pending pattern save', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final saveCompleter = Completer<String>();
+    var saveCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          persistGeneratedPattern: (_) {
+            saveCount++;
+            return saveCompleter.future;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('立即开拼'));
+    await tester.pump();
+    await tester.tap(find.text('立即开拼'));
+    await tester.pump();
+    expect(saveCount, 1);
+
+    saveCompleter.complete('work-1');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('bead-mode-board')), findsOneWidget);
   });
 
   testWidgets('drawing navigation bar and actions are 44pt tall', (
