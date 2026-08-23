@@ -18,6 +18,16 @@ void main() {
     return Uint8List.fromList(img.encodePng(image));
   }
 
+  Uint8List veryTallImagePng() {
+    final image = img.Image(width: 40, height: 280);
+    for (var y = 0; y < image.height; y++) {
+      for (var x = 0; x < image.width; x++) {
+        image.setPixelRgb(x, y, 80, 100 + y ~/ 4, 160);
+      }
+    }
+    return Uint8List.fromList(img.encodePng(image));
+  }
+
   const viewports = {
     'iPhone SE 3': Size(375, 667),
     'iPhone 12': Size(390, 844),
@@ -96,6 +106,28 @@ void main() {
     expect(tester.widget<Text>(find.text('1:1')).style?.color, Colors.black);
   });
 
+  testWidgets('超高图片的自由裁剪手柄保留顶部安全空间并扩大触控区', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CropScreen(
+          draft: DraftProject(originalImageBytes: veryTallImagePng()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final topHandle = find.byKey(const ValueKey('crop-handle-top'));
+    expect(tester.getSize(topHandle), const Size(64, 64));
+    expect(tester.getRect(topHandle).top, greaterThanOrEqualTo(40));
+  });
+
   testWidgets('freeform export follows the moved crop frame', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
@@ -135,29 +167,29 @@ void main() {
     final cropTopLeft = tester.getCenter(
       find.byKey(const ValueKey('crop-handle-topLeft')),
     );
+    final cropBottomRight = tester.getCenter(
+      find.byKey(const ValueKey('crop-handle-bottomRight')),
+    );
+    final visibleImageRect = tester.getRect(
+      find.byKey(const ValueKey('crop-visible-image')),
+    );
     await tester.tap(find.byIcon(Icons.check));
     await tester.pumpAndSettle();
 
     final decoded = img.decodePng(result!);
     expect(decoded, isNotNull);
+    final decodedImage = decoded!;
     const scale = 330 / 90;
-    final cropWidth = ((360 - cropTopLeft.dx) / scale).round();
-    final cropHeight = ((573 - cropTopLeft.dy) / scale).round();
-    final cropCenter = Offset(
-      (cropTopLeft.dx + 360) / 2,
-      (cropTopLeft.dy + 573) / 2,
-    );
-    final sourceCenter = Offset(
-      45 + (cropCenter.dx - 195) / scale,
-      60 + (cropCenter.dy - 353) / scale,
-    );
-    final sourceLeft = (sourceCenter.dx - cropWidth / 2).round();
-    final sourceTop = (sourceCenter.dy - cropHeight / 2).round();
+    final cropWidth = ((cropBottomRight.dx - cropTopLeft.dx) / scale).round();
+    final cropHeight = ((cropBottomRight.dy - cropTopLeft.dy) / scale).round();
+    final sourceLeft = 90 - cropWidth;
+    final sourceTop = 120 - cropHeight;
 
-    expect(decoded!.width, cropWidth);
-    expect(decoded.height, cropHeight);
-    expect(decoded.getPixel(0, 0).r.toInt(), 40 + sourceLeft);
-    expect(decoded.getPixel(0, 0).g.toInt(), 120 + sourceTop ~/ 2);
+    expect(decodedImage.width, cropWidth);
+    expect(decodedImage.height, cropHeight);
+    expect(visibleImageRect.bottom, greaterThanOrEqualTo(cropBottomRight.dy));
+    expect(decodedImage.getPixel(0, 0).r.toInt(), 40 + sourceLeft);
+    expect(decodedImage.getPixel(0, 0).g.toInt(), 120 + sourceTop ~/ 2);
   });
 
   testWidgets('finished product crop shows its focused guidance', (

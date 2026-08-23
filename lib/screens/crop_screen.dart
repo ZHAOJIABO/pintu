@@ -79,6 +79,30 @@ class _CropScreenState extends State<CropScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final mediaQuery = MediaQuery.of(context);
+    final widthScale = math.min(mediaQuery.size.width, 430.0) / _displayWidth;
+    final heightScale = mediaQuery.size.height / 844;
+    final scale = math.min(widthScale, heightScale);
+    final systemTopInset = mediaQuery.padding.top / scale;
+    final nextTopInset = math.max(
+      _minimumFreeformTopInset,
+      systemTopInset + _cropHandleTouchRadius + _cropHandleSafetyGap,
+    );
+    if ((nextTopInset - _freeformCropTopInset).abs() < 0.01) return;
+
+    _freeformCropTopInset = nextTopInset;
+    _freeformCropRect = _initialFreeformCropRect();
+    _imageScale = _minImageScale(_cropFrameRect().size);
+    _offset = _clampOffset(
+      _cropFrameCenterOffset(_cropFrameRect()),
+      _cropFrameRect().size,
+      _imageScale,
+    );
+  }
+
+  @override
   void dispose() {
     _reboundController.dispose();
     super.dispose();
@@ -95,7 +119,11 @@ class _CropScreenState extends State<CropScreen>
         .fold(0.0, math.max);
     _freeformCropRect = _initialFreeformCropRect();
     _imageScale = _minImageScale(_cropFrameRect().size);
-    _offset = _clampOffset(Offset.zero, _cropFrameRect().size, _imageScale);
+    _offset = _clampOffset(
+      _cropFrameCenterOffset(_cropFrameRect()),
+      _cropFrameRect().size,
+      _imageScale,
+    );
   }
 
   void _handleReboundTick() {
@@ -138,15 +166,20 @@ class _CropScreenState extends State<CropScreen>
   }
 
   static const _cropFrameInset = 30.0;
-  static const _minFreeformCropSize = 128.0;
+  static const _minimumFreeformTopInset = 72.0;
+  static const _cropHandleTouchSize = 64.0;
+  static const _cropHandleTouchRadius = _cropHandleTouchSize / 2;
+  static const _cropHandleSafetyGap = 12.0;
+  static const _minFreeformCropSize = 144.0;
 
   Rect _freeformCropRect = const Rect.fromLTWH(30, 188, 330, 330);
+  double _freeformCropTopInset = _minimumFreeformTopInset;
 
-  Rect get _cropStageBounds => Rect.fromLTWH(
+  Rect get _cropStageBounds => Rect.fromLTRB(
     _cropFrameInset,
-    _cropFrameInset,
-    _displayWidth - _cropFrameInset * 2,
-    _displayHeight - _cropFrameInset * 2,
+    _freeformCropTopInset,
+    _displayWidth - _cropFrameInset,
+    _displayHeight - _cropFrameInset,
   );
 
   Rect _initialFreeformCropRect() {
@@ -219,14 +252,25 @@ class _CropScreenState extends State<CropScreen>
     return candidate.clamp(minLimit, maxLimit).toDouble();
   }
 
-  Offset _clampOffset(Offset candidate, Size cropSize, double scale) {
+  Offset _cropFrameCenterOffset(Rect cropRect) {
+    return cropRect.center -
+        const Offset(_displayWidth / 2, _displayHeight / 2);
+  }
+
+  Offset _clampOffset(
+    Offset candidate,
+    Size cropSize,
+    double scale, {
+    Rect? cropRect,
+  }) {
     final renderedWidth = _imageWidth * scale;
     final renderedHeight = _imageHeight * scale;
     final maxX = math.max(0.0, (renderedWidth - cropSize.width) / 2);
     final maxY = math.max(0.0, (renderedHeight - cropSize.height) / 2);
+    final baseOffset = _cropFrameCenterOffset(cropRect ?? _cropFrameRect());
     return Offset(
-      candidate.dx.clamp(-maxX, maxX).toDouble(),
-      candidate.dy.clamp(-maxY, maxY).toDouble(),
+      candidate.dx.clamp(baseOffset.dx - maxX, baseOffset.dx + maxX).toDouble(),
+      candidate.dy.clamp(baseOffset.dy - maxY, baseOffset.dy + maxY).toDouble(),
     );
   }
 
@@ -265,6 +309,7 @@ class _CropScreenState extends State<CropScreen>
     setState(() {
       if (_ratio == ratio) {
         _ratio = null;
+        _freeformCropRect = _clampFreeformCropRect(_freeformCropRect);
       } else {
         _ratio = ratio;
         _freeformCropRect = _fixedCropFrameRect(ratio);
@@ -312,12 +357,26 @@ class _CropScreenState extends State<CropScreen>
     setState(() {
       _freeformCropRect = nextRect;
       _imageScale = nextScale;
-      _offset = _clampOffset(_offset, nextRect.size, nextScale);
+      _offset = _clampOffset(
+        _offset,
+        nextRect.size,
+        nextScale,
+        cropRect: nextRect,
+      );
     });
   }
 
   void _endCropResize() {
     _settleImageTransform();
+  }
+
+  Rect _clampFreeformCropRect(Rect rect) {
+    final bounds = _cropStageBounds;
+    final width = math.min(rect.width, bounds.width);
+    final height = math.min(rect.height, bounds.height);
+    final left = rect.left.clamp(bounds.left, bounds.right - width).toDouble();
+    final top = rect.top.clamp(bounds.top, bounds.bottom - height).toDouble();
+    return Rect.fromLTWH(left, top, width, height);
   }
 
   void _toggleFlip() {
@@ -331,7 +390,6 @@ class _CropScreenState extends State<CropScreen>
     final offset = _clampOffset(_offset, cropSize, renderScale);
     final cropCenterOffset =
         cropRect.center - const Offset(_displayWidth / 2, _displayHeight / 2);
-
     setState(() => _cropping = true);
     try {
       final cropped = await _cropService.cropToAspectRatioWithTransform(
@@ -453,141 +511,160 @@ class _CropScreenState extends State<CropScreen>
     final cropLeft = cropRect.left;
     final cropTop = cropRect.top;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onScaleStart: (details) {
-        _reboundController.stop();
-        _gestureStartScale = _imageScale;
-        _gestureStartOffset = _offset;
-        _gestureStartFocal = _stageFocalPoint(details.localFocalPoint);
-      },
-      onScaleUpdate: (details) {
-        final nextScale = _clampImageScale(
-          _gestureStartScale * details.scale,
-          cropSize,
-          allowRubberBand: true,
-        );
-        final focal = _stageFocalPoint(details.localFocalPoint);
-        final scaleDelta = nextScale / _gestureStartScale;
-        final nextOffset =
-            focal - (_gestureStartFocal - _gestureStartOffset) * scaleDelta;
-        setState(() {
-          _imageScale = nextScale;
-          _offset = _clampOffset(nextOffset, cropSize, nextScale);
-        });
-      },
-      onScaleEnd: (_) => _settleImageTransform(),
-      child: ClipRect(
-        child: Stack(
-          children: [
-            Positioned(
-              left: imageLeft,
-              top: imageTop,
-              width: imageSize.width,
-              height: imageSize.height,
-              child: ImageFiltered(
-                imageFilter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: _TransformedCropImage(
-                  bytes: widget.draft.originalImageBytes,
-                  flipped: _flipped,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onScaleStart: (details) {
+            _reboundController.stop();
+            _gestureStartScale = _imageScale;
+            _gestureStartOffset = _offset;
+            _gestureStartFocal = _stageFocalPoint(details.localFocalPoint);
+          },
+          onScaleUpdate: (details) {
+            final nextScale = _clampImageScale(
+              _gestureStartScale * details.scale,
+              cropSize,
+              allowRubberBand: true,
+            );
+            final focal = _stageFocalPoint(details.localFocalPoint);
+            final scaleDelta = nextScale / _gestureStartScale;
+            final nextOffset =
+                focal - (_gestureStartFocal - _gestureStartOffset) * scaleDelta;
+            setState(() {
+              _imageScale = nextScale;
+              _offset = _clampOffset(nextOffset, cropSize, nextScale);
+            });
+          },
+          onScaleEnd: (_) => _settleImageTransform(),
+          child: ClipRect(
+            child: Stack(
+              children: [
+                Positioned(
+                  left: imageLeft,
+                  top: imageTop,
                   width: imageSize.width,
                   height: imageSize.height,
+                  child: ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                    child: _TransformedCropImage(
+                      bytes: widget.draft.originalImageBytes,
+                      flipped: _flipped,
+                      width: imageSize.width,
+                      height: imageSize.height,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            Positioned.fill(
-              child: ColoredBox(color: Colors.black.withValues(alpha: 0.2)),
-            ),
-            Positioned(
-              left: cropLeft,
-              top: cropTop,
-              width: cropSize.width,
-              height: cropSize.height,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          left: imageLeft - cropLeft,
-                          top: imageTop - cropTop,
-                          width: imageSize.width,
-                          height: imageSize.height,
-                          child: _TransformedCropImage(
-                            bytes: widget.draft.originalImageBytes,
-                            flipped: _flipped,
-                            width: imageSize.width,
-                            height: imageSize.height,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.white, width: 4),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_ratio == null) ...[
-                    const Positioned.fill(
-                      child: IgnorePointer(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.all(Radius.circular(14)),
-                          child: CustomPaint(painter: _CropGridPainter()),
-                        ),
-                      ),
-                    ),
-                    for (final handle in _CropHandle.values)
-                      _FreeformCropHandle(
-                        handle: handle,
-                        onStart: _startCropResize,
-                        onUpdate: (delta) => _updateCropResize(handle, delta),
-                        onEnd: _endCropResize,
-                      ),
-                  ],
-                  if (widget.cropHint case final hint? when hint.isNotEmpty)
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      bottom: 12,
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                Positioned.fill(
+                  child: ColoredBox(color: Colors.black.withValues(alpha: 0.2)),
+                ),
+                Positioned(
+                  left: cropLeft,
+                  top: cropTop,
+                  width: cropSize.width,
+                  height: cropSize.height,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              key: const ValueKey('crop-visible-image'),
+                              left: imageLeft - cropLeft,
+                              top: imageTop - cropTop,
+                              width: imageSize.width,
+                              height: imageSize.height,
+                              child: _TransformedCropImage(
+                                bytes: widget.draft.originalImageBytes,
+                                flipped: _flipped,
+                                width: imageSize.width,
+                                height: imageSize.height,
+                              ),
                             ),
-                            child: Text(
-                              hint,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontFamily: _roundFontFamily,
-                                fontFamilyFallback: _fontFallbacks,
-                                fontSize: 13,
+                          ],
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Colors.white, width: 4),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_ratio == null)
+                        const Positioned.fill(
+                          child: IgnorePointer(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(14),
+                              ),
+                              child: CustomPaint(painter: _CropGridPainter()),
+                            ),
+                          ),
+                        ),
+                      if (widget.cropHint case final hint? when hint.isNotEmpty)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 12,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                child: Text(
+                                  hint,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontFamily: _roundFontFamily,
+                                    fontFamilyFallback: _fontFallbacks,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
+        if (_ratio == null)
+          Positioned(
+            left: cropLeft,
+            top: cropTop,
+            width: cropSize.width,
+            height: cropSize.height,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                for (final handle in _CropHandle.values)
+                  _FreeformCropHandle(
+                    handle: handle,
+                    onStart: _startCropResize,
+                    onUpdate: (delta) => _updateCropResize(handle, delta),
+                    onEnd: _endCropResize,
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -645,34 +722,30 @@ class _FreeformCropHandle extends StatelessWidget {
       child: Transform.translate(
         offset: Offset(
           handle.movesLeft
-              ? -28
+              ? -_CropScreenState._cropHandleTouchRadius
               : handle.movesRight
-              ? 28
+              ? _CropScreenState._cropHandleTouchRadius
               : 0,
           handle.movesTop
-              ? -28
+              ? -_CropScreenState._cropHandleTouchRadius
               : handle.movesBottom
-              ? 28
+              ? _CropScreenState._cropHandleTouchRadius
               : 0,
         ),
         child: GestureDetector(
           key: ValueKey('crop-handle-${handle.name}'),
           behavior: HitTestBehavior.opaque,
-          onPanStart: (_) => onStart(),
+          onPanDown: (_) => onStart(),
           onPanUpdate: (details) => onUpdate(details.delta),
           onPanEnd: (_) => onEnd(),
           onPanCancel: onEnd,
           child: SizedBox(
-            width: 56,
-            height: 56,
+            width: _CropScreenState._cropHandleTouchSize,
+            height: _CropScreenState._cropHandleTouchSize,
             child: Center(
               child: Container(
-                width: handle.movesLeft || handle.movesRight
-                    ? (handle.movesTop || handle.movesBottom ? 15 : 22)
-                    : 22,
-                height: handle.movesTop || handle.movesBottom
-                    ? (handle.movesLeft || handle.movesRight ? 15 : 22)
-                    : 22,
+                width: _handleVisualSize.width,
+                height: _handleVisualSize.height,
                 decoration: BoxDecoration(
                   color: Colors.white,
                   border: Border.all(color: _accentColor, width: 2),
@@ -687,6 +760,15 @@ class _FreeformCropHandle extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Size get _handleVisualSize {
+    final isCorner =
+        (handle.movesLeft || handle.movesRight) &&
+        (handle.movesTop || handle.movesBottom);
+    if (isCorner) return const Size(20, 20);
+    if (handle.movesTop || handle.movesBottom) return const Size(28, 22);
+    return const Size(22, 28);
   }
 }
 

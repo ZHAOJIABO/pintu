@@ -205,6 +205,14 @@ class _HintTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFavorites = destination == PatternsHintDestination.favorites;
+    const titleStyle = TextStyle(
+      color: Colors.black,
+      fontFamily: _roundFontFamily,
+      fontFamilyFallback: _fontFallbacks,
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+      height: 1.25,
+    );
     final title = switch (destination) {
       PatternsHintDestination.patterns => '图纸也可以在“我的-图纸”中查看哦～',
       PatternsHintDestination.favorites => '已保存至“我的-收藏”',
@@ -213,7 +221,10 @@ class _HintTitle extends StatelessWidget {
     final underline = switch (destination) {
       PatternsHintDestination.patterns => (left: 119.0, width: 57.0),
       PatternsHintDestination.favorites => (left: 67.0, width: 76.0),
-      PatternsHintDestination.drafts => (left: 81.0, width: 92.0),
+      PatternsHintDestination.drafts => (
+        left: _measureTextWidth(context, '草稿将保存在“', titleStyle),
+        width: _measureTextWidth(context, '我的-我的图纸', titleStyle),
+      ),
     };
     return SizedBox(
       width: 282,
@@ -221,21 +232,7 @@ class _HintTitle extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Positioned(
-            top: 6,
-            left: 0,
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.black,
-                fontFamily: _roundFontFamily,
-                fontFamilyFallback: _fontFallbacks,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                height: 1.25,
-              ),
-            ),
-          ),
+          Positioned(top: 6, left: 0, child: Text(title, style: titleStyle)),
           Positioned(
             left: underline.left,
             bottom: 1,
@@ -253,6 +250,15 @@ class _HintTitle extends StatelessWidget {
       ),
     );
   }
+}
+
+double _measureTextWidth(BuildContext context, String text, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+  )..layout();
+  return painter.width;
 }
 
 class _HintUnderlinePainter extends CustomPainter {

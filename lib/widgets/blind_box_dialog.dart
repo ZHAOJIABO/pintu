@@ -77,6 +77,8 @@ const _printedPaperTop = _printerSlotTop + _printerSlotHeight / 2;
 const _paperMaskTop = 0.0;
 const _titleOutlineWidth = 13.075;
 const _titleSkewDegrees = -10.0;
+const _rarityTitleLeft = 102.0;
+const _titleIconGap = 8.0;
 const _dialogEntranceDuration = Duration(milliseconds: 280);
 const _dialogExitDuration = Duration(milliseconds: 200);
 const _titleEntranceDelay = Duration(milliseconds: 120);
@@ -426,6 +428,11 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
         : template.previewUrl.trim().isNotEmpty
         ? template.previewUrl
         : template.thumbnailUrl;
+    final actionBottomPadding = math.max(
+      32.0,
+      MediaQuery.paddingOf(context).bottom + 8,
+    );
+    final actionPanelHeight = 16 + 52 + actionBottomPadding;
 
     return ClipRRect(
       key: const ValueKey('blind-box-dialog'),
@@ -585,14 +592,14 @@ class _BlindBoxSheetState extends State<_BlindBoxSheet>
               left: 0,
               right: 0,
               bottom: 0,
-              height: 100,
+              height: actionPanelHeight,
               child: DecoratedBox(
                 decoration: const BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, actionBottomPadding),
                   child: Row(
                     children: [
                       Expanded(
@@ -656,6 +663,22 @@ class _BlindBoxTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const rarityTextStyle = TextStyle(
+      color: Colors.white,
+      fontSize: 32.875,
+      fontFamily: _pixelFontFamily,
+      fontWeight: FontWeight.w700,
+      height: 1.2,
+      letterSpacing: 3.1875,
+    );
+    final rarityTextWidth = _measureTitleTextWidth(
+      rarityLabel,
+      rarityTextStyle,
+    );
+    final minimumIconLeft =
+        _rarityTitleLeft + rarityTextWidth + _titleOutlineWidth + _titleIconGap;
+    final resolvedIconLeft = math.max(titleIconLeft ?? 205, minimumIconLeft);
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -707,18 +730,14 @@ class _BlindBoxTitle extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: 102,
+          left: _rarityTitleLeft,
           top: 25,
-          child: _OutlinedTitleText(
-            rarityLabel,
-            fillGradient: rarityGradient,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 32.875,
-              fontFamily: _pixelFontFamily,
-              fontWeight: FontWeight.w700,
-              height: 1.2,
-              letterSpacing: 3.1875,
+          child: KeyedSubtree(
+            key: const ValueKey('blind-box-rarity-title'),
+            child: _OutlinedTitleText(
+              rarityLabel,
+              fillGradient: rarityGradient,
+              style: rarityTextStyle,
             ),
           ),
         ),
@@ -738,39 +757,46 @@ class _BlindBoxTitle extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: titleIconLeft ?? 205,
+          left: resolvedIconLeft,
           top: titleIconTop ?? 13,
           width: titleIconWidth ?? 61,
           height: titleIconHeight ?? 26,
-          child: Transform.rotate(
-            angle: (titleIconAngleDegrees ?? 0) * math.pi / 180,
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.diagonal3Values(titleIconFlipX ? -1 : 1, 1, 1),
-              child: Stack(
-                clipBehavior: Clip.none,
-                fit: StackFit.expand,
-                children: [
-                  if (titleIconOutlineScale > 1)
-                    Transform.scale(
-                      scale: titleIconOutlineScale,
-                      child: _BlindBoxAsset(
-                        assetPath: titleIconAsset,
-                        fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
-                        tintColor: Colors.black,
+          child: KeyedSubtree(
+            key: const ValueKey('blind-box-title-icon'),
+            child: Transform.rotate(
+              angle: (titleIconAngleDegrees ?? 0) * math.pi / 180,
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.diagonal3Values(
+                  titleIconFlipX ? -1 : 1,
+                  1,
+                  1,
+                ),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  fit: StackFit.expand,
+                  children: [
+                    if (titleIconOutlineScale > 1)
+                      Transform.scale(
+                        scale: titleIconOutlineScale,
+                        child: _BlindBoxAsset(
+                          assetPath: titleIconAsset,
+                          fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
+                          tintColor: Colors.black,
+                        ),
                       ),
+                    _BlindBoxAsset(
+                      assetPath: titleIconAsset,
+                      fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
                     ),
-                  _BlindBoxAsset(
-                    assetPath: titleIconAsset,
-                    fit: titleIconFill ? BoxFit.fill : BoxFit.contain,
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
-        const Positioned(
-          left: 209,
+        Positioned(
+          left: resolvedIconLeft + 4,
           top: 39,
           child: _OutlinedTitleText(
             '图纸',
@@ -1018,7 +1044,7 @@ class _OutlinedTitleText extends StatelessWidget {
         ..color = Colors.black,
     );
 
-    final fill = Text(text, style: style);
+    final fill = Text(text, style: style, textScaler: TextScaler.noScaling);
     final fillWidget = fillGradient == null
         ? fill
         : ShaderMask(
@@ -1033,12 +1059,21 @@ class _OutlinedTitleText extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Text(text, style: outlineStyle),
+          Text(text, style: outlineStyle, textScaler: TextScaler.noScaling),
           fillWidget,
         ],
       ),
     );
   }
+}
+
+double _measureTitleTextWidth(String text, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.noScaling,
+  )..layout();
+  return painter.width;
 }
 
 class _PrintingPattern extends StatelessWidget {

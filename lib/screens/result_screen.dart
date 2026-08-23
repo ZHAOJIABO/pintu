@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/color.dart';
 import '../models/generated_pattern.dart';
@@ -171,11 +172,32 @@ class _ResultScreenState extends State<ResultScreen> {
         );
         if (mounted) _showToast('图纸已保存');
       } catch (error) {
-        if (mounted) _showToast('保存失败：$error');
+        _showSaveImageFailure(error);
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  void _showSaveImageFailure(Object error) {
+    if (!mounted) return;
+    if (error is PlatformException && error.code == 'permission_denied') {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('请在系统设置中允许照片权限后再保存图纸'),
+            action: SnackBarAction(
+              label: '去设置',
+              onPressed: () {
+                openAppSettings();
+              },
+            ),
+          ),
+        );
+      return;
+    }
+    _showToast('保存失败，请重试');
   }
 
   Future<void> _deleteWork() async {

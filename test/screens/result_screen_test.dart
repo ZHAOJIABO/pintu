@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:bobobeads/models/color.dart';
 import 'package:bobobeads/models/draft_project.dart';
@@ -14,6 +13,7 @@ import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -277,6 +277,40 @@ void main() {
 
     expect(saved, isFalse);
     expect(find.text('水印加载失败，请重试'), findsOneWidget);
+  });
+
+  testWidgets('照片权限被拒绝时显示设置提示而非原始错误', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          exportService: _FakePatternExportService(
+            onSave: (_, _) async => throw PlatformException(
+              code: 'permission_denied',
+              message: 'Photo library permission was denied.',
+            ),
+          ),
+          loadWatermarkPngBytes: () async => null,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
+    await tester.pump();
+
+    expect(find.text('请在系统设置中允许照片权限后再保存图纸'), findsOneWidget);
+    expect(find.text('去设置'), findsOneWidget);
+    expect(
+      find.textContaining('Photo library permission was denied'),
+      findsNothing,
+    );
   });
 
   testWidgets('edit action opens the pattern editor', (tester) async {
