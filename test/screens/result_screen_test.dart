@@ -541,6 +541,7 @@ void main() {
       find.descendant(of: favoriteButton, matching: find.text('已收藏')),
       findsOneWidget,
     );
+    expect(services.myShortcutPreviewRevision.value, 1);
     expect(find.text('已保存至“我的-收藏”'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('patterns-hint-dialog-favorites-illustration')),
@@ -571,6 +572,7 @@ void main() {
       find.descendant(of: favoriteButton, matching: find.text('收藏')),
       findsOneWidget,
     );
+    expect(services.myShortcutPreviewRevision.value, 2);
   });
 
   testWidgets('官方模板开拼页不提供编辑图纸入口', (tester) async {

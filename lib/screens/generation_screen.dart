@@ -60,6 +60,7 @@ class _GenerationScreenState extends State<GenerationScreen> {
         final completed = await backendServices.generationCompletion
             .completeGeneratedPattern(pattern);
         workId = completed.workId;
+        backendServices.notifyMyShortcutPreviewsChanged();
       }
       if (!mounted || token != _generationToken) return;
       Navigator.pushReplacement(
@@ -69,6 +70,7 @@ class _GenerationScreenState extends State<GenerationScreen> {
             pattern: pattern,
             workId: workId,
             showGeneratedHint: true,
+            showRegenerateAction: true,
           ),
         ),
       );

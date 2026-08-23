@@ -212,11 +212,30 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
     super.didChangeDependencies();
     final services = BackendScope.maybeOf(context);
     if (identical(services, _services)) return;
+    _services?.myShortcutPreviewRevision.removeListener(
+      _handleShortcutPreviewsChanged,
+    );
     _services = services;
     if (services != null) {
+      services.myShortcutPreviewRevision.addListener(
+        _handleShortcutPreviewsChanged,
+      );
       _loadFinishedProducts(services);
       _loadShortcutPreviews(services);
     }
+  }
+
+  @override
+  void dispose() {
+    _services?.myShortcutPreviewRevision.removeListener(
+      _handleShortcutPreviewsChanged,
+    );
+    super.dispose();
+  }
+
+  void _handleShortcutPreviewsChanged() {
+    final services = _services;
+    if (services != null) _loadShortcutPreviews(services);
   }
 
   void _loadShortcutPreviews(BackendServices services) {

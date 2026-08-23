@@ -334,6 +334,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         final completed = await backendServices.generationCompletion
             .completeGeneratedPattern(pattern);
         workId = completed.workId;
+        backendServices.notifyMyShortcutPreviewsChanged();
       }
       if (!mounted) return;
 

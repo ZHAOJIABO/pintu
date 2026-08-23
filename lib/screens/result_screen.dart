@@ -141,6 +141,7 @@ class _ResultScreenState extends State<ResultScreen> {
           favoriteCount: result.favoriteCount,
         ),
       );
+      services.notifyMyShortcutPreviewsChanged();
       if (result.isFavorited) {
         await showPatternsHintDialog(
           context,
@@ -212,6 +213,7 @@ class _ResultScreenState extends State<ResultScreen> {
     setState(() => _deletingWork = true);
     try {
       await services.works.deleteWork(workId);
+      services.notifyMyShortcutPreviewsChanged();
       if (!mounted) return;
       widget.onWorkDeleted?.call(workId);
       Navigator.of(context).pop<void>();

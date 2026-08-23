@@ -16,6 +16,10 @@ class BackendServices {
   Future<List<TemplateCategory>>? _templateCategoriesRequest;
   Future<List<AIStyleItem>>? _aiStylesRequest;
 
+  /// Increments after work/favorite mutations so long-lived "我的" surfaces
+  /// can reload their folder-cover thumbnails.
+  final ValueNotifier<int> myShortcutPreviewRevision = ValueNotifier(0);
+
   final ApiSessionStore store;
   final ApiClient client;
   final AuthSessionController auth;
@@ -196,6 +200,10 @@ class BackendServices {
       }
       rethrow;
     }
+  }
+
+  void notifyMyShortcutPreviewsChanged() {
+    myShortcutPreviewRevision.value++;
   }
 }
 

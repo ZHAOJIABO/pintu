@@ -222,6 +222,93 @@ void main() {
     expect(find.text('分享有礼'), findsNothing);
   });
 
+  testWidgets('图纸和收藏变更后会重新加载文件夹封面', (tester) async {
+    final requests = <http.Request>[];
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        final body = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'access-token',
+            'refreshToken': 'refresh-token',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest-1'},
+          },
+          '/api/v1/finished-products' => {'items': const []},
+          '/api/v1/works' => {
+            'data': {
+              'works': [
+                {
+                  'workId': 'work-${requests.length}',
+                  'thumbnailUrl': 'assets/figma_home/gallery_pattern_1.png',
+                },
+              ],
+              'page': {'total': 1, 'page': 1, 'pageSize': 1, 'hasMore': false},
+            },
+          },
+          '/api/v1/templates/favorites' => {
+            'templates': [
+              {
+                'templateId': 'favorite-${requests.length}',
+                'thumbnailUrl': 'assets/figma_home/gallery_pattern_2.png',
+              },
+            ],
+            'page': {'total': 1, 'page': 1, 'pageSize': 1, 'hasMore': false},
+          },
+          _ => throw StateError('Unexpected request: ${request.url}'),
+        };
+        return http.Response(
+          jsonEncode({
+            'header': {'code': 0, 'message': 'success'},
+            ...body,
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: MyScreen()),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(
+      requests.where((request) => request.url.path == '/api/v1/works'),
+      hasLength(1),
+    );
+    expect(
+      requests.where(
+        (request) => request.url.path == '/api/v1/templates/favorites',
+      ),
+      hasLength(1),
+    );
+
+    services.notifyMyShortcutPreviewsChanged();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pump();
+
+    expect(
+      requests.where((request) => request.url.path == '/api/v1/works'),
+      hasLength(2),
+    );
+    expect(
+      requests.where(
+        (request) => request.url.path == '/api/v1/templates/favorites',
+      ),
+      hasLength(2),
+    );
+  });
+
   testWidgets('点击我的图纸会进入图纸页', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: MyScreen()));
     await tester.pumpAndSettle();
