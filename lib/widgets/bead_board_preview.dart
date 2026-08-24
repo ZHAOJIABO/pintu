@@ -31,6 +31,10 @@ class BeadBoardPreview extends StatefulWidget {
   final void Function(int x, int y)? onCellChanged;
   final VoidCallback? onCellEnd;
 
+  /// When set, hovering the editable board shows the square footprint that
+  /// would be affected by an eraser stroke of this size.
+  final int? eraserFootprintSize;
+
   const BeadBoardPreview({
     super.key,
     required this.pixels,
@@ -48,6 +52,7 @@ class BeadBoardPreview extends StatefulWidget {
     this.onCellStart,
     this.onCellChanged,
     this.onCellEnd,
+    this.eraserFootprintSize,
   });
 
   @override
@@ -60,6 +65,7 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
   double _scale = 1;
   int? _editingPointerId;
   _BoardCell? _pendingEditCell;
+  _BoardCell? _eraserHoverCell;
   bool _strokeStarted = false;
 
   int get _boardWidth =>
@@ -79,6 +85,14 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
     _transformationController.removeListener(_handleTransformChanged);
     _transformationController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BeadBoardPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.eraserFootprintSize == null && _eraserHoverCell != null) {
+      setState(() => _eraserHoverCell = null);
+    }
   }
 
   void _handleTransformChanged() {
@@ -132,42 +146,87 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
                 panEnabled: !widget.interactionLocked && !canEdit,
                 scaleEnabled: !widget.interactionLocked,
                 child: Center(
-                  child: Listener(
-                    key: const ValueKey('pattern-editor-canvas'),
-                    behavior: HitTestBehavior.opaque,
-                    onPointerDown: canEdit
-                        ? (event) => _handlePointerDown(
-                            event,
+                  child: MouseRegion(
+                    cursor: widget.eraserFootprintSize == null
+                        ? MouseCursor.defer
+                        : SystemMouseCursors.precise,
+                    onHover: widget.eraserFootprintSize == null
+                        ? null
+                        : (event) => _updateEraserHover(
+                            event.localPosition,
                             cellSize: cellSize,
                             labelBand: labelBand,
-                          )
-                        : null,
-                    onPointerMove: canEdit
-                        ? (event) => _handlePointerMove(
-                            event,
-                            cellSize: cellSize,
-                            labelBand: labelBand,
-                          )
-                        : null,
-                    onPointerUp: canEdit ? _handlePointerEnd : null,
-                    onPointerCancel: canEdit ? _handlePointerEnd : null,
-                    child: CustomPaint(
-                      size: boardSize,
-                      painter: BeadBoardPainter(
-                        pixels: widget.pixels,
-                        layoutPixels: widget.layoutPixels,
-                        patternWidth: widget.width,
-                        patternHeight: widget.height,
-                        boardWidth: boardWidth,
-                        boardHeight: boardHeight,
-                        cellSize: cellSize,
-                        labelBand: labelBand,
-                        colorRefsByRgb: _colorRefsByRgb(widget.paletteEntries),
-                        showColorRefs: showColorRefs,
-                        selectedRef: widget.selectedRef,
-                        showRulers: false,
-                        mirrorHorizontally: widget.mirrorHorizontally,
-                        revision: widget.revision,
+                          ),
+                    onExit: widget.eraserFootprintSize == null
+                        ? null
+                        : (_) => _clearEraserHover(),
+                    child: Listener(
+                      key: const ValueKey('pattern-editor-canvas'),
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: canEdit
+                          ? (event) => _handlePointerDown(
+                              event,
+                              cellSize: cellSize,
+                              labelBand: labelBand,
+                            )
+                          : null,
+                      onPointerMove: canEdit
+                          ? (event) => _handlePointerMove(
+                              event,
+                              cellSize: cellSize,
+                              labelBand: labelBand,
+                            )
+                          : null,
+                      onPointerUp: canEdit ? _handlePointerEnd : null,
+                      onPointerCancel: canEdit ? _handlePointerEnd : null,
+                      child: Stack(
+                        children: [
+                          CustomPaint(
+                            size: boardSize,
+                            painter: BeadBoardPainter(
+                              pixels: widget.pixels,
+                              layoutPixels: widget.layoutPixels,
+                              patternWidth: widget.width,
+                              patternHeight: widget.height,
+                              boardWidth: boardWidth,
+                              boardHeight: boardHeight,
+                              cellSize: cellSize,
+                              labelBand: labelBand,
+                              colorRefsByRgb: _colorRefsByRgb(
+                                widget.paletteEntries,
+                              ),
+                              showColorRefs: showColorRefs,
+                              selectedRef: widget.selectedRef,
+                              showRulers: false,
+                              mirrorHorizontally: widget.mirrorHorizontally,
+                              revision: widget.revision,
+                            ),
+                          ),
+                          if (widget.eraserFootprintSize case final size?)
+                            if (_eraserHoverCell case final hoverCell?)
+                              IgnorePointer(
+                                child: CustomPaint(
+                                  key: const ValueKey(
+                                    'pattern-editor-eraser-footprint',
+                                  ),
+                                  size: boardSize,
+                                  painter: _EraserFootprintPainter(
+                                    hoverCell: hoverCell,
+                                    footprintSize: size,
+                                    pixels:
+                                        widget.layoutPixels ?? widget.pixels,
+                                    patternWidth: widget.width,
+                                    patternHeight: widget.height,
+                                    boardWidth: boardWidth,
+                                    boardHeight: boardHeight,
+                                    cellSize: cellSize,
+                                    labelBand: labelBand,
+                                    mirrorHorizontally:
+                                        widget.mirrorHorizontally,
+                                  ),
+                                ),
+                              ),
+                        ],
                       ),
                     ),
                   ),
@@ -249,6 +308,28 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
     return _BoardCell(patternX, patternY);
   }
 
+  void _updateEraserHover(
+    Offset localPosition, {
+    required double cellSize,
+    required double labelBand,
+  }) {
+    if (widget.eraserFootprintSize == null) return;
+    final cell = _cellAt(
+      localPosition,
+      cellSize: cellSize,
+      labelBand: labelBand,
+    );
+    if (cell?.x == _eraserHoverCell?.x && cell?.y == _eraserHoverCell?.y) {
+      return;
+    }
+    setState(() => _eraserHoverCell = cell);
+  }
+
+  void _clearEraserHover() {
+    if (_eraserHoverCell == null) return;
+    setState(() => _eraserHoverCell = null);
+  }
+
   void _handlePointerDown(
     PointerDownEvent event, {
     required double cellSize,
@@ -260,6 +341,11 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
       return;
     }
     _editingPointerId = event.pointer;
+    _updateEraserHover(
+      event.localPosition,
+      cellSize: cellSize,
+      labelBand: labelBand,
+    );
     _pendingEditCell = _cellAt(
       event.localPosition,
       cellSize: cellSize,
@@ -272,6 +358,11 @@ class _BeadBoardPreviewState extends State<BeadBoardPreview> {
     required double cellSize,
     required double labelBand,
   }) {
+    _updateEraserHover(
+      event.localPosition,
+      cellSize: cellSize,
+      labelBand: labelBand,
+    );
     if (_activePointerIds.length != 1 || event.pointer != _editingPointerId) {
       return;
     }
@@ -324,6 +415,92 @@ class _BoardCell {
   final int y;
 
   const _BoardCell(this.x, this.y);
+}
+
+class _EraserFootprintPainter extends CustomPainter {
+  final _BoardCell hoverCell;
+  final int footprintSize;
+  final Uint8List pixels;
+  final int patternWidth;
+  final int patternHeight;
+  final int boardWidth;
+  final int boardHeight;
+  final double cellSize;
+  final double labelBand;
+  final bool mirrorHorizontally;
+
+  const _EraserFootprintPainter({
+    required this.hoverCell,
+    required this.footprintSize,
+    required this.pixels,
+    required this.patternWidth,
+    required this.patternHeight,
+    required this.boardWidth,
+    required this.boardHeight,
+    required this.cellSize,
+    required this.labelBand,
+    required this.mirrorHorizontally,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = _findActiveBounds(
+      pixels: pixels,
+      width: patternWidth,
+      height: patternHeight,
+    );
+    final activeLeft = bounds?.left ?? 0;
+    final activeTop = bounds?.top ?? 0;
+    final activeRight = bounds?.right ?? patternWidth - 1;
+    final activeBottom = bounds?.bottom ?? patternHeight - 1;
+    final origin = BeadBoardPainter.centeredPatternCellOffset(
+      boardWidth: boardWidth,
+      boardHeight: boardHeight,
+      activeLeft: activeLeft,
+      activeTop: activeTop,
+      activeRight: activeRight,
+      activeBottom: activeBottom,
+    );
+    final side = math.max(1, footprintSize);
+    final startX = hoverCell.x - (side - 1) ~/ 2;
+    final startY = hoverCell.y - (side - 1) ~/ 2;
+    final fill = Paint()..color = const Color(0x33FF55BD);
+    final stroke = Paint()
+      ..color = const Color(0xFFFF55BD)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1, cellSize * 0.1);
+
+    for (var y = startY; y < startY + side; y++) {
+      for (var x = startX; x < startX + side; x++) {
+        if (x < 0 || y < 0 || x >= patternWidth || y >= patternHeight) {
+          continue;
+        }
+        final boardX = mirrorHorizontally
+            ? origin.dx + activeLeft + activeRight - x
+            : origin.dx + x;
+        final boardY = origin.dy + y;
+        final cellRect = Rect.fromLTWH(
+          labelBand + boardX * cellSize,
+          labelBand + boardY * cellSize,
+          cellSize,
+          cellSize,
+        );
+        canvas.drawRect(cellRect, fill);
+        canvas.drawRect(cellRect.deflate(stroke.strokeWidth / 2), stroke);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EraserFootprintPainter oldDelegate) {
+    return oldDelegate.hoverCell.x != hoverCell.x ||
+        oldDelegate.hoverCell.y != hoverCell.y ||
+        oldDelegate.footprintSize != footprintSize ||
+        oldDelegate.cellSize != cellSize ||
+        oldDelegate.labelBand != labelBand ||
+        oldDelegate.mirrorHorizontally != mirrorHorizontally ||
+        oldDelegate.pixels != pixels;
+  }
 }
 
 _PixelBounds? _findActiveBounds({

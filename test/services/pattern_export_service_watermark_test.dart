@@ -30,6 +30,30 @@ void main() {
     image.dispose();
     decoded.dispose();
   });
+
+  test('exports a clean image without grids or color labels', () async {
+    final bytes = await const PatternExportService().exportPatternImagePngBytes(
+      _pattern(),
+    );
+    final decoded = await ui.instantiateImageCodec(bytes);
+    final image = (await decoded.getNextFrame()).image;
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+
+    expect(data, isNotNull);
+    expect(image.width, 80);
+    expect(image.height, 80);
+    // The center of the red cell stays red: no color-code label is drawn.
+    expect(data!.getUint8((20 * image.width + 20) * 4), 255);
+    expect(data.getUint8((20 * image.width + 20) * 4 + 1), 40);
+    expect(data.getUint8((20 * image.width + 20) * 4 + 2), 80);
+    // The cell boundary is the neighboring black fill, not a grid line.
+    expect(data.getUint8((20 * image.width + 40) * 4), 0);
+    expect(data.getUint8((20 * image.width + 40) * 4 + 1), 0);
+    expect(data.getUint8((20 * image.width + 40) * 4 + 2), 0);
+
+    image.dispose();
+    decoded.dispose();
+  });
 }
 
 Future<Uint8List> _solidPng(ui.Color color) async {

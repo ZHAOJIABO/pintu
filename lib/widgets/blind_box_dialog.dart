@@ -78,7 +78,6 @@ const _paperMaskTop = 0.0;
 const _titleOutlineWidth = 13.075;
 const _titleSkewDegrees = -10.0;
 const _rarityTitleLeft = 102.0;
-const _titleIconGap = 8.0;
 const _dialogEntranceDuration = Duration(milliseconds: 280);
 const _dialogExitDuration = Duration(milliseconds: 200);
 const _titleEntranceDelay = Duration(milliseconds: 120);
@@ -671,13 +670,11 @@ class _BlindBoxTitle extends StatelessWidget {
       height: 1.2,
       letterSpacing: 3.1875,
     );
-    final rarityTextWidth = _measureTitleTextWidth(
-      rarityLabel,
-      rarityTextStyle,
-    );
-    final minimumIconLeft =
-        _rarityTitleLeft + rarityTextWidth + _titleOutlineWidth + _titleIconGap;
-    final resolvedIconLeft = math.max(titleIconLeft ?? 205, minimumIconLeft);
+    final patternTitleLeft =
+        _rarityTitleLeft + _measureTitleTextWidth(rarityLabel, rarityTextStyle);
+    // The Figma positions intentionally let the icon and words touch or
+    // slightly overlap. Do not push the icon right based on text metrics.
+    final resolvedIconLeft = titleIconLeft ?? 205;
 
     return Stack(
       clipBehavior: Clip.none,
@@ -796,17 +793,20 @@ class _BlindBoxTitle extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: resolvedIconLeft + 4,
+          left: patternTitleLeft,
           top: 39,
-          child: _OutlinedTitleText(
-            '图纸',
-            style: TextStyle(
-              color: Color(0xFFFFF8D3),
-              fontSize: 21.25,
-              fontFamily: _pixelFontFamily,
-              fontWeight: FontWeight.w700,
-              height: 1.2,
-              letterSpacing: 3.19,
+          child: KeyedSubtree(
+            key: const ValueKey('blind-box-pattern-title'),
+            child: _OutlinedTitleText(
+              '图纸',
+              style: TextStyle(
+                color: Color(0xFFFFF8D3),
+                fontSize: 21.25,
+                fontFamily: _pixelFontFamily,
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+                letterSpacing: 3.19,
+              ),
             ),
           ),
         ),

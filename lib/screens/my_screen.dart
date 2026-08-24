@@ -2516,13 +2516,31 @@ class _FinishedProductSlot extends StatelessWidget {
       width: 96,
       height: 96,
       child: product == null || product.displayUrl.isEmpty
-          ? const PatternDisplayPlaceholder()
+          ? _FinishedProductEmptyDot(index: index)
           : Image.network(
               product.displayUrl,
               key: ValueKey('finished-product-${product.finishedProductId}'),
               fit: BoxFit.contain,
-              errorBuilder: (_, _, _) => const PatternDisplayPlaceholder(),
+              errorBuilder: (_, _, _) => _FinishedProductEmptyDot(index: index),
             ),
+    );
+  }
+}
+
+class _FinishedProductEmptyDot extends StatelessWidget {
+  final int index;
+
+  const _FinishedProductEmptyDot({required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SvgPicture.asset(
+        'assets/figma_my/finished_product_empty_dot.svg',
+        key: ValueKey('finished-product-empty-dot-$index'),
+        width: 12,
+        height: 12,
+      ),
     );
   }
 }

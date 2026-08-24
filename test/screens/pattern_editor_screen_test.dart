@@ -102,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('是否保存图纸？'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, '不保存'));
+    await tester.tap(find.text('不保存'));
     await tester.pumpAndSettle();
     expect(saveCount, 0);
   });
@@ -652,6 +652,13 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              padding: const EdgeInsets.only(top: 47),
+              viewPadding: const EdgeInsets.only(top: 47),
+            ),
+            child: child!,
+          ),
           home: PatternEditorScreen(
             pattern: _colorPickerPattern(),
             showBrushGuide: false,
@@ -688,11 +695,28 @@ void main() {
       expect(tester.getTopLeft(a2).dx, lessThan(tester.getTopLeft(b1).dx));
       expect(tester.getTopLeft(b1).dx, lessThan(tester.getTopLeft(d6).dx));
 
-      await tester.tap(d6);
+      final allColorsButton = find.byKey(
+        const ValueKey('editor-current-color-all-colors-button'),
+      );
+      await tester.tap(allColorsButton);
+      await tester.pumpAndSettle();
+      final a1 = find.byKey(const ValueKey('editor-current-color-option-A1'));
+      expect(a1, findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(allColorsButton);
+      await tester.pumpAndSettle();
+      expect(a1, findsNothing);
+
+      await tester.tap(allColorsButton);
+      await tester.pumpAndSettle();
+      expect(a1, findsOneWidget);
+
+      await tester.tap(a1);
       await tester.pumpAndSettle();
 
       expect(
-        find.descendant(of: currentColor, matching: find.text('D6')),
+        find.descendant(of: currentColor, matching: find.text('A1')),
         findsOneWidget,
       );
     },
@@ -726,7 +750,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('相近颜色'), findsOneWidget);
-    expect(find.text('所有颜色'), findsOneWidget);
+    expect(find.text('当前图纸颜色'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('editor-color-replacement-all-option-B1')),
@@ -755,6 +779,47 @@ void main() {
       ...blue,
       ...blue,
       ...blue,
+    ]);
+  });
+
+  testWidgets('palette can replace a colour with transparency', (tester) async {
+    _setViewport(tester, const Size(390, 844));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PatternEditorScreen(
+          pattern: _colorPickerPattern(),
+          showBrushGuide: false,
+          showPaletteGuide: false,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('色板'));
+    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('editor-palette-usage-option-A2')),
+    );
+    await tester.pumpAndSettle();
+
+    final transparentOption = find.byKey(
+      const ValueKey('editor-color-replacement-transparent-option'),
+    );
+    expect(transparentOption, findsOneWidget);
+    await tester.tap(transparentOption);
+    await tester.pumpAndSettle();
+
+    expect(
+      _editorPainter(tester).pixels.sublist(0, 12),
+      List<int>.filled(12, 0),
+    );
+
+    await tester.tap(find.text('上一步'));
+    await tester.pump();
+    final green = [76, 175, 80, 255];
+    expect(_editorPainter(tester).pixels.sublist(0, 12), [
+      ...green,
+      ...green,
+      ...green,
     ]);
   });
 
@@ -1110,7 +1175,7 @@ void main() {
       expect(sheet, findsOneWidget);
       expect(tester.getSize(sheet).height, 480);
       expect(find.text('相近颜色'), findsOneWidget);
-      expect(find.text('所有颜色'), findsOneWidget);
+      expect(find.text('当前图纸颜色'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('editor-color-replacement-nearby-option-D6')),
         findsOneWidget,

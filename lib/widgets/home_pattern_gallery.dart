@@ -39,6 +39,7 @@ class HomePatternGallery extends StatelessWidget {
   final double gridSpacing;
   final double tileSize;
   final double tileSpacing;
+  final double thumbnailPadding;
   final bool showTemplateAuthors;
 
   const HomePatternGallery({
@@ -53,6 +54,7 @@ class HomePatternGallery extends StatelessWidget {
     this.gridSpacing = 12,
     this.tileSize = 119.33,
     this.tileSpacing = 4,
+    this.thumbnailPadding = 0,
     this.showTemplateAuthors = true,
   });
 
@@ -79,6 +81,7 @@ class HomePatternGallery extends StatelessWidget {
             onItemTap: onItemTap,
             tileSize: tileSize,
             tileSpacing: tileSpacing,
+            thumbnailPadding: thumbnailPadding,
             showTemplateAuthors: showTemplateAuthors,
           ),
         ],
@@ -188,6 +191,7 @@ class _GalleryGrid extends StatelessWidget {
   final ValueChanged<String>? onItemTap;
   final double tileSize;
   final double tileSpacing;
+  final double thumbnailPadding;
   final bool showTemplateAuthors;
 
   const _GalleryGrid({
@@ -197,6 +201,7 @@ class _GalleryGrid extends StatelessWidget {
     required this.onItemTap,
     required this.tileSize,
     required this.tileSpacing,
+    required this.thumbnailPadding,
     required this.showTemplateAuthors,
   });
 
@@ -248,6 +253,7 @@ class _GalleryGrid extends StatelessWidget {
               fallbackThumbnailUrl: galleryFallbackThumbnailUrl,
               onTap: _onPatternTap(pattern),
               tileSize: tileSize,
+              thumbnailPadding: thumbnailPadding,
               fillHeight: items == null,
             ),
         ],
@@ -285,6 +291,7 @@ class _GalleryTile extends StatelessWidget {
   final _GalleryPattern pattern;
   final String fallbackThumbnailUrl;
   final double tileSize;
+  final double thumbnailPadding;
   final bool fillHeight;
   final VoidCallback? onTap;
 
@@ -292,6 +299,7 @@ class _GalleryTile extends StatelessWidget {
     required this.pattern,
     required this.fallbackThumbnailUrl,
     required this.tileSize,
+    required this.thumbnailPadding,
     required this.fillHeight,
     this.onTap,
   });
@@ -313,24 +321,11 @@ class _GalleryTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 child: DecoratedBox(
                   decoration: const BoxDecoration(color: Colors.white),
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: _GalleryThumbnail(
-                          key: ValueKey('gallery-thumbnail-${pattern.id}'),
-                          url: pattern.thumbnailUrl,
-                          fallbackUrl: fallbackThumbnailUrl,
-                          fit: fillHeight ? BoxFit.fitHeight : BoxFit.cover,
-                        ),
-                      ),
-                      const Positioned.fill(child: _GalleryFade()),
-                      if (pattern.isPendingReview)
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: _PendingReviewBadge(patternId: pattern.id),
-                        ),
-                    ],
+                  child: _GalleryTilePreview(
+                    pattern: pattern,
+                    fallbackThumbnailUrl: fallbackThumbnailUrl,
+                    fillHeight: fillHeight,
+                    padding: thumbnailPadding,
                   ),
                 ),
               ),
@@ -356,6 +351,50 @@ class _GalleryTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _GalleryTilePreview extends StatelessWidget {
+  final _GalleryPattern pattern;
+  final String fallbackThumbnailUrl;
+  final bool fillHeight;
+  final double padding;
+
+  const _GalleryTilePreview({
+    required this.pattern,
+    required this.fallbackThumbnailUrl,
+    required this.fillHeight,
+    required this.padding,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = Stack(
+      children: [
+        Positioned.fill(
+          child: _GalleryThumbnail(
+            key: ValueKey('gallery-thumbnail-${pattern.id}'),
+            url: pattern.thumbnailUrl,
+            fallbackUrl: fallbackThumbnailUrl,
+            fit: fillHeight ? BoxFit.fitHeight : BoxFit.cover,
+          ),
+        ),
+        const Positioned.fill(child: _GalleryFade()),
+        if (pattern.isPendingReview)
+          Positioned(
+            top: 6,
+            right: 6,
+            child: _PendingReviewBadge(patternId: pattern.id),
+          ),
+      ],
+    );
+    if (padding == 0) return preview;
+
+    return Padding(
+      key: ValueKey('gallery-thumbnail-padding-${pattern.id}'),
+      padding: EdgeInsets.all(padding),
+      child: ClipRRect(borderRadius: BorderRadius.circular(20), child: preview),
     );
   }
 }

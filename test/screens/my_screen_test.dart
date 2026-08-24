@@ -80,6 +80,20 @@ void main() {
         find.byKey(const ValueKey('my-works-placeholder')),
         findsOneWidget,
       );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('my-works-placeholder')),
+          matching: find.byKey(const ValueKey('finished-product-empty-dot-0')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('my-works-placeholder')),
+          matching: find.byType(PatternDisplayPlaceholder),
+        ),
+        findsNothing,
+      );
       expect(find.text('制作'), findsAtLeastNWidgets(1));
       expect(find.text('我的'), findsAtLeastNWidgets(1));
       expect(tester.takeException(), isNull);

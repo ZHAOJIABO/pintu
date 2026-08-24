@@ -18,6 +18,7 @@ class PatternChartPainter extends CustomPainter {
   final PatternChartData chart;
   final double cellSize;
   final bool showCellLabels;
+  final bool showGrid;
   final bool showCoordinates;
   final bool showBorderCoordinates;
   final Color canvasBackground;
@@ -31,6 +32,7 @@ class PatternChartPainter extends CustomPainter {
     required this.chart,
     required this.cellSize,
     this.showCellLabels = true,
+    this.showGrid = true,
     this.showCoordinates = false,
     this.showBorderCoordinates = false,
     this.canvasBackground = const Color(0xFFFFFFFF),
@@ -180,7 +182,9 @@ class PatternChartPainter extends CustomPainter {
       }
     }
 
-    _drawGrid(canvas, origin, gridWidth, gridHeight, gridColumns, gridRows);
+    if (showGrid) {
+      _drawGrid(canvas, origin, gridWidth, gridHeight, gridColumns, gridRows);
+    }
     if (showBorderCoordinates) {
       _drawBorderCoordinates(
         canvas,
@@ -397,6 +401,7 @@ class PatternChartPainter extends CustomPainter {
     return oldDelegate.chart != chart ||
         oldDelegate.cellSize != cellSize ||
         oldDelegate.showCellLabels != showCellLabels ||
+        oldDelegate.showGrid != showGrid ||
         oldDelegate.showCoordinates != showCoordinates ||
         oldDelegate.showBorderCoordinates != showBorderCoordinates ||
         oldDelegate.canvasBackground != canvasBackground ||

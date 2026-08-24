@@ -132,8 +132,8 @@ class _UploadScreenState extends State<UploadScreen> {
       setState(() => _blindBoxQuota = quota);
       return true;
     } catch (_) {
-      // The card stays disabled until a server-authoritative allowance is
-      // available; never infer the remaining count locally.
+      // Keep the card disabled until a server-authoritative quota is available;
+      // never infer the remaining count locally.
       return false;
     } finally {
       if (mounted && identical(_backendServices, services)) {
@@ -365,10 +365,13 @@ class _UploadScreenState extends State<UploadScreen> {
   Future<void> _openBlindBox() async {
     final services = _backendServices;
     final quota = _blindBoxQuota;
-    if (services == null ||
-        _openingBlindBox ||
-        quota == null ||
-        !quota.canDraw) {
+    if (services == null || _openingBlindBox || quota == null) {
+      return;
+    }
+    if (!quota.canDraw) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('今天次数已用完，明天再来试试吧')));
       return;
     }
     final drawQuota = quota;
@@ -406,7 +409,7 @@ class _UploadScreenState extends State<UploadScreen> {
         );
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('今日盲盒次数已用完，明天再来吧')));
+        ).showSnackBar(const SnackBar(content: Text('今天次数已用完，明天再来试试吧')));
         return;
       }
       await _loadBlindBoxQuota(services);
@@ -528,7 +531,7 @@ class _UploadScreenState extends State<UploadScreen> {
                                       onBlindBox:
                                           _openingBlindBox ||
                                               _loadingBlindBoxQuota ||
-                                              _blindBoxQuota?.canDraw != true
+                                              _blindBoxQuota == null
                                           ? null
                                           : _openBlindBox,
                                       onFilter: _openFilterDialog,
@@ -704,6 +707,7 @@ class _HomeDesignCanvas extends StatelessWidget {
               categoryName: galleryCategoryName,
               onFilter: onFilter ?? () {},
               onTemplateTap: onGalleryTemplateTap,
+              thumbnailPadding: 6,
             ),
           ),
         ],

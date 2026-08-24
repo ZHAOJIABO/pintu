@@ -84,19 +84,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _confirmAndClearCache() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('清除缓存'),
-        content: const Text('将清除已缓存的图片和临时文件，不会删除图纸、成品和登录信息。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('清除'),
-          ),
-        ],
+      builder: (dialogContext) => _ClearCacheDialog(
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
       ),
     );
     if (confirmed != true || !mounted || _clearingCache) return;
@@ -266,6 +256,130 @@ Future<void> _clearAppCache(StyleThumbnailCache? styleThumbnails) {
     DefaultCacheManager().emptyCache(),
     if (styleThumbnails != null) styleThumbnails.clear(),
   ]);
+}
+
+class _ClearCacheDialog extends StatelessWidget {
+  final VoidCallback onCancel;
+  final VoidCallback onConfirm;
+
+  const _ClearCacheDialog({required this.onCancel, required this.onConfirm});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      key: const ValueKey('settings-clear-cache-dialog'),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 21),
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(22)),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 333),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '清除缓存',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.black,
+                  fontFamily: _settingsFontFamily,
+                  fontFamilyFallback: _settingsFontFallbacks,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                '将清除已缓存的图片和临时文件，不会删除图纸、成品和登录信息。',
+                style: TextStyle(
+                  color: Colors.black,
+                  fontFamily: _settingsFontFamily,
+                  fontFamilyFallback: _settingsFontFallbacks,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  height: 20 / 15,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ClearCacheDialogButton(
+                      label: '取消',
+                      backgroundColor: _settingsBackground,
+                      foregroundColor: Colors.black,
+                      onTap: onCancel,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _ClearCacheDialogButton(
+                      key: const ValueKey('settings-clear-cache-confirm'),
+                      label: '清除',
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      onTap: onConfirm,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ClearCacheDialogButton extends StatelessWidget {
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onTap;
+
+  const _ClearCacheDialogButton({
+    super.key,
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: backgroundColor,
+        borderRadius: const BorderRadius.all(Radius.circular(44)),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: const BorderRadius.all(Radius.circular(44)),
+          child: SizedBox(
+            height: 52,
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontFamily: _settingsFontFamily,
+                  fontFamilyFallback: _settingsFontFallbacks,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _SettingsNavigationBar extends StatelessWidget {

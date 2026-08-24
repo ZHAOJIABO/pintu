@@ -17,6 +17,7 @@ import '../services/api/api_scope.dart';
 import '../services/export_watermark_service.dart';
 import '../services/pattern_export_service.dart';
 import '../widgets/patterns_hint_dialog.dart';
+import '../widgets/rounded_confirmation_dialog.dart';
 import 'bead_mode_screen.dart';
 import 'pattern_editor_screen.dart';
 
@@ -31,6 +32,8 @@ const _patternSaveIconAsset = 'assets/pin_icon/pattern_save.svg';
 typedef WatermarkPngBytesLoader = Future<Uint8List?> Function();
 typedef PersistGeneratedPattern =
     Future<String> Function(GeneratedPattern pattern);
+
+enum _ResultSaveChoice { chart, image }
 
 class ResultScreen extends StatefulWidget {
   final GeneratedPattern pattern;
@@ -177,7 +180,22 @@ class _ResultScreenState extends State<ResultScreen> {
     }
   }
 
-  Future<void> _saveImage() async {
+  Future<void> _showSaveChoices() async {
+    if (_exporting) return;
+    final choice = await showDialog<_ResultSaveChoice>(
+      context: context,
+      builder: (dialogContext) => _ResultSaveDialog(
+        onSaveChart: () =>
+            Navigator.of(dialogContext).pop(_ResultSaveChoice.chart),
+        onSaveImage: () =>
+            Navigator.of(dialogContext).pop(_ResultSaveChoice.image),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    await _saveImage(saveChart: choice == _ResultSaveChoice.chart);
+  }
+
+  Future<void> _saveImage({required bool saveChart}) async {
     if (_exporting) return;
 
     setState(() => _exporting = true);
@@ -193,11 +211,18 @@ class _ResultScreenState extends State<ResultScreen> {
       }
 
       try {
-        await _exportService.saveChartPngToPhotoLibrary(
-          _pattern,
-          watermarkPngBytes: watermarkPngBytes,
-        );
-        if (mounted) _showToast('图纸已保存');
+        if (saveChart) {
+          await _exportService.saveChartPngToPhotoLibrary(
+            _pattern,
+            watermarkPngBytes: watermarkPngBytes,
+          );
+        } else {
+          await _exportService.savePatternImageToPhotoLibrary(
+            _pattern,
+            watermarkPngBytes: watermarkPngBytes,
+          );
+        }
+        if (mounted) _showToast(saveChart ? '图纸已保存' : '图片已保存');
       } catch (error) {
         _showSaveImageFailure(error);
       }
@@ -259,21 +284,15 @@ class _ResultScreenState extends State<ResultScreen> {
     if (_deletingWork) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('确定删除图纸？'),
-        content: const Text('删除后无法恢复。'),
-        actions: [
-          TextButton(
-            key: const ValueKey('result-delete-work-cancel'),
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            key: const ValueKey('result-delete-work-confirm'),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('确定'),
-          ),
-        ],
+      builder: (dialogContext) => RoundedConfirmationDialog(
+        dialogKey: const ValueKey('result-delete-work-dialog'),
+        title: '确定删除吗？',
+        secondaryLabel: '取消',
+        primaryLabel: '删除',
+        secondaryButtonKey: const ValueKey('result-delete-work-cancel'),
+        primaryButtonKey: const ValueKey('result-delete-work-confirm'),
+        onSecondary: () => Navigator.of(dialogContext).pop(false),
+        onPrimary: () => Navigator.of(dialogContext).pop(true),
       ),
     );
     if (confirmed == true && mounted) await _deleteWork();
@@ -346,19 +365,14 @@ class _ResultScreenState extends State<ResultScreen> {
 
     final shouldSave = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('是否保存图纸？'),
-        content: const Text('保存后可在“我的图纸”中继续查看和编辑。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('不保存'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (dialogContext) => RoundedConfirmationDialog(
+        dialogKey: const ValueKey('result-save-before-leave-dialog'),
+        title: '是否保存图纸？',
+        message: '保存后可在“我的图纸”中继续查看和编辑。',
+        secondaryLabel: '不保存',
+        primaryLabel: '保存',
+        onSecondary: () => Navigator.of(dialogContext).pop(false),
+        onPrimary: () => Navigator.of(dialogContext).pop(true),
       ),
     );
     if (!mounted || shouldSave == null) return false;
@@ -404,7 +418,7 @@ class _ResultScreenState extends State<ResultScreen> {
               _DrawingHeader(
                 pattern: _pattern,
                 onBack: () => unawaited(_handleBack()),
-                onSaveImage: _saveImage,
+                onSaveImage: _showSaveChoices,
                 onDeleteWork: _canDeleteWork && !_deletingWork
                     ? _confirmDeleteWork
                     : null,
@@ -428,6 +442,122 @@ class _ResultScreenState extends State<ResultScreen> {
                 secondaryEnabled: _template != null || _editingEnabled,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultSaveDialog extends StatelessWidget {
+  final VoidCallback onSaveChart;
+  final VoidCallback onSaveImage;
+
+  const _ResultSaveDialog({
+    required this.onSaveChart,
+    required this.onSaveImage,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      key: const ValueKey('result-save-choice-dialog'),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 21),
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(22)),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 333),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '保存图纸还是保存图片',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.black,
+                  fontSize: 20,
+                  fontFamily: _roundFontFamily,
+                  fontFamilyFallback: _fontFallbacks,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _ResultSaveDialogButton(
+                      key: const ValueKey('result-save-chart'),
+                      label: '图纸',
+                      backgroundColor: _pageBackground,
+                      foregroundColor: Colors.black,
+                      onTap: onSaveChart,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _ResultSaveDialogButton(
+                      key: const ValueKey('result-save-clean-image'),
+                      label: '图片',
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      onTap: onSaveImage,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultSaveDialogButton extends StatelessWidget {
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final VoidCallback onTap;
+
+  const _ResultSaveDialogButton({
+    super.key,
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      child: Material(
+        color: backgroundColor,
+        borderRadius: const BorderRadius.all(Radius.circular(44)),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: const BorderRadius.all(Radius.circular(44)),
+          child: SizedBox(
+            height: 52,
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontSize: 18,
+                  fontFamily: _roundFontFamily,
+                  fontFamilyFallback: _fontFallbacks,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -547,7 +677,7 @@ class _ResultNavigationBar extends StatelessWidget {
                         child: Center(child: _DeleteWorkIcon()),
                       ),
                     ),
-                  if (onDeleteWork != null) const SizedBox(width: 6),
+                  if (onDeleteWork != null) const SizedBox(width: 12),
                   GestureDetector(
                     key: const ValueKey('result-save-image-button'),
                     behavior: HitTestBehavior.opaque,
@@ -912,19 +1042,19 @@ class _BottomActionBar extends StatelessWidget {
             children: [
               Expanded(
                 child: _ResultActionButton(
-                  label: '立即开拼',
-                  onTap: onStart,
-                  filled: false,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ResultActionButton(
                   key: const ValueKey('result-secondary-action'),
                   label: secondaryLabel,
                   onTap: onSecondary,
                   enabled: secondaryEnabled,
                   filled: true,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _ResultActionButton(
+                  label: '立即开拼',
+                  onTap: onStart,
+                  filled: false,
                 ),
               ),
             ],

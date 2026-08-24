@@ -28,6 +28,7 @@ class AdminPatternEditorPage extends StatelessWidget {
     showBrushGuide: false,
     showPaletteGuide: false,
     showBrushSize: true,
+    showEraserFootprint: true,
     initialPanel: switch (initialMode) {
       AdminPatternEditingMode.brush => PatternEditorPanel.brush,
       AdminPatternEditingMode.palette => PatternEditorPanel.palette,

@@ -54,20 +54,20 @@ void main() {
     final titleRect = tester.getRect(
       find.byKey(const ValueKey('blind-box-rarity-title')),
     );
-    final iconRect = tester.getRect(
-      find.byKey(const ValueKey('blind-box-title-icon')),
+    final patternTitleRect = tester.getRect(
+      find.byKey(const ValueKey('blind-box-pattern-title')),
     );
     final acceptRect = tester.getRect(
       find.byKey(const ValueKey('blind-box-accept')),
     );
 
     expect(find.text('超稀有'), findsNWidgets(2));
-    expect(titleRect.right, lessThanOrEqualTo(iconRect.left - 8));
+    expect(patternTitleRect.left - titleRect.right, closeTo(0, 0.1));
     expect(acceptRect.bottom, lessThanOrEqualTo(810));
   });
 
   for (final categoryName in const ['稀有', '有趣', '可爱', '抽象']) {
-    testWidgets('$categoryName 盲盒标题不会与分类装饰重叠', (tester) async {
+    testWidgets('$categoryName 盲盒标题与图纸紧贴显示', (tester) async {
       tester.view.physicalSize = const Size(393, 852);
       tester.view.devicePixelRatio = 1;
       addTearDown(() {
@@ -91,11 +91,11 @@ void main() {
       final titleRect = tester.getRect(
         find.byKey(const ValueKey('blind-box-rarity-title')),
       );
-      final iconRect = tester.getRect(
-        find.byKey(const ValueKey('blind-box-title-icon')),
+      final patternTitleRect = tester.getRect(
+        find.byKey(const ValueKey('blind-box-pattern-title')),
       );
 
-      expect(titleRect.right, lessThanOrEqualTo(iconRect.left - 8));
+      expect(patternTitleRect.left - titleRect.right, closeTo(0, 0.1));
     });
   }
 }

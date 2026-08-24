@@ -204,7 +204,6 @@ class _HintTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isFavorites = destination == PatternsHintDestination.favorites;
     const titleStyle = TextStyle(
       color: Colors.black,
       fontFamily: _roundFontFamily,
@@ -215,12 +214,15 @@ class _HintTitle extends StatelessWidget {
     );
     final title = switch (destination) {
       PatternsHintDestination.patterns => '图纸也可以在“我的-图纸”中查看哦～',
-      PatternsHintDestination.favorites => '已保存至“我的-收藏”',
+      PatternsHintDestination.favorites => '收藏后可以在“我的-收藏”中查看哦～',
       PatternsHintDestination.drafts => '草稿将保存在“我的-我的图纸”中',
     };
     final underline = switch (destination) {
       PatternsHintDestination.patterns => (left: 119.0, width: 57.0),
-      PatternsHintDestination.favorites => (left: 67.0, width: 76.0),
+      PatternsHintDestination.favorites => (
+        left: _measureTextWidth(context, '收藏后可以在“', titleStyle),
+        width: _measureTextWidth(context, '我的-收藏', titleStyle),
+      ),
       PatternsHintDestination.drafts => (
         left: _measureTextWidth(context, '草稿将保存在“', titleStyle),
         width: _measureTextWidth(context, '我的-我的图纸', titleStyle),
@@ -239,11 +241,7 @@ class _HintTitle extends StatelessWidget {
             width: underline.width,
             height: 3,
             child: CustomPaint(
-              painter: _HintUnderlinePainter(
-                color: isFavorites
-                    ? const Color(0xFFFFC62D)
-                    : const Color(0xFFFF55BD),
-              ),
+              painter: _HintUnderlinePainter(color: const Color(0xFFFF55BD)),
             ),
           ),
         ],

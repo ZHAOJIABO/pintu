@@ -49,6 +49,19 @@ class PatternExportService {
     await saveImageBytesToPhotoLibrary(bytes);
   }
 
+  /// Saves a clean color-block image without chart grids, color codes, or
+  /// printable-page decorations. A supplied watermark remains on top.
+  Future<void> savePatternImageToPhotoLibrary(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) async {
+    final bytes = await exportPatternImagePngBytes(
+      pattern,
+      watermarkPngBytes: watermarkPngBytes,
+    );
+    await saveImageBytesToPhotoLibrary(bytes);
+  }
+
   /// Saves an already-rendered image, such as an AI style-transfer result.
   Future<void> saveImageBytesToPhotoLibrary(Uint8List bytes) async {
     if (bytes.isEmpty) throw ArgumentError.value(bytes, 'bytes');
@@ -88,6 +101,46 @@ class PatternExportService {
     } finally {
       appIcon.dispose();
     }
+  }
+
+  Future<Uint8List> exportPatternImagePngBytes(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) {
+    if (pattern.width <= 0 || pattern.height <= 0) {
+      throw ArgumentError.value(
+        '${pattern.width}x${pattern.height}',
+        'pattern',
+        '图纸尺寸必须为正数',
+      );
+    }
+    final expectedLength = pattern.width * pattern.height * 4;
+    if (pattern.pixels.length != expectedLength) {
+      throw ArgumentError.value(
+        pattern.pixels.length,
+        'pattern.pixels',
+        '像素数据长度与图纸尺寸不一致',
+      );
+    }
+
+    final chart = PatternChartData.fromPattern(pattern);
+    final painter = PatternChartPainter(
+      chart: chart,
+      cellSize: pngCellSize,
+      showCellLabels: false,
+      showGrid: false,
+    );
+    final size = PatternChartPainter.chartSize(
+      chart: chart,
+      cellSize: pngCellSize,
+      showCoordinates: false,
+    );
+    return _renderPng(
+      painter,
+      size,
+      pixelRatio: _exportPixelRatio(size),
+      watermarkPngBytes: watermarkPngBytes,
+    );
   }
 
   /// Renders only the pattern's color blocks for gallery lists.

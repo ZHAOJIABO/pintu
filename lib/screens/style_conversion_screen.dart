@@ -11,6 +11,7 @@ import '../navigation/home_navigation.dart';
 import '../services/ai_style_transfer_service.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../widgets/rounded_confirmation_dialog.dart';
 import '../services/pattern_export_service.dart';
 import '../services/style_thumbnail_cache.dart';
 import '../widgets/patterns_hint_dialog.dart';
@@ -167,18 +168,13 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     if (!_canSelectStyle) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('是否要转换'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('确定'),
-          ),
-        ],
+      builder: (dialogContext) => RoundedConfirmationDialog(
+        dialogKey: const ValueKey('style-conversion-confirm-dialog'),
+        title: '是否要转换',
+        secondaryLabel: '取消',
+        primaryLabel: '确定',
+        onSecondary: () => Navigator.of(dialogContext).pop(false),
+        onPrimary: () => Navigator.of(dialogContext).pop(true),
       ),
     );
     if (confirmed == true && mounted) await _startConversion(style);

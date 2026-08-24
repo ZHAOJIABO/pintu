@@ -50,16 +50,33 @@ void main() {
       find.byKey(const ValueKey('editor-palette-usage-option-R')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('editor-color-replacement-all-option-B')),
+    final allColorsButton = find.byKey(
+      const ValueKey('editor-color-replacement-all-colors-button'),
     );
+    await tester.tap(allColorsButton);
+    await tester.pumpAndSettle();
+    final a1 = find.byKey(
+      const ValueKey('editor-color-replacement-all-colors-option-A1'),
+    );
+    expect(a1, findsOneWidget);
+
+    await tester.tap(allColorsButton);
+    await tester.pumpAndSettle();
+    expect(a1, findsNothing);
+
+    await tester.tap(allColorsButton);
+    await tester.pumpAndSettle();
+    expect(a1, findsOneWidget);
+    await tester.ensureVisible(a1);
+    await tester.pumpAndSettle();
+    await tester.tap(a1);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
     expect(saved, isNotNull);
-    expect(saved!.usage, {'B': 4});
+    expect(saved!.usage, {'A1': 2, 'B': 2});
   });
 
   testWidgets('palette entry opens the color replacement panel directly', (
@@ -126,7 +143,41 @@ void main() {
     expect(_chipBackground(tester, 2), Colors.black);
 
     await _tapFirstCell(tester);
+    expect(
+      find.byKey(const ValueKey('pattern-editor-eraser-footprint')),
+      findsOneWidget,
+    );
     expect(_patternCells(tester), everyElement('0,0,0,0'));
+  });
+
+  testWidgets('web backend palette can replace a colour with transparency', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AdminPatternEditorPage(
+          pattern: _pattern(),
+          initialMode: AdminPatternEditingMode.palette,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('editor-palette-usage-option-R')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('editor-color-replacement-transparent-option')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_patternCells(tester), [
+      '0,0,0,0',
+      '0,0,255,255',
+      '0,0,0,0',
+      '0,0,255,255',
+    ]);
   });
 }
 

@@ -717,7 +717,7 @@ void main() {
       expect(switchLeft('parameter-remove-background-toggle'), 23);
       expect(
         switchTrackColor('parameter-remove-background-toggle'),
-        const Color(0xFFFF55BE),
+        const Color(0xFFFFF09A),
       );
       await tester.tap(
         find.byKey(const ValueKey('parameter-remove-background-toggle')),
@@ -739,7 +739,7 @@ void main() {
       expect(switchLeft('parameter-denoise-toggle'), 23);
       expect(
         switchTrackColor('parameter-denoise-toggle'),
-        const Color(0xFFFF55BE),
+        const Color(0xFFFFF09A),
       );
 
       expect(find.text('100'), findsOneWidget);

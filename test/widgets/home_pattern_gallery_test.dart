@@ -86,6 +86,34 @@ void main() {
 
     expect(find.byType(CachedNetworkImage), findsOneWidget);
   });
+
+  testWidgets('can inset template thumbnails within their white tile', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: HomePatternGallery(
+            templates: [_template(id: 'inset-template')],
+            categoryName: '全部',
+            onFilter: () {},
+            thumbnailPadding: 6,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<Padding>(
+            find.byKey(
+              const ValueKey('gallery-thumbnail-padding-inset-template'),
+            ),
+          )
+          .padding,
+      const EdgeInsets.all(6),
+    );
+  });
 }
 
 TemplateItem _template({required String id, String authorName = ''}) {

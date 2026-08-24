@@ -474,7 +474,7 @@ void main() {
     );
   });
 
-  testWidgets('盲盒 2007 显示中文次数用完提示且不重试抽取', (tester) async {
+  testWidgets('盲盒次数用尽后保持可点击并提示且不重试抽取', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() {
@@ -536,11 +536,21 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
     await tester.pumpAndSettle();
 
-    expect(find.text('今日盲盒次数已用完，明天再来吧'), findsOneWidget);
+    expect(find.text('今天次数已用完，明天再来试试吧'), findsOneWidget);
     expect(find.textContaining('今日剩余 0 次'), findsOneWidget);
     expect(find.textContaining('恢复'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
+    final blindBoxCard = find.byKey(const ValueKey('home-blind-box-card'));
+    expect(
+      tester
+          .widget<Opacity>(
+            find.descendant(of: blindBoxCard, matching: find.byType(Opacity)),
+          )
+          .opacity,
+      1,
+    );
+    await tester.tap(blindBoxCard);
     await tester.pump();
+    expect(find.text('今天次数已用完，明天再来试试吧'), findsOneWidget);
     expect(
       requests.where(
         (request) => request.url.path == '/api/v1/templates/random',

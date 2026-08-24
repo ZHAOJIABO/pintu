@@ -16,9 +16,11 @@ import '../models/palette.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/editor_history_service.dart';
+import '../services/palette_service.dart';
 import '../services/pattern_edit_service.dart';
 import '../services/pattern_image_upload_service.dart';
 import '../widgets/bead_board_preview.dart';
+import '../widgets/rounded_confirmation_dialog.dart';
 
 const _editorBackground = Color(0xFFEEF0F6);
 const _editorToolSurface = Color(0xFFDEE2ED);
@@ -82,6 +84,14 @@ const _brushGuideSteps = <_BrushGuideStep>[
   ),
 ];
 
+final _transparentReplacementEntry = PaletteEntry(
+  name: '透明',
+  ref: '透明',
+  symbol: '',
+  color: BeadColor.fromInt(0, 0, 0, 0),
+  prefix: '',
+);
+
 class PatternEditorScreen extends StatefulWidget {
   final GeneratedPattern pattern;
   final String? workId;
@@ -93,6 +103,10 @@ class PatternEditorScreen extends StatefulWidget {
   /// bulk retouching. The client keeps a single-bead brush so the onboarding
   /// guide and toolbar layout stay unchanged.
   final bool showBrushSize;
+
+  /// Shows the current eraser footprint on the board. This is used by the web
+  /// backend, where multi-cell erasing needs a precise visual aid.
+  final bool showEraserFootprint;
   final PatternEditorPanel initialPanel;
   final PatternImageUploadService patternImageUploader;
 
@@ -108,6 +122,7 @@ class PatternEditorScreen extends StatefulWidget {
     this.showBrushGuide = true,
     this.showPaletteGuide = true,
     this.showBrushSize = false,
+    this.showEraserFootprint = false,
     this.initialPanel = PatternEditorPanel.brush,
     this.patternImageUploader = const PatternImageUploadService(),
     this.onSaveUnsavedPattern,
@@ -120,8 +135,10 @@ class PatternEditorScreen extends StatefulWidget {
 class _PatternEditorScreenState extends State<PatternEditorScreen> {
   final PatternEditService _editService = PatternEditService();
   final EditorHistoryService _historyService = EditorHistoryService();
+  final PaletteService _paletteService = PaletteService();
   late final Uint8List _pixels = Uint8List.fromList(widget.pattern.pixels);
-  late BeadColor _selectedColor = _initialColor();
+  late final List<PaletteEntry> _paletteEntries;
+  late BeadColor _selectedColor;
   EditorTool? _tool = EditorTool.brush;
   int _brushSize = 1;
   late _EditorPanel _panel;
@@ -147,6 +164,8 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   @override
   void initState() {
     super.initState();
+    _paletteEntries = List<PaletteEntry>.from(widget.pattern.paletteEntries);
+    _selectedColor = _initialColor();
     _panel = switch (widget.initialPanel) {
       PatternEditorPanel.brush => _EditorPanel.brush,
       PatternEditorPanel.palette => _EditorPanel.palette,
@@ -219,7 +238,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     final colors = _usedPaletteEntries();
     if (colors.isNotEmpty) return colors.first.entry.color.clone();
 
-    final fallback = widget.pattern.paletteEntries.firstOrNull;
+    final fallback = _paletteEntries.firstOrNull;
     return fallback?.color.clone() ?? BeadColor.fromInt(233, 0, 48, 255);
   }
 
@@ -240,7 +259,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     }
 
     final usedEntries = <_UsedPaletteEntry>[];
-    for (final entry in widget.pattern.paletteEntries) {
+    for (final entry in _paletteEntries) {
       final count =
           countByColor[_rgbaKey(
             entry.color.rInt,
@@ -255,7 +274,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
 
     if (usedEntries.isEmpty) {
       usedEntries.addAll(
-        widget.pattern.paletteEntries.map(
+        _paletteEntries.map(
           (entry) => _UsedPaletteEntry(entry: entry, count: 0),
         ),
       );
@@ -348,12 +367,28 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     });
   }
 
-  void _selectPaletteColor(BeadColor color) {
+  void _selectPaletteColor(PaletteEntry entry) {
     setState(() {
-      _selectedColor = color.clone();
+      _registerPaletteEntry(entry);
+      _selectedColor = entry.color.clone();
       _tool = EditorTool.brush;
       _panel = _EditorPanel.brush;
     });
+  }
+
+  void _registerPaletteEntry(PaletteEntry entry) {
+    if (_paletteEntries.any((existing) => existing.color == entry.color)) {
+      return;
+    }
+    _paletteEntries.add(entry);
+  }
+
+  Future<List<PaletteEntry>> _loadAllPaletteEntries() async {
+    final palettes = await _paletteService.loadAll();
+    final entries = <PaletteEntry>[
+      for (final palette in palettes) ...palette.entries,
+    ]..sort((left, right) => _compareColorCodes(left.ref, right.ref));
+    return entries;
   }
 
   void _replacePaletteCell(int x, int y) {
@@ -377,9 +412,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     math.Point<int>? cell,
   }) async {
     final replacementEntries =
-        widget.pattern.paletteEntries
-            .where((entry) => entry.color != source)
-            .toList()
+        _paletteEntries.where((entry) => entry.color != source).toList()
           ..sort((left, right) => _compareColorCodes(left.ref, right.ref));
     final colorMatcher = CIE2000Matching();
     final closestEntries = List<PaletteEntry>.from(replacementEntries)
@@ -391,7 +424,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
             ? byDistance
             : _compareColorCodes(left.ref, right.ref);
       });
-    final replacement = await showModalBottomSheet<BeadColor>(
+    final replacement = await showModalBottomSheet<PaletteEntry>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -400,15 +433,19 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
         sourceRef: sourceRef,
         nearbyEntries: closestEntries.take(8).toList(growable: false),
         allEntries: replacementEntries,
+        loadAllEntries: _loadAllPaletteEntries,
       ),
     );
     if (!mounted || replacement == null) return;
+    if (replacement.color.aInt != 0) {
+      _registerPaletteEntry(replacement);
+    }
 
     if (cell == null) {
       final colorReplacement = _editService.replaceColorCompact(
         pixels: _pixels,
         from: source,
-        to: replacement,
+        to: replacement.color,
       );
       if (colorReplacement == null) return;
       setState(() {
@@ -425,7 +462,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
       x: cell.x,
       y: cell.y,
       brushSize: 1,
-      color: replacement,
+      color: replacement.color,
     );
     if (changes.isEmpty) return;
 
@@ -436,7 +473,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   }
 
   String _colorRefFor(BeadColor color) {
-    for (final entry in widget.pattern.paletteEntries) {
+    for (final entry in _paletteEntries) {
       if (entry.color == color) return entry.ref;
     }
     return color.toHex().replaceFirst('#', '').toUpperCase();
@@ -451,9 +488,10 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   }
 
   Future<void> _showCurrentColorPicker() async {
-    final color = await showModalBottomSheet<BeadColor>(
+    final entry = await showModalBottomSheet<PaletteEntry>(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => _CurrentColorPickerSheet(
         entries: _usedPaletteEntries()
           ..sort(
@@ -461,10 +499,11 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                 _compareColorCodes(left.entry.ref, right.entry.ref),
           ),
         selectedColor: _selectedColor,
+        loadAllEntries: _loadAllPaletteEntries,
       ),
     );
-    if (!mounted || color == null) return;
-    _selectPaletteColor(color);
+    if (!mounted || entry == null) return;
+    _selectPaletteColor(entry);
   }
 
   bool get _hasUnsavedEdits => !listEquals(_pixels, widget.pattern.pixels);
@@ -476,7 +515,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     if (_saving) return false;
 
     final edited = _editService.applyEditedPixels(
-      pattern: widget.pattern,
+      pattern: widget.pattern.copyWith(paletteEntries: _paletteEntries),
       pixels: _pixels,
     );
 
@@ -548,19 +587,14 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
     }
     final shouldSave = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('是否保存图纸？'),
-        content: const Text('保存后将更新当前图纸。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('不保存'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('保存'),
-          ),
-        ],
+      builder: (dialogContext) => RoundedConfirmationDialog(
+        dialogKey: const ValueKey('editor-save-before-leave-dialog'),
+        title: '是否保存图纸？',
+        message: '保存后将更新当前图纸。',
+        secondaryLabel: '不保存',
+        primaryLabel: '保存',
+        onSecondary: () => Navigator.of(dialogContext).pop(false),
+        onPrimary: () => Navigator.of(dialogContext).pop(true),
       ),
     );
     if (!mounted || shouldSave == null) return false;
@@ -726,7 +760,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                         width: widget.pattern.width,
                         height: widget.pattern.height,
                         revision: _revision,
-                        paletteEntries: widget.pattern.paletteEntries,
+                        paletteEntries: _paletteEntries,
                         showRulers: false,
                         onCellStart: isPalettePanel
                             ? _replacePaletteCell
@@ -735,6 +769,11 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
                             : null,
                         onCellChanged: canPaint ? _continueStroke : null,
                         onCellEnd: canPaint ? _finishStroke : null,
+                        eraserFootprintSize:
+                            widget.showEraserFootprint &&
+                                _tool == EditorTool.eraser
+                            ? _brushSize
+                            : null,
                       ),
                     ),
                     _panel == _EditorPanel.brush
@@ -2869,18 +2908,51 @@ class _PaletteUsageTile extends StatelessWidget {
   }
 }
 
-class _ColorReplacementSheet extends StatelessWidget {
+class _ColorReplacementSheet extends StatefulWidget {
   final BeadColor source;
   final String sourceRef;
   final List<PaletteEntry> nearbyEntries;
   final List<PaletteEntry> allEntries;
+  final Future<List<PaletteEntry>> Function() loadAllEntries;
 
   const _ColorReplacementSheet({
     required this.source,
     required this.sourceRef,
     required this.nearbyEntries,
     required this.allEntries,
+    required this.loadAllEntries,
   });
+
+  @override
+  State<_ColorReplacementSheet> createState() => _ColorReplacementSheetState();
+}
+
+class _ColorReplacementSheetState extends State<_ColorReplacementSheet> {
+  List<PaletteEntry>? _allPaletteEntries;
+  bool _loadingAllPaletteEntries = false;
+  bool _showAllPaletteEntries = false;
+
+  Future<void> _toggleAllPaletteEntries() async {
+    if (_loadingAllPaletteEntries) return;
+    if (_allPaletteEntries != null) {
+      setState(() => _showAllPaletteEntries = !_showAllPaletteEntries);
+      return;
+    }
+    setState(() => _loadingAllPaletteEntries = true);
+    try {
+      final entries = await widget.loadAllEntries();
+      if (!mounted) return;
+      setState(() {
+        _allPaletteEntries = entries
+            .where((entry) => entry.color != widget.source)
+            .toList(growable: false);
+        _loadingAllPaletteEntries = false;
+        _showAllPaletteEntries = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingAllPaletteEntries = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2938,7 +3010,10 @@ class _ColorReplacementSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 20),
-              _DashedReplacementCard(source: source, sourceRef: sourceRef),
+              _DashedReplacementCard(
+                source: widget.source,
+                sourceRef: widget.sourceRef,
+              ),
               const SizedBox(height: 20),
               Expanded(
                 child: SingleChildScrollView(
@@ -2948,19 +3023,44 @@ class _ColorReplacementSheet extends StatelessWidget {
                       const _ReplacementColorSectionTitle('相近颜色'),
                       const SizedBox(height: 12),
                       _ReplacementColorGrid(
-                        entries: nearbyEntries,
+                        entries: widget.nearbyEntries,
                         sectionKey: 'nearby',
                       ),
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 20),
                         child: _PaletteSectionDivider(),
                       ),
-                      const _ReplacementColorSectionTitle('所有颜色'),
+                      const _ReplacementColorSectionTitle('当前图纸颜色'),
                       const SizedBox(height: 12),
                       _ReplacementColorGrid(
-                        entries: allEntries,
+                        entries: widget.allEntries,
                         sectionKey: 'all',
+                        leading: _TransparentReplacementOption(
+                          onPressed: () => Navigator.pop(
+                            context,
+                            _transparentReplacementEntry,
+                          ),
+                        ),
+                        trailing: _AllColorsGridOption(
+                          key: const ValueKey(
+                            'editor-color-replacement-all-colors-button',
+                          ),
+                          loading: _loadingAllPaletteEntries,
+                          onPressed: _toggleAllPaletteEntries,
+                        ),
                       ),
+                      if (_showAllPaletteEntries) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: _PaletteSectionDivider(),
+                        ),
+                        const _ReplacementColorSectionTitle('全部颜色'),
+                        const SizedBox(height: 12),
+                        _ReplacementColorGrid(
+                          entries: _allPaletteEntries!,
+                          sectionKey: 'all-colors',
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -3103,10 +3203,14 @@ class _ReplacementColorOption extends StatelessWidget {
 class _ReplacementColorGrid extends StatelessWidget {
   final List<PaletteEntry> entries;
   final String sectionKey;
+  final Widget? leading;
+  final Widget? trailing;
 
   const _ReplacementColorGrid({
     required this.entries,
     required this.sectionKey,
+    this.leading,
+    this.trailing,
   });
 
   @override
@@ -3115,13 +3219,67 @@ class _ReplacementColorGrid extends StatelessWidget {
       spacing: 12,
       runSpacing: 16,
       children: [
+        ?leading,
         for (final entry in entries)
           _ReplacementColorOption(
             entry: entry,
             sectionKey: sectionKey,
-            onPressed: () => Navigator.pop(context, entry.color),
+            onPressed: () => Navigator.pop(context, entry),
           ),
+        ?trailing,
       ],
+    );
+  }
+}
+
+class _TransparentReplacementOption extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _TransparentReplacementOption({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '替换为透明',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        child: InkWell(
+          key: const ValueKey('editor-color-replacement-transparent-option'),
+          onTap: onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(12)),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(12)),
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const CustomPaint(painter: _TransparentPreviewPainter()),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0x4D878787)),
+                      borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      '透明',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontFamily: 'Alimama FangYuanTi VF',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3227,32 +3385,63 @@ class _DashedRoundedBorderPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class _CurrentColorPickerSheet extends StatelessWidget {
+class _CurrentColorPickerSheet extends StatefulWidget {
   final List<_UsedPaletteEntry> entries;
   final BeadColor selectedColor;
+  final Future<List<PaletteEntry>> Function() loadAllEntries;
 
   const _CurrentColorPickerSheet({
     required this.entries,
     required this.selectedColor,
+    required this.loadAllEntries,
   });
 
   @override
+  State<_CurrentColorPickerSheet> createState() =>
+      _CurrentColorPickerSheetState();
+}
+
+class _CurrentColorPickerSheetState extends State<_CurrentColorPickerSheet> {
+  List<PaletteEntry>? _allPaletteEntries;
+  bool _loadingAllPaletteEntries = false;
+  bool _showAllPaletteEntries = false;
+
+  Future<void> _toggleAllPaletteEntries() async {
+    if (_loadingAllPaletteEntries) return;
+    if (_allPaletteEntries != null) {
+      setState(() => _showAllPaletteEntries = !_showAllPaletteEntries);
+      return;
+    }
+    setState(() => _loadingAllPaletteEntries = true);
+    try {
+      final entries = await widget.loadAllEntries();
+      if (!mounted) return;
+      setState(() {
+        _allPaletteEntries = entries;
+        _loadingAllPaletteEntries = false;
+        _showAllPaletteEntries = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingAllPaletteEntries = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final currentEntries = widget.entries
+        .map((item) => item.entry)
+        .toList(growable: false);
+    final mediaQuery = MediaQuery.of(context);
     return Container(
       key: const ValueKey('editor-current-color-picker'),
       width: double.infinity,
-      padding: EdgeInsets.fromLTRB(
-        20,
-        12,
-        20,
-        24 + MediaQuery.paddingOf(context).bottom,
-      ),
+      height: math.min(560, mediaQuery.size.height - mediaQuery.padding.top),
+      padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + mediaQuery.padding.bottom),
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             width: 32,
@@ -3272,32 +3461,126 @@ class _CurrentColorPickerSheet extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            height: math.min(
-              320,
-              96.0 * math.max(1, (entries.length + 4) ~/ 5),
-            ),
-            child: GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 5,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 0.75,
+          const SizedBox(height: 12),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _CurrentColorGrid(
+                    entries: currentEntries,
+                    selectedColor: widget.selectedColor,
+                    trailing: _AllColorsGridOption(
+                      key: const ValueKey(
+                        'editor-current-color-all-colors-button',
+                      ),
+                      fillCell: true,
+                      loading: _loadingAllPaletteEntries,
+                      onPressed: _toggleAllPaletteEntries,
+                    ),
+                  ),
+                  if (_showAllPaletteEntries) ...[
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: _PaletteSectionDivider(),
+                    ),
+                    const _ReplacementColorSectionTitle('全部颜色'),
+                    const SizedBox(height: 12),
+                    _CurrentColorGrid(
+                      entries: _allPaletteEntries!,
+                      selectedColor: widget.selectedColor,
+                    ),
+                  ],
+                ],
               ),
-              itemCount: entries.length,
-              itemBuilder: (context, index) {
-                final item = entries[index];
-                return _CurrentColorOption(
-                  entry: item.entry,
-                  selected: item.entry.color == selectedColor,
-                  onPressed: () => Navigator.pop(context, item.entry.color),
-                );
-              },
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AllColorsGridOption extends StatelessWidget {
+  final bool loading;
+  final VoidCallback onPressed;
+  final bool fillCell;
+
+  const _AllColorsGridOption({
+    super.key,
+    required this.loading,
+    required this.onPressed,
+    this.fillCell = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '全部颜色',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        child: InkWell(
+          onTap: loading ? null : onPressed,
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          child: Container(
+            width: fillCell ? double.infinity : 48,
+            height: fillCell ? double.infinity : 48,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0x1F000000)),
+              borderRadius: const BorderRadius.all(Radius.circular(10)),
+            ),
+            child: Text(
+              loading ? '加载中…' : '全部颜色',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.black,
+                fontFamily: 'Alimama FangYuanTi VF',
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CurrentColorGrid extends StatelessWidget {
+  final List<PaletteEntry> entries;
+  final BeadColor selectedColor;
+  final Widget? trailing;
+
+  const _CurrentColorGrid({
+    required this.entries,
+    required this.selectedColor,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 5,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.75,
+      ),
+      itemCount: entries.length + (trailing == null ? 0 : 1),
+      itemBuilder: (context, index) {
+        if (index == entries.length) return trailing!;
+        final entry = entries[index];
+        return _CurrentColorOption(
+          entry: entry,
+          selected: entry.color == selectedColor,
+          onPressed: () => Navigator.pop(context, entry),
+        );
+      },
     );
   }
 }

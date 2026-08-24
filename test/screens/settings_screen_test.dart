@@ -60,15 +60,15 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settings-clear-cache')));
     await tester.pumpAndSettle();
     expect(
-      find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.text('清除缓存'),
-      ),
+      find.byKey(const ValueKey('settings-clear-cache-dialog')),
       findsOneWidget,
     );
+    expect(find.text('将清除已缓存的图片和临时文件，不会删除图纸、成品和登录信息。'), findsOneWidget);
     expect(clearCount, 0);
 
-    await tester.tap(find.widgetWithText(FilledButton, '清除'));
+    await tester.tap(
+      find.byKey(const ValueKey('settings-clear-cache-confirm')),
+    );
     await tester.pumpAndSettle();
 
     expect(clearCount, 1);

@@ -42,6 +42,10 @@ void main() {
       expect(find.text('H7'), findsOneWidget);
       expect(find.text('立即开拼'), findsOneWidget);
       expect(find.text('编辑'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('编辑')).dx,
+        lessThan(tester.getTopLeft(find.text('立即开拼')).dx),
+      );
       expect(tester.takeException(), isNull);
     });
   }
@@ -220,7 +224,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('是否保存图纸？'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, '不保存'));
+    await tester.tap(find.text('不保存'));
     await tester.pumpAndSettle();
     expect(saveCount, 0);
     expect(find.byKey(homeKey), findsOneWidget);
@@ -229,7 +233,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.chevron_left));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, '保存'));
+    await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(saveCount, 1);
     expect(find.byKey(homeKey), findsOneWidget);
@@ -419,6 +423,12 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
     await tester.pump();
+    expect(
+      find.byKey(const ValueKey('result-save-choice-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('result-save-chart')));
+    await tester.pump();
 
     expect(saved, isTrue);
     expect(savedWatermark, watermark);
@@ -449,9 +459,58 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
     await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('result-save-chart')));
+    await tester.pump();
 
     expect(saved, isFalse);
     expect(find.text('水印加载失败，请重试'), findsOneWidget);
+  });
+
+  testWidgets('save dialog exports a clean watermarked image', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    var chartSaved = false;
+    var imageSaved = false;
+    Uint8List? savedWatermark;
+    final watermark = Uint8List.fromList([1, 2, 3]);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ResultScreen(
+          pattern: _pattern(),
+          exportService: _FakePatternExportService(
+            onSave: (_, _) async => chartSaved = true,
+            onSavePatternImage: (_, value) async {
+              imageSaved = true;
+              savedWatermark = value;
+            },
+          ),
+          loadWatermarkPngBytes: () async => watermark,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('保存图纸还是保存图片'), findsOneWidget);
+    expect(find.byKey(const ValueKey('result-save-chart')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('result-save-clean-image')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-save-clean-image')));
+    await tester.pumpAndSettle();
+
+    expect(chartSaved, isFalse);
+    expect(imageSaved, isTrue);
+    expect(savedWatermark, watermark);
+    expect(find.text('图片已保存'), findsOneWidget);
   });
 
   testWidgets('照片权限被拒绝时显示设置提示而非原始错误', (tester) async {
@@ -478,6 +537,8 @@ void main() {
     );
 
     await tester.tap(find.byKey(const ValueKey('result-save-image-button')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('result-save-chart')));
     await tester.pump();
 
     expect(find.text('请在系统设置中允许照片权限后再保存图纸'), findsOneWidget);
@@ -585,6 +646,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('result-delete-work-button')));
     await tester.pumpAndSettle();
+    expect(find.text('确定删除吗？'), findsOneWidget);
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('删除'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('result-delete-work-confirm')));
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 100)),
@@ -651,6 +715,10 @@ void main() {
       find.descendant(of: favoriteButton, matching: find.text('收藏')),
       findsOneWidget,
     );
+    expect(
+      tester.getTopLeft(favoriteButton).dx,
+      lessThan(tester.getTopLeft(find.text('立即开拼')).dx),
+    );
 
     await tester.tap(favoriteButton);
     await tester.runAsync(
@@ -669,8 +737,12 @@ void main() {
       find.descendant(of: favoriteButton, matching: find.text('已收藏')),
       findsOneWidget,
     );
+    expect(
+      tester.getTopLeft(favoriteButton).dx,
+      lessThan(tester.getTopLeft(find.text('立即开拼')).dx),
+    );
     expect(services.myShortcutPreviewRevision.value, 1);
-    expect(find.text('已保存至“我的-收藏”'), findsOneWidget);
+    expect(find.text('收藏后可以在“我的-收藏”中查看哦～'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('patterns-hint-dialog-favorites-illustration')),
       findsOneWidget,
@@ -881,8 +953,13 @@ void main() {
 class _FakePatternExportService extends PatternExportService {
   final Future<void> Function(GeneratedPattern pattern, Uint8List? watermark)
   onSave;
+  final Future<void> Function(GeneratedPattern pattern, Uint8List? watermark)?
+  onSavePatternImage;
 
-  const _FakePatternExportService({required this.onSave});
+  const _FakePatternExportService({
+    required this.onSave,
+    this.onSavePatternImage,
+  });
 
   @override
   Future<void> saveChartPngToPhotoLibrary(
@@ -890,6 +967,14 @@ class _FakePatternExportService extends PatternExportService {
     Uint8List? watermarkPngBytes,
   }) {
     return onSave(pattern, watermarkPngBytes);
+  }
+
+  @override
+  Future<void> savePatternImageToPhotoLibrary(
+    GeneratedPattern pattern, {
+    Uint8List? watermarkPngBytes,
+  }) {
+    return (onSavePatternImage ?? onSave)(pattern, watermarkPngBytes);
   }
 }
 
