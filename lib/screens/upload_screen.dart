@@ -143,32 +143,6 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  String _blindBoxQuotaText() {
-    final quota = _blindBoxQuota;
-    if (_loadingBlindBoxQuota) return '正在获取今日次数';
-    if (quota == null) return '次数暂不可用';
-    if (quota.canDraw) return '今日剩余 ${quota.remaining} 次';
-    return '今日剩余 0 次 · ${_blindBoxResetText(quota.resetAt)}';
-  }
-
-  String _blindBoxResetText(int resetAt) {
-    if (resetAt <= 0) return '明日 00:00 恢复';
-
-    // The server fixes reset time to UTC+8. This label is presentation-only;
-    // the server remains the sole authority for whether a draw is allowed.
-    final reset = DateTime.fromMillisecondsSinceEpoch(
-      resetAt * Duration.millisecondsPerSecond,
-      isUtc: true,
-    ).add(const Duration(hours: 8));
-    final now = DateTime.now().toUtc().add(const Duration(hours: 8));
-    final resetDate = DateTime(reset.year, reset.month, reset.day);
-    final today = DateTime(now.year, now.month, now.day);
-    final daysUntilReset = resetDate.difference(today).inDays;
-    if (daysUntilReset == 1) return '明日 00:00 恢复';
-    if (daysUntilReset == 0) return '今日 00:00 恢复';
-    return '${reset.month}月${reset.day}日 00:00 恢复';
-  }
-
   Future<bool> _loadGalleryTemplates(
     BackendServices services, {
     int? categoryId,
@@ -516,7 +490,6 @@ class _UploadScreenState extends State<UploadScreen> {
                                               imageSource:
                                                   DraftImageSource.illustration,
                                             ),
-                                      blindBoxQuotaText: _blindBoxQuotaText(),
                                       onBlindBox:
                                           _openingBlindBox ||
                                               _loadingBlindBoxQuota ||
@@ -617,7 +590,6 @@ class _HomeDesignCanvas extends StatelessWidget {
   final VoidCallback? onPhotoStart;
   final VoidCallback? onIllustrationStart;
   final VoidCallback? onBlindBox;
-  final String blindBoxQuotaText;
   final VoidCallback? onFilter;
 
   const _HomeDesignCanvas({
@@ -629,7 +601,6 @@ class _HomeDesignCanvas extends StatelessWidget {
     required this.onPhotoStart,
     required this.onIllustrationStart,
     required this.onBlindBox,
-    required this.blindBoxQuotaText,
     required this.onFilter,
   });
 
@@ -684,7 +655,6 @@ class _HomeDesignCanvas extends StatelessWidget {
               key: const ValueKey('home-blind-box-card'),
               icon: 'assets/figma_home/feature_blind_box_icon.png',
               textImage: 'assets/figma_home/feature_blind_box_text.png',
-              footerText: blindBoxQuotaText,
               onTap: onBlindBox,
             ),
           ),
@@ -1651,14 +1621,12 @@ class _StepPill extends StatelessWidget {
 class _FeatureCard extends StatelessWidget {
   final String icon;
   final String textImage;
-  final String? footerText;
   final VoidCallback? onTap;
 
   const _FeatureCard({
     super.key,
     required this.icon,
     required this.textImage,
-    this.footerText,
     required this.onTap,
   });
 
@@ -1708,25 +1676,6 @@ class _FeatureCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (footerText != null)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 5,
-                    child: Text(
-                      footerText!,
-                      key: const ValueKey('home-blind-box-quota'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Color(0x99000000),
-                        fontFamily: _roundFontFamily,
-                        fontFamilyFallback: _fontFallbacks,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        height: 1,
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),

@@ -259,7 +259,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('今日剩余 1 次'), findsOneWidget);
+    expect(find.text('今日剩余 1 次'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
     await tester.pump(const Duration(seconds: 2));
@@ -270,7 +270,7 @@ void main() {
     expect(blindBoxRequest.method, 'GET');
     expect(jsonDecode(blindBoxRequest.body), {'header': {}});
     expect(find.byKey(const ValueKey('blind-box-dialog')), findsOneWidget);
-    expect(find.textContaining('恢复'), findsOneWidget);
+    expect(find.textContaining('恢复'), findsNothing);
     expect(
       find.byKey(const ValueKey('blind-box-template-preview')),
       findsOneWidget,
@@ -532,13 +532,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('今日剩余 1 次'), findsOneWidget);
+    expect(find.text('今日剩余 1 次'), findsNothing);
     await tester.tap(find.byKey(const ValueKey('home-blind-box-card')));
     await tester.pumpAndSettle();
 
     expect(find.text('今天次数已用完，明天再来试试吧'), findsOneWidget);
-    expect(find.textContaining('今日剩余 0 次'), findsOneWidget);
-    expect(find.textContaining('恢复'), findsOneWidget);
+    expect(find.textContaining('今日剩余 0 次'), findsNothing);
+    expect(find.textContaining('恢复'), findsNothing);
     final blindBoxCard = find.byKey(const ValueKey('home-blind-box-card'));
     expect(
       tester
