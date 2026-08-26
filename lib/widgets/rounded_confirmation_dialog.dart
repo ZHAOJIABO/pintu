@@ -10,9 +10,9 @@ const _dialogSecondaryBackground = Color(0xFFEEF0F6);
 class RoundedConfirmationDialog extends StatelessWidget {
   final String title;
   final String? message;
-  final String secondaryLabel;
+  final String? secondaryLabel;
   final String primaryLabel;
-  final VoidCallback onSecondary;
+  final VoidCallback? onSecondary;
   final VoidCallback onPrimary;
   final Key? dialogKey;
   final Key? secondaryButtonKey;
@@ -22,14 +22,17 @@ class RoundedConfirmationDialog extends StatelessWidget {
     super.key,
     required this.title,
     this.message,
-    required this.secondaryLabel,
+    this.secondaryLabel,
     required this.primaryLabel,
-    required this.onSecondary,
+    this.onSecondary,
     required this.onPrimary,
     this.dialogKey,
     this.secondaryButtonKey,
     this.primaryButtonKey,
-  });
+  }) : assert(
+         (secondaryLabel == null) == (onSecondary == null),
+         'secondaryLabel and onSecondary must be provided together.',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -76,29 +79,38 @@ class RoundedConfirmationDialog extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _RoundedConfirmationDialogButton(
-                      key: secondaryButtonKey,
-                      label: secondaryLabel,
-                      backgroundColor: _dialogSecondaryBackground,
-                      foregroundColor: Colors.black,
-                      onTap: onSecondary,
+              if (secondaryLabel != null) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: _RoundedConfirmationDialogButton(
+                        key: secondaryButtonKey,
+                        label: secondaryLabel!,
+                        backgroundColor: _dialogSecondaryBackground,
+                        foregroundColor: Colors.black,
+                        onTap: onSecondary!,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _RoundedConfirmationDialogButton(
-                      key: primaryButtonKey,
-                      label: primaryLabel,
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      onTap: onPrimary,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: _RoundedConfirmationDialogButton(
+                        key: primaryButtonKey,
+                        label: primaryLabel,
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        onTap: onPrimary,
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ] else
+                _RoundedConfirmationDialogButton(
+                  key: primaryButtonKey,
+                  label: primaryLabel,
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  onTap: onPrimary,
+                ),
             ],
           ),
         ),

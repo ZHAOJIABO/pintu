@@ -7,6 +7,7 @@ import '../models/project.dart';
 import '../services/palette_service.dart';
 import '../services/image_service.dart';
 import '../algorithms/color_reducer.dart';
+import '../widgets/app_toast.dart';
 import 'preview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -123,9 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       setState(() => _loading = false);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Processing failed: $e')));
+      showAppToast(context, 'Processing failed: $e');
     }
   }
 

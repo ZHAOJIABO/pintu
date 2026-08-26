@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const _dialogWidth = 330.0;
 const _dialogCardHeight = 305.0;
@@ -10,6 +11,7 @@ const _dialogActionWidth = 260.0;
 const _dialogTotalHeight = _dialogCardHeight + 16 + _dialogActionHeight;
 const _roundFontFamily = 'Alimama FangYuanTi VF';
 const _fontFallbacks = ['PingFang SC', 'Heiti SC', 'Microsoft YaHei'];
+const _completedPreferenceKeyPrefix = 'patterns_hint_dialog_completed_';
 
 enum PatternsHintDestination { patterns, favorites, drafts }
 
@@ -17,15 +19,26 @@ enum PatternsHintDestination { patterns, favorites, drafts }
 Future<void> showPatternsHintDialog(
   BuildContext context, {
   PatternsHintDestination destination = PatternsHintDestination.patterns,
-}) {
-  return showGeneralDialog<void>(
+}) async {
+  final preferenceKey = '$_completedPreferenceKeyPrefix${destination.name}';
+  SharedPreferences? preferences;
+  try {
+    preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool(preferenceKey) == true) return;
+  } catch (_) {
+    // Still show the hint if local preferences are temporarily unavailable.
+  }
+
+  final acknowledged = await showGeneralDialog<bool>(
     context: context,
     barrierDismissible: true,
     barrierLabel: '关闭图纸查看提示',
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 220),
-    pageBuilder: (context, _, _) =>
-        PatternsHintDialog(destination: destination),
+    pageBuilder: (context, _, _) => PatternsHintDialog(
+      destination: destination,
+      onAcknowledge: () => Navigator.of(context).pop(true),
+    ),
     transitionBuilder: (context, animation, _, child) {
       final opacity = CurvedAnimation(
         parent: animation,
@@ -35,14 +48,23 @@ Future<void> showPatternsHintDialog(
       return FadeTransition(opacity: opacity, child: child);
     },
   );
+
+  if (acknowledged != true || preferences == null) return;
+  try {
+    await preferences.setBool(preferenceKey, true);
+  } catch (_) {
+    // The user can still proceed when the acknowledgement cannot be persisted.
+  }
 }
 
 class PatternsHintDialog extends StatelessWidget {
   final PatternsHintDestination destination;
+  final VoidCallback? onAcknowledge;
 
   const PatternsHintDialog({
     super.key,
     this.destination = PatternsHintDestination.patterns,
+    this.onAcknowledge,
   });
 
   void _dismiss(BuildContext context) => Navigator.of(context).pop();
@@ -85,7 +107,7 @@ class PatternsHintDialog extends StatelessWidget {
                       width: _dialogWidth,
                       height: _dialogTotalHeight,
                       child: _PatternsHintDialogContent(
-                        onDismiss: () => _dismiss(context),
+                        onDismiss: onAcknowledge ?? () => _dismiss(context),
                         destination: destination,
                       ),
                     ),

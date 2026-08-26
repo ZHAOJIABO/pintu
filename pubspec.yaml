@@ -2,7 +2,7 @@ name: bobobeads
 description: "Convert images into bead patterns for perler bead art."
 publish_to: 'none'
 
-version: 1.0.0+16
+version: 1.0.0+27
 
 environment:
   sdk: ^3.11.0-113.0.dev
@@ -25,6 +25,7 @@ dependencies:
   url_launcher: ^6.3.1
   cached_network_image: ^3.4.1
   shared_preferences: ^2.5.5
+  package_info_plus: ^8.3.1
   protobuf: ^6.0.0
 
 dev_dependencies:
@@ -42,6 +43,7 @@ flutter:
     - assets/figma_my/
     - assets/figma_style/
     - assets/pin_icon/
+    - assets/onboarding/
     - ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png
     - assets/palettes/mard221.csv
   fonts:

@@ -9,6 +9,7 @@ import '../models/draft_project.dart';
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/blind_box_dialog.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
@@ -233,9 +234,7 @@ class _UploadScreenState extends State<UploadScreen> {
     ]);
     if (!mounted || !identical(_backendServices, services)) return;
     if (!results.first) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('模板刷新失败，已保留当前内容')));
+      showAppToast(context, '模板刷新失败，已保留当前内容');
     }
   }
 
@@ -354,9 +353,7 @@ class _UploadScreenState extends State<UploadScreen> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('照片读取失败：$error')));
+      showAppToast(context, '照片读取失败：$error');
     } finally {
       if (mounted) setState(() => _picking = false);
     }
@@ -369,9 +366,7 @@ class _UploadScreenState extends State<UploadScreen> {
       return;
     }
     if (!quota.canDraw) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('今天次数已用完，明天再来试试吧')));
+      showAppToast(context, '今天次数已用完，明天再来试试吧');
       return;
     }
     final drawQuota = quota;
@@ -407,23 +402,17 @@ class _UploadScreenState extends State<UploadScreen> {
             used: drawQuota.dailyLimit,
           ),
         );
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('今天次数已用完，明天再来试试吧')));
+        showAppToast(context, '今天次数已用完，明天再来试试吧');
         return;
       }
       await _loadBlindBoxQuota(services);
       if (!mounted || !identical(_backendServices, services)) return;
       final message = error.code == 1002 ? '盲盒暂时没有可抽图纸，请稍后再试' : '盲盒加载失败，请重试';
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      showAppToast(context, message);
     } catch (_) {
       await _loadBlindBoxQuota(services);
       if (!mounted || !identical(_backendServices, services)) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('盲盒加载失败，请重试')));
+      showAppToast(context, '盲盒加载失败，请重试');
     } finally {
       if (mounted) setState(() => _openingBlindBox = false);
     }

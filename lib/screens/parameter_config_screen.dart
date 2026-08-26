@@ -16,6 +16,7 @@ import '../services/image_service.dart';
 import '../services/palette_service.dart';
 import '../services/pattern_generation_service.dart';
 import '../services/project_storage_service.dart';
+import '../widgets/app_toast.dart';
 import 'result_screen.dart';
 
 const _roundFontFamily = 'Alimama FangYuanTi VF';
@@ -354,9 +355,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       if (!mounted) return;
 
       setState(() => _generating = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('生成失败：$error')));
+      showAppToast(context, '生成失败：$error');
     }
   }
 

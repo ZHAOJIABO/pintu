@@ -19,6 +19,7 @@ import '../services/editor_history_service.dart';
 import '../services/palette_service.dart';
 import '../services/pattern_edit_service.dart';
 import '../services/pattern_image_upload_service.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/bead_board_preview.dart';
 import '../widgets/rounded_confirmation_dialog.dart';
 
@@ -618,9 +619,7 @@ class _PatternEditorScreenState extends State<PatternEditorScreen> {
   }
 
   void _showSaveFailure({String message = '保存失败，请重试'}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message);
   }
 
   String get _selectedColorRef => _colorRefFor(_selectedColor);

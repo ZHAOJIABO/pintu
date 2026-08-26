@@ -8,6 +8,7 @@ import 'package:image/image.dart' as img;
 import '../models/draft_project.dart';
 import '../models/product_template.dart';
 import '../services/crop_service.dart';
+import '../widgets/app_toast.dart';
 import 'parameter_config_screen.dart';
 import 'style_conversion_screen.dart';
 
@@ -420,9 +421,7 @@ class _CropScreenState extends State<CropScreen>
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('裁切失败：$error')));
+      showAppToast(context, '裁切失败：$error');
     } finally {
       if (mounted) setState(() => _cropping = false);
     }

@@ -7,7 +7,9 @@ import 'package:in_app_review/in_app_review.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api/api_scope.dart';
+import '../services/app_update_service.dart';
 import '../services/style_thumbnail_cache.dart';
+import '../widgets/app_toast.dart';
 import 'upload_pattern_screen.dart';
 
 const _settingsBackground = Color(0xFFF0F0F4);
@@ -42,6 +44,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   BackendServices? _services;
   String _userId = '';
+  String _appVersion = fallbackAppVersion;
+  bool _hasOptionalUpdate = false;
+  AppUpdatePolicy? _updatePolicy;
   bool _clearingCache = false;
 
   @override
@@ -51,6 +56,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (identical(services, _services)) return;
     _services = services;
     if (services != null) _loadUserId(services);
+    unawaited(_loadVersionInfo(services));
+  }
+
+  Future<void> _loadVersionInfo(BackendServices? services) async {
+    final version = await const AppVersionService().currentVersion();
+    var hasOptionalUpdate = false;
+    AppUpdatePolicy? updatePolicy;
+    if (services != null) {
+      try {
+        updatePolicy = AppUpdatePolicy.fromConfig(
+          await services.system.getConfig(),
+        );
+        hasOptionalUpdate =
+            updatePolicy.isConfigured &&
+            updatePolicy.hasOptionalUpdate(version);
+      } catch (_) {}
+    }
+    if (!mounted || !identical(_services, services)) return;
+    setState(() {
+      _appVersion = version;
+      _hasOptionalUpdate = hasOptionalUpdate;
+      _updatePolicy = updatePolicy;
+    });
+  }
+
+  Future<void> _openStoreListing() async {
+    final policy = _updatePolicy;
+    if (policy == null || !await const AppStoreUpdateService().open(policy)) {
+      if (mounted) _showLaunchFailure();
+    }
   }
 
   Future<void> _loadUserId(BackendServices services) async {
@@ -95,15 +130,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await widget.clearAppCache(_services?.styleThumbnails);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('缓存已清除')));
+        showAppToast(context, '缓存已清除');
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('清除失败，请稍后重试')));
+        showAppToast(context, '清除失败，请稍后重试');
       }
     } finally {
       if (mounted) setState(() => _clearingCache = false);
@@ -111,15 +142,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showLaunchFailure() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('暂时无法打开页面')));
+    showAppToast(context, '暂时无法打开页面');
   }
 
   void _showReviewFailure() {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('暂时无法发起评分')));
+    showAppToast(context, '暂时无法发起评分');
   }
 
   @override
@@ -197,10 +224,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ? null
                                 : () => unawaited(_confirmAndClearCache()),
                           ),
-                          const _SettingsRowData(
+                          _SettingsRowData(
                             iconAsset: 'assets/pin_icon/settings_version.svg',
                             title: '当前版本',
-                            trailing: _VersionTrailing(),
+                            trailing: _VersionTrailing(
+                              version: _appVersion,
+                              showUpdate: _hasOptionalUpdate,
+                              onUpdate: () => unawaited(_openStoreListing()),
+                            ),
                           ),
                           _SettingsRowData(
                             iconAsset: 'assets/pin_icon/settings_my_id.svg',
@@ -535,35 +566,48 @@ class _SettingsChevron extends StatelessWidget {
 }
 
 class _VersionTrailing extends StatelessWidget {
-  const _VersionTrailing();
+  final String version;
+  final bool showUpdate;
+  final VoidCallback onUpdate;
+
+  const _VersionTrailing({
+    required this.version,
+    required this.showUpdate,
+    required this.onUpdate,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('V1.1.1', style: _settingsTrailingTextStyle),
-        SizedBox(width: 8),
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: Color(0xFFFFF09A),
-            borderRadius: BorderRadius.all(Radius.circular(4)),
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Text(
-              '更新',
-              style: TextStyle(
-                color: Colors.black,
-                fontFamily: _settingsFontFamily,
-                fontFamilyFallback: _settingsFontFallbacks,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                height: 9 / 12,
+        Text('V$version', style: _settingsTrailingTextStyle),
+        if (showUpdate) ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onUpdate,
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color(0xFFFFF09A),
+                borderRadius: BorderRadius.all(Radius.circular(4)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: Text(
+                  '更新',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontFamily: _settingsFontFamily,
+                    fontFamilyFallback: _settingsFontFallbacks,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    height: 9 / 12,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }

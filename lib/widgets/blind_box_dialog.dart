@@ -74,6 +74,7 @@ const _fallbackReward = BlindBoxReward(
 const _printerSlotTop = 188.0;
 const _printerSlotHeight = 28.0;
 const _printedPaperTop = _printerSlotTop + _printerSlotHeight / 2;
+const _onboardingOutputTopOffset = -20.0;
 const _paperMaskTop = 0.0;
 const _titleOutlineWidth = 13.075;
 const _titleSkewDegrees = -10.0;
@@ -119,6 +120,204 @@ class BlindBoxDialog extends StatefulWidget {
 
   @override
   State<BlindBoxDialog> createState() => _BlindBoxDialogState();
+}
+
+/// Reuses the home blind-box reward title and printer animation in contexts
+/// that need to preview a super-rare reward, such as onboarding.
+class BlindBoxRewardReveal extends StatefulWidget {
+  final String patternAsset;
+  final String titleIconAsset;
+  final String patternBadgeAsset;
+
+  const BlindBoxRewardReveal({
+    super.key,
+    required this.patternAsset,
+    required this.titleIconAsset,
+    required this.patternBadgeAsset,
+  });
+
+  @override
+  State<BlindBoxRewardReveal> createState() => _BlindBoxRewardRevealState();
+}
+
+class _BlindBoxRewardRevealState extends State<BlindBoxRewardReveal>
+    with TickerProviderStateMixin {
+  late final AnimationController _printController;
+  late final AnimationController _titleController;
+  late final AnimationController _badgeController;
+  late final Animation<double> _titleOpacity;
+  late final Animation<double> _titleScale;
+  late final Animation<double> _badgeOpacity;
+  bool _hasStartedEntrance = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _printController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _titleController = AnimationController(
+      vsync: this,
+      duration: _titleEntranceDuration,
+    );
+    _badgeController = AnimationController(
+      vsync: this,
+      duration: _badgeEntranceDuration,
+    );
+    _titleOpacity = CurvedAnimation(
+      parent: _titleController,
+      curve: Curves.easeOutCubic,
+    );
+    _titleScale = Tween<double>(begin: 0.92, end: 1).animate(
+      CurvedAnimation(parent: _titleController, curve: Curves.easeOutBack),
+    );
+    _badgeOpacity = CurvedAnimation(
+      parent: _badgeController,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasStartedEntrance) return;
+    _hasStartedEntrance = true;
+    if (MediaQuery.of(context).disableAnimations) {
+      _titleController.value = 1;
+      _printController.value = 1;
+      _badgeController.value = 1;
+    } else {
+      _playEntrance();
+    }
+  }
+
+  Future<void> _playEntrance() async {
+    await Future<void>.delayed(_titleEntranceDelay);
+    if (!mounted) return;
+    _titleController.forward();
+
+    await Future<void>.delayed(_printStartDelay - _titleEntranceDelay);
+    if (!mounted) return;
+    await _printController.forward();
+    if (mounted) _badgeController.forward();
+  }
+
+  @override
+  void dispose() {
+    _printController.dispose();
+    _titleController.dispose();
+    _badgeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.contain,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        width: _designWidth,
+        height: 500,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              left: 21.5,
+              top: 74,
+              width: 347.026,
+              height: 51.0594,
+              child: IgnorePointer(
+                child: SvgPicture.asset(
+                  'assets/onboarding/blind_box_title_confetti.svg',
+                  fit: BoxFit.fill,
+                ),
+              ),
+            ),
+            Positioned(
+              left: 61.5,
+              top: 80,
+              width: 267,
+              height: 68,
+              child: FadeTransition(
+                opacity: _titleOpacity,
+                child: ScaleTransition(
+                  scale: _titleScale,
+                  child: _BlindBoxTitle(
+                    rarityLabel: BlindBoxRarity.superRare.label,
+                    rarityGradient: BlindBoxRarity.superRare.gradient,
+                    titleIconAsset: widget.titleIconAsset,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 30,
+              top: _printerSlotTop + _onboardingOutputTopOffset,
+              width: 330,
+              height: _printerSlotHeight,
+              child: AnimatedBuilder(
+                animation: _printController,
+                child: const DecoratedBox(
+                  decoration: ShapeDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment(0.5, 0),
+                      end: Alignment(0.5, 1),
+                      colors: [
+                        Color(0xFFFFD557),
+                        Color(0xFFFFEF1C),
+                        Color(0xFFFFE91A),
+                      ],
+                      stops: [0, 0.55, 1],
+                    ),
+                    shape: RoundedRectangleBorder(
+                      side: BorderSide(width: 3, color: Colors.white),
+                      borderRadius: BorderRadius.all(Radius.circular(106)),
+                    ),
+                  ),
+                ),
+                builder: (context, child) {
+                  const hideAt = 0.82;
+                  final hideProgress =
+                      ((_printController.value - hideAt) / (1 - hideAt)).clamp(
+                        0.0,
+                        1.0,
+                      );
+                  if (hideProgress >= 1) return const SizedBox.shrink();
+                  return Opacity(
+                    opacity: 1 - Curves.easeIn.transform(hideProgress),
+                    child: child,
+                  );
+                },
+              ),
+            ),
+            _PrintingPattern(
+              pattern: widget.patternAsset,
+              imageUrl: '',
+              borderSide: const BorderSide(width: 5, color: Colors.black),
+              paperHeight: 344.619,
+              paperTop: _printedPaperTop + _onboardingOutputTopOffset,
+              trimCoordinateMargins: true,
+              progress: CurvedAnimation(
+                parent: _printController,
+                curve: Curves.easeOutCubic,
+              ),
+            ),
+            Positioned(
+              right: 5,
+              top: 490,
+              width: 70,
+              height: 40,
+              child: FadeTransition(
+                opacity: _badgeOpacity,
+                child: _BlindBoxBadge(fallbackAsset: widget.patternBadgeAsset),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _BlindBoxDialogState extends State<BlindBoxDialog>
@@ -1079,26 +1278,36 @@ double _measureTitleTextWidth(String text, TextStyle style) {
 class _PrintingPattern extends StatelessWidget {
   final String pattern;
   final String imageUrl;
+  final BorderSide? borderSide;
+  final double paperHeight;
+  final double paperTop;
+  final bool trimCoordinateMargins;
   final Animation<double> progress;
 
   const _PrintingPattern({
     required this.pattern,
     required this.imageUrl,
     required this.progress,
+    this.borderSide,
+    this.paperHeight = 300,
+    this.paperTop = _printedPaperTop,
+    this.trimCoordinateMargins = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
       left: 45,
-      top: _printedPaperTop,
+      top: paperTop,
       child: AnimatedBuilder(
         animation: progress,
         builder: (context, _) {
+          final showFinishedTopEdge =
+              borderSide != null && progress.value >= 0.999;
           return SizedBox(
             key: const ValueKey('blind-box-printed-paper'),
             width: 300,
-            height: 300 * progress.value,
+            height: paperHeight * progress.value,
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -1120,8 +1329,8 @@ class _PrintingPattern extends StatelessWidget {
                     alignment: Alignment.topCenter,
                     minWidth: 300,
                     maxWidth: 300,
-                    minHeight: 300,
-                    maxHeight: 300,
+                    minHeight: paperHeight,
+                    maxHeight: paperHeight,
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -1129,15 +1338,30 @@ class _PrintingPattern extends StatelessWidget {
                             pattern != patternDisplayPlaceholderAsset)
                           Stack(
                             fit: StackFit.expand,
+                            clipBehavior: Clip.hardEdge,
                             children: [
                               const PatternDisplayPlaceholder(),
-                              Image.asset(
-                                pattern,
-                                fit: BoxFit.cover,
-                                alignment: Alignment.topCenter,
-                                errorBuilder: (_, _, _) =>
-                                    const SizedBox.expand(),
-                              ),
+                              if (trimCoordinateMargins)
+                                Positioned(
+                                  left: -300 * 0.0258,
+                                  top: -paperHeight * 0.0412,
+                                  width: 300 * 1.0522,
+                                  height: paperHeight * 1.145,
+                                  child: Image.asset(
+                                    pattern,
+                                    fit: BoxFit.fill,
+                                    errorBuilder: (_, _, _) =>
+                                        const SizedBox.expand(),
+                                  ),
+                                )
+                              else
+                                Image.asset(
+                                  pattern,
+                                  fit: BoxFit.cover,
+                                  alignment: Alignment.topCenter,
+                                  errorBuilder: (_, _, _) =>
+                                      const SizedBox.expand(),
+                                ),
                             ],
                           )
                         else
@@ -1150,21 +1374,40 @@ class _PrintingPattern extends StatelessWidget {
                             alignment: Alignment.topCenter,
                             errorBuilder: (_, _, _) => const SizedBox.expand(),
                           ),
-                        const Positioned(
-                          left: 0,
-                          top: _paperMaskTop,
-                          width: 300,
-                          height: 14,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment(0.5, 0),
-                                end: Alignment(0.5, 1),
-                                colors: [Color(0x99FAC239), Color(0x00FAC239)],
+                        if (borderSide != null)
+                          IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                border: Border(
+                                  left: borderSide!,
+                                  right: borderSide!,
+                                  bottom: borderSide!,
+                                  top: showFinishedTopEdge
+                                      ? borderSide!
+                                      : BorderSide.none,
+                                ),
                               ),
                             ),
                           ),
-                        ),
+                        if (!showFinishedTopEdge)
+                          const Positioned(
+                            left: 0,
+                            top: _paperMaskTop,
+                            width: 300,
+                            height: 14,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment(0.5, 0),
+                                  end: Alignment(0.5, 1),
+                                  colors: [
+                                    Color(0x99FAC239),
+                                    Color(0x00FAC239),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   ),

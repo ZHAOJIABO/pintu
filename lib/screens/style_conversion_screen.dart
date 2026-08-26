@@ -14,6 +14,7 @@ import '../services/api/api_scope.dart';
 import '../widgets/rounded_confirmation_dialog.dart';
 import '../services/pattern_export_service.dart';
 import '../services/style_thumbnail_cache.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import 'parameter_config_screen.dart';
 
@@ -205,15 +206,11 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
     try {
       await _imageExportService.saveImageBytesToPhotoLibrary(image);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('AI 图片已保存')));
+        showAppToast(context, 'AI 图片已保存');
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('保存失败，请重试')));
+        showAppToast(context, '保存失败，请重试');
       }
     } finally {
       if (mounted) setState(() => _savingAiImage = false);
@@ -232,9 +229,7 @@ class _StyleConversionScreenState extends State<StyleConversionScreen> {
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message);
   }
 
   Future<void> _handleBack() async {

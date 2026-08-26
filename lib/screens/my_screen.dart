@@ -13,6 +13,7 @@ import '../services/api/api_scope.dart';
 import '../services/api/api_session_store.dart';
 import '../services/camera_permission_service.dart';
 import '../services/crop_service.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/home_filter_dialog.dart';
 import '../widgets/home_pattern_gallery.dart';
 import '../widgets/pattern_display_placeholder.dart';
@@ -308,9 +309,7 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
   }
 
   void _showMessage(String message, {SnackBarAction? action}) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), action: action));
+    showAppToast(context, message, action: action);
   }
 
   Future<void> _recordFinishedProduct() async {
@@ -1145,9 +1144,7 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message);
   }
 
   void _selectTab(_LibraryTab tab) {

@@ -10,6 +10,8 @@ import 'api_repositories.dart';
 import 'api_session_store.dart';
 import 'vendor_identifier.dart';
 import '../style_thumbnail_cache.dart';
+import '../app_update_service.dart';
+import '../../widgets/force_update_dialog.dart';
 
 class BackendServices {
   Future<PagedResult<TemplateItem>>? _homeTemplatesRequest;
@@ -234,12 +236,14 @@ class BackendScope extends InheritedWidget {
 class BackendWarmUp extends StatefulWidget {
   final BackendServices services;
   final bool enabled;
+  final GlobalKey<NavigatorState> navigatorKey;
   final Widget child;
 
   const BackendWarmUp({
     super.key,
     required this.services,
     required this.enabled,
+    required this.navigatorKey,
     required this.child,
   });
 
@@ -256,8 +260,26 @@ class _BackendWarmUpState extends State<BackendWarmUp> {
     if (_started || !widget.enabled) return;
     _started = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(widget.services.warmUp().catchError((_) {}));
+      unawaited(_warmUp());
     });
+  }
+
+  Future<void> _warmUp() async {
+    try {
+      final config = await widget.services.system.getConfig();
+      final policy = AppUpdatePolicy.fromConfig(config);
+      final version = await const AppVersionService().currentVersion();
+      if (!mounted) return;
+      if (policy.isConfigured && policy.requiresUpdate(version)) {
+        final navigator = widget.navigatorKey.currentState;
+        if (navigator != null) {
+          await showForceUpdateDialog(navigator, policy: policy);
+        }
+      }
+    } catch (_) {
+      // A config failure must not prevent the app from opening or warming up.
+    }
+    await widget.services.warmUp().catchError((_) {});
   }
 
   @override

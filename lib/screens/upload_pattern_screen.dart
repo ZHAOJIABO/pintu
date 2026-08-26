@@ -6,6 +6,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/pattern_display_placeholder.dart';
 
 const _uploadPatternBackground = Color(0xFFF0F2F6);
@@ -178,9 +179,7 @@ class _UploadPatternScreenState extends State<UploadPatternScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    showAppToast(context, message);
   }
 
   List<WorkItem> get _selectableWorks => _works;

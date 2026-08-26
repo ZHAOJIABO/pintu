@@ -11,6 +11,7 @@ import '../rendering/bead_painter.dart';
 import '../services/api/api_scope.dart';
 import '../services/export_watermark_renderer.dart';
 import '../services/export_watermark_service.dart';
+import '../widgets/app_toast.dart';
 
 class ExportScreen extends StatelessWidget {
   final ColorReducerResult result;
@@ -78,14 +79,7 @@ class ExportScreen extends StatelessWidget {
   }
 
   void _showWatermarkError(BuildContext context) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('水印加载失败，请重试'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    showAppToast(context, '水印加载失败，请重试', placement: AppToastPlacement.floating);
   }
 
   @override

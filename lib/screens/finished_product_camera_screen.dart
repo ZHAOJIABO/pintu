@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/background_removal_service.dart';
+import '../widgets/app_toast.dart';
 
 const _cameraCancelAsset = 'assets/pin_icon/camera_cancel.svg';
 const _cameraShutterAsset = 'assets/pin_icon/camera_shutter.svg';
@@ -107,9 +108,7 @@ class _FinishedProductCameraScreenState
       if (mounted) setState(() => _backgroundRemovedPhoto = result);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('去背景失败，请重试')));
+        showAppToast(context, '去背景失败，请重试');
       }
     } finally {
       if (mounted) setState(() => _removingBackground = false);
@@ -133,9 +132,7 @@ class _FinishedProductCameraScreenState
       }
     } on CameraException {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('拍照失败，请重试')));
+        showAppToast(context, '拍照失败，请重试');
       }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);

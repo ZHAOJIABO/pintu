@@ -16,6 +16,7 @@ import '../services/api/api_models.dart';
 import '../services/api/api_scope.dart';
 import '../services/export_watermark_service.dart';
 import '../services/pattern_export_service.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import '../widgets/rounded_confirmation_dialog.dart';
 import 'bead_mode_screen.dart';
@@ -234,19 +235,12 @@ class _ResultScreenState extends State<ResultScreen> {
   void _showSaveImageFailure(Object error) {
     if (!mounted) return;
     if (error is PlatformException && error.code == 'permission_denied') {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: const Text('请在系统设置中允许照片权限后再保存图纸'),
-            action: SnackBarAction(
-              label: '去设置',
-              onPressed: () {
-                openAppSettings();
-              },
-            ),
-          ),
-        );
+      showAppToast(
+        context,
+        '请在系统设置中允许照片权限后再保存图纸',
+        action: SnackBarAction(label: '去设置', onPressed: openAppSettings),
+        placement: AppToastPlacement.floating,
+      );
       return;
     }
     _showToast('保存失败，请重试');
@@ -313,15 +307,7 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   void _showToast(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    showAppToast(context, message, placement: AppToastPlacement.floating);
   }
 
   Future<void> _showGeneratedHintDialog() {

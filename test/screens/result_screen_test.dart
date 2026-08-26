@@ -13,13 +13,17 @@ import 'package:bobobeads/services/api/api_scope.dart';
 import 'package:bobobeads/services/api/api_session_store.dart';
 import 'package:bobobeads/services/pattern_export_service.dart';
 import 'package:bobobeads/widgets/bead_board_preview.dart';
+import 'package:bobobeads/widgets/patterns_hint_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   for (final viewport in const [Size(375, 667), Size(430, 932)]) {
     testWidgets('ResultScreen renders Figma drawing layout on $viewport', (
       tester,
@@ -49,6 +53,38 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('图纸查看提示确认后仅展示一次', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: FilledButton(
+                onPressed: () {
+                  showPatternsHintDialog(context);
+                },
+                child: const Text('显示提示'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('显示提示'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('patterns-hint-dialog')), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('patterns-hint-dialog-confirm')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('显示提示'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('patterns-hint-dialog')), findsNothing);
+  });
 
   testWidgets('official template shows its author below the chart', (
     tester,
