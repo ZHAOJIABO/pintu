@@ -328,12 +328,10 @@ class _MyDesignCanvasState extends State<_MyDesignCanvas> {
             permission == CameraPermissionResult.permanentlyDenied;
         _showMessage(
           permanentlyDenied ? '请在系统设置中允许相机权限后再记录成品' : '需要相机权限才能记录成品',
-          action: permanentlyDenied
-              ? SnackBarAction(
-                  label: '去设置',
-                  onPressed: () => _cameraPermission.openSettings(),
-                )
-              : null,
+          action: SnackBarAction(
+            label: '去设置',
+            onPressed: () => _cameraPermission.openSettings(),
+          ),
         );
         return;
       }

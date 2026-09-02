@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/palette.dart';
 import '../models/project.dart';
+import '../services/camera_permission_service.dart';
 import '../services/palette_service.dart';
 import '../services/image_service.dart';
 import '../algorithms/color_reducer.dart';
@@ -20,6 +21,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final PaletteService _paletteService = PaletteService();
   final ImageService _imageService = ImageService();
+  final CameraPermissionService _cameraPermission =
+      const CameraPermissionService();
   final Project _project = Project();
 
   List<Palette> _allPalettes = [];
@@ -45,13 +48,40 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickImage() async {
-    final file = await _imageService.pickImage();
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
-    setState(() {
-      _imageBytes = bytes;
-      _imageName = file.name;
-    });
+    await _pickImageFrom(ImageSource.gallery);
+  }
+
+  Future<void> _pickImageFrom(ImageSource source) async {
+    if (source == ImageSource.camera) {
+      final permission = await _cameraPermission.requestCameraPermission();
+      if (!mounted) return;
+      if (permission != CameraPermissionResult.granted) {
+        showAppToast(
+          context,
+          permission == CameraPermissionResult.permanentlyDenied
+              ? '请在系统设置中允许相机权限后再拍照'
+              : '需要相机权限才能拍照',
+          action: SnackBarAction(
+            label: '去设置',
+            onPressed: () => _cameraPermission.openSettings(),
+          ),
+        );
+        return;
+      }
+    }
+
+    try {
+      final file = await _imageService.pickImage(source: source);
+      if (file == null) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _imageBytes = bytes;
+        _imageName = file.name;
+      });
+    } catch (error) {
+      if (mounted) showAppToast(context, '照片读取失败：$error');
+    }
   }
 
   Future<void> _beadify() async {
@@ -206,17 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton.icon(
-                  onPressed: () async {
-                    final file = await _imageService.pickImage(
-                      source: ImageSource.camera,
-                    );
-                    if (file == null) return;
-                    final bytes = await file.readAsBytes();
-                    setState(() {
-                      _imageBytes = bytes;
-                      _imageName = file.name;
-                    });
-                  },
+                  onPressed: () => _pickImageFrom(ImageSource.camera),
                   icon: const Icon(Icons.camera_alt),
                   label: const Text('Camera'),
                 ),

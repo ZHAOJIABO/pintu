@@ -111,6 +111,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
   late int _customSize = _initialCustomSize();
   late String? _brandId = widget.draft.paletteBrandId;
   late ColorLimit _limit = widget.draft.colorLimit;
+  late bool _preserveWhite = widget.draft.preserveWhite;
   late bool _smoothing = widget.draft.smoothingEnabled;
   late bool _removeBackground = widget.draft.removeBackground;
   late bool _denoise = widget.draft.denoiseEnabled;
@@ -228,6 +229,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
     final cacheKey = _ParameterPreviewCacheKey(
       dimension: dimension,
       colorLimit: _limit,
+      preserveWhite: _preserveWhite,
       paletteBrandId: brandId,
       saturation: _saturation,
       denoise: _denoise,
@@ -261,6 +263,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
         selectedTemplate: previewTemplate,
         paletteBrandId: brandId,
         colorLimit: _limit,
+        preserveWhite: _preserveWhite,
         // 参数页只做低清效果预览；背景移除与抖动留给最终生成。
         smoothingEnabled: false,
         denoiseEnabled: _denoise,
@@ -310,6 +313,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
       customBeadHeight: _selectedTemplate.custom ? _customHeight : null,
       paletteBrandId: brandId,
       colorLimit: _limit,
+      preserveWhite: _preserveWhite,
       smoothingEnabled: _smoothing,
       denoiseEnabled: _denoise,
       denoiseStrength: _denoiseStrength,
@@ -412,6 +416,7 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                           selectedTemplate: _selectedTemplate,
                           customSize: _customSize,
                           colorLimit: _limit,
+                          preserveWhite: _preserveWhite,
                           smoothing: _smoothing,
                           removeBackground: _removeBackground,
                           denoise: _denoise,
@@ -443,6 +448,10 @@ class _ParameterConfigScreenState extends State<ParameterConfigScreen> {
                             setState(
                               () => _removeBackground = !_removeBackground,
                             );
+                          },
+                          onPreserveWhiteChanged: () {
+                            setState(() => _preserveWhite = !_preserveWhite);
+                            _scheduleParameterPreview();
                           },
                           onDenoiseChanged: () {
                             setState(() => _denoise = !_denoise);
@@ -868,6 +877,7 @@ class _ParameterPreviewCaption extends StatelessWidget {
 class _ParameterPreviewCacheKey {
   final int dimension;
   final ColorLimit colorLimit;
+  final bool preserveWhite;
   final String paletteBrandId;
   final int saturation;
   final bool denoise;
@@ -876,6 +886,7 @@ class _ParameterPreviewCacheKey {
   const _ParameterPreviewCacheKey({
     required this.dimension,
     required this.colorLimit,
+    required this.preserveWhite,
     required this.paletteBrandId,
     required this.saturation,
     required this.denoise,
@@ -887,6 +898,7 @@ class _ParameterPreviewCacheKey {
       other is _ParameterPreviewCacheKey &&
       dimension == other.dimension &&
       colorLimit == other.colorLimit &&
+      preserveWhite == other.preserveWhite &&
       paletteBrandId == other.paletteBrandId &&
       saturation == other.saturation &&
       denoise == other.denoise &&
@@ -896,6 +908,7 @@ class _ParameterPreviewCacheKey {
   int get hashCode => Object.hash(
     dimension,
     colorLimit,
+    preserveWhite,
     paletteBrandId,
     saturation,
     denoise,
@@ -952,6 +965,7 @@ class _ParameterPanel extends StatelessWidget {
   final ProductTemplate selectedTemplate;
   final int customSize;
   final ColorLimit colorLimit;
+  final bool preserveWhite;
   final bool smoothing;
   final bool removeBackground;
   final bool denoise;
@@ -964,6 +978,7 @@ class _ParameterPanel extends StatelessWidget {
   final ValueChanged<int> onCustomSizeChanged;
   final VoidCallback onSmoothingChanged;
   final VoidCallback onRemoveBackgroundChanged;
+  final VoidCallback onPreserveWhiteChanged;
   final VoidCallback onDenoiseChanged;
   final ValueChanged<DenoiseStrength> onDenoiseStrengthChanged;
   final VoidCallback onSaturationDecrease;
@@ -978,6 +993,7 @@ class _ParameterPanel extends StatelessWidget {
     required this.selectedTemplate,
     required this.customSize,
     required this.colorLimit,
+    required this.preserveWhite,
     required this.smoothing,
     required this.removeBackground,
     required this.denoise,
@@ -990,6 +1006,7 @@ class _ParameterPanel extends StatelessWidget {
     required this.onCustomSizeChanged,
     required this.onSmoothingChanged,
     required this.onRemoveBackgroundChanged,
+    required this.onPreserveWhiteChanged,
     required this.onDenoiseChanged,
     required this.onDenoiseStrengthChanged,
     required this.onSaturationDecrease,
@@ -1024,6 +1041,7 @@ class _ParameterPanel extends StatelessWidget {
                   const SizedBox(height: 32),
                   _ParameterRows(
                     colorLimit: colorLimit,
+                    preserveWhite: preserveWhite,
                     smoothing: smoothing,
                     removeBackground: removeBackground,
                     denoise: denoise,
@@ -1033,6 +1051,7 @@ class _ParameterPanel extends StatelessWidget {
                     palettes: palettes,
                     onSmoothingChanged: onSmoothingChanged,
                     onRemoveBackgroundChanged: onRemoveBackgroundChanged,
+                    onPreserveWhiteChanged: onPreserveWhiteChanged,
                     onDenoiseChanged: onDenoiseChanged,
                     onDenoiseStrengthChanged: onDenoiseStrengthChanged,
                     onSaturationDecrease: onSaturationDecrease,
@@ -1287,6 +1306,7 @@ class _CustomSliderThumbShape extends SliderComponentShape {
 
 class _ParameterRows extends StatelessWidget {
   final ColorLimit colorLimit;
+  final bool preserveWhite;
   final bool smoothing;
   final bool removeBackground;
   final bool denoise;
@@ -1296,6 +1316,7 @@ class _ParameterRows extends StatelessWidget {
   final List<PaletteDefinition> palettes;
   final VoidCallback onSmoothingChanged;
   final VoidCallback onRemoveBackgroundChanged;
+  final VoidCallback onPreserveWhiteChanged;
   final VoidCallback onDenoiseChanged;
   final ValueChanged<DenoiseStrength> onDenoiseStrengthChanged;
   final VoidCallback onSaturationDecrease;
@@ -1306,6 +1327,7 @@ class _ParameterRows extends StatelessWidget {
 
   const _ParameterRows({
     required this.colorLimit,
+    required this.preserveWhite,
     required this.smoothing,
     required this.removeBackground,
     required this.denoise,
@@ -1315,6 +1337,7 @@ class _ParameterRows extends StatelessWidget {
     required this.palettes,
     required this.onSmoothingChanged,
     required this.onRemoveBackgroundChanged,
+    required this.onPreserveWhiteChanged,
     required this.onDenoiseChanged,
     required this.onDenoiseStrengthChanged,
     required this.onSaturationDecrease,
@@ -1336,6 +1359,18 @@ class _ParameterRows extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: onRemoveBackgroundChanged,
             child: _ControlSwitch(value: removeBackground),
+          ),
+        ),
+        const SizedBox(height: 32),
+        _ParameterRow(
+          label: '保留白色',
+          helperText: '去背景后，前景中的白色高光会占用一个颜色名额，用于“眼睛”细节。',
+          height: 68,
+          trailing: GestureDetector(
+            key: const ValueKey('parameter-preserve-white-toggle'),
+            behavior: HitTestBehavior.opaque,
+            onTap: onPreserveWhiteChanged,
+            child: _ControlSwitch(value: preserveWhite),
           ),
         ),
         const SizedBox(height: 32),

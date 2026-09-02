@@ -212,6 +212,15 @@ void main() {
     expect(updated.toJson()['denoiseEnabled'], isTrue);
   });
 
+  test('draft preserves the white highlight option for generation', () {
+    final updated = draft(
+      removeBackground: false,
+    ).copyWith(preserveWhite: false);
+
+    expect(updated.preserveWhite, isFalse);
+    expect(updated.toJson()['preserveWhite'], isFalse);
+  });
+
   test('draft enables standard denoise by default', () {
     final project = draft(removeBackground: false);
 

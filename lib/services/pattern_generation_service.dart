@@ -76,6 +76,7 @@ class PatternGenerationService {
           limit: draft.colorLimit,
           pixels: pixels,
           matching: matchingAlgorithm.matcher,
+          preserveWhite: draft.preserveWhite,
         );
     if (constrainedPalette.entries.isEmpty) {
       throw StateError('Palette color limit did not select any usable colors');

@@ -27,6 +27,7 @@ class PaletteConstraintService {
     required ColorLimit limit,
     required Uint8List pixels,
     required Matching matching,
+    bool preserveWhite = false,
   }) {
     final enabledEntries = palette.entries
         .where((entry) => entry.enabled)
@@ -82,13 +83,47 @@ class PaletteConstraintService {
           return a.averageDelta.compareTo(b.averageDelta);
         });
 
+    final selectedEntries = selectedScores
+        .take(maxColors)
+        .map((score) => score.entry)
+        .toList(growable: false);
+    final whiteScore = preserveWhite
+        ? _mostUsedForegroundWhite(selectedScores)
+        : null;
+    if (whiteScore != null &&
+        !selectedEntries.any((entry) => entry.ref == whiteScore.entry.ref)) {
+      return Palette(
+        name: '${palette.name} (${limit.label})',
+        entries: [whiteScore.entry, ...selectedEntries.take(maxColors - 1)],
+      );
+    }
+
     return Palette(
       name: '${palette.name} (${limit.label})',
-      entries: selectedScores
-          .take(maxColors)
-          .map((score) => score.entry)
-          .toList(growable: false),
+      entries: selectedEntries,
     );
+  }
+
+  /// Finds white actually present in the opaque foreground. Transparent
+  /// background pixels are skipped before scoring, so they cannot reserve a
+  /// colour slot.
+  _PaletteScore? _mostUsedForegroundWhite(List<_PaletteScore> scores) {
+    for (final score in scores) {
+      if (_isNeutralWhite(score.entry.color)) return score;
+    }
+    return null;
+  }
+
+  bool _isNeutralWhite(BeadColor color) {
+    final red = color.rInt;
+    final green = color.gInt;
+    final blue = color.bInt;
+    return red >= 245 &&
+        green >= 245 &&
+        blue >= 245 &&
+        (red - green).abs() <= 16 &&
+        (red - blue).abs() <= 16 &&
+        (green - blue).abs() <= 16;
   }
 }
 

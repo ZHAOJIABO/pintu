@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../services/background_removal_service.dart';
 import '../widgets/app_toast.dart';
@@ -295,8 +296,21 @@ class _CameraBackdrop extends StatelessWidget {
     }
 
     if (error != null) {
-      return const Center(
-        child: Text('无法打开相机，请检查权限后重试', style: TextStyle(color: Colors.white)),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              '无法打开相机，请检查权限后重试',
+              style: TextStyle(color: Colors.white),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: openAppSettings,
+              child: const Text('去设置', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
       );
     }
     return const Center(child: CircularProgressIndicator(color: Colors.white));

@@ -96,4 +96,48 @@ void main() {
     await tester.pump();
     expect(find.text('10 × 10 · 8 色预览'), findsOneWidget);
   });
+
+  testWidgets('参数页默认保留白色，且允许关闭', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+    final image = sampleImagePng();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ParameterConfigScreen(
+          draft: DraftProject(
+            originalImageBytes: image,
+            croppedImageBytes: image,
+            imageSource: DraftImageSource.illustration,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.dragUntilVisible(
+      find.byKey(const ValueKey('parameter-preserve-white-toggle')),
+      find.byType(ListView),
+      const Offset(0, -180),
+    );
+
+    double switchLeft() {
+      final positioned = tester.widget<AnimatedPositioned>(
+        find.descendant(
+          of: find.byKey(const ValueKey('parameter-preserve-white-toggle')),
+          matching: find.byType(AnimatedPositioned),
+        ),
+      );
+      return positioned.left!;
+    }
+
+    expect(switchLeft(), 23);
+    await tester.tap(
+      find.byKey(const ValueKey('parameter-preserve-white-toggle')),
+    );
+    await tester.pump(const Duration(milliseconds: 180));
+    expect(switchLeft(), 2);
+  });
 }

@@ -25,6 +25,7 @@ class DraftProject {
   final int? customBeadHeight;
   final String? paletteBrandId;
   final ColorLimit colorLimit;
+  final bool preserveWhite;
   final bool smoothingEnabled;
   final bool denoiseEnabled;
   final DenoiseStrength denoiseStrength;
@@ -42,6 +43,7 @@ class DraftProject {
     this.customBeadHeight,
     this.paletteBrandId,
     this.colorLimit = ColorLimit.unlimited,
+    this.preserveWhite = true,
     this.smoothingEnabled = false,
     this.denoiseEnabled = true,
     this.denoiseStrength = DenoiseStrength.standard,
@@ -88,6 +90,7 @@ class DraftProject {
     int? customBeadHeight,
     String? paletteBrandId,
     ColorLimit? colorLimit,
+    bool? preserveWhite,
     bool? smoothingEnabled,
     bool? denoiseEnabled,
     DenoiseStrength? denoiseStrength,
@@ -105,6 +108,7 @@ class DraftProject {
       customBeadHeight: customBeadHeight ?? this.customBeadHeight,
       paletteBrandId: paletteBrandId ?? this.paletteBrandId,
       colorLimit: colorLimit ?? this.colorLimit,
+      preserveWhite: preserveWhite ?? this.preserveWhite,
       smoothingEnabled: smoothingEnabled ?? this.smoothingEnabled,
       denoiseEnabled: denoiseEnabled ?? this.denoiseEnabled,
       denoiseStrength: denoiseStrength ?? this.denoiseStrength,
@@ -126,6 +130,7 @@ class DraftProject {
     'customBeadHeight': customBeadHeight,
     'paletteBrandId': paletteBrandId,
     'colorLimit': colorLimit.name,
+    'preserveWhite': preserveWhite,
     'smoothingEnabled': smoothingEnabled,
     'denoiseEnabled': denoiseEnabled,
     'denoiseStrength': denoiseStrength.name,
