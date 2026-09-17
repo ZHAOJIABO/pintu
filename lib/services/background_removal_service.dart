@@ -2,7 +2,33 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 abstract interface class BackgroundRemovalService {
-  Future<Uint8List> removeBackground(Uint8List imageBytes);
+  Future<Uint8List> removeBackground(
+    Uint8List imageBytes, {
+    ForegroundSelection? selection,
+  });
+}
+
+/// A normalized region used to identify the intended foreground instance.
+/// It is a selection hint only; it never crops the returned subject.
+class ForegroundSelection {
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+
+  const ForegroundSelection({
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+  });
+
+  Map<String, double> toJson() => {
+    'left': left,
+    'top': top,
+    'width': width,
+    'height': height,
+  };
 }
 
 class PlatformBackgroundRemovalService implements BackgroundRemovalService {
@@ -13,7 +39,10 @@ class PlatformBackgroundRemovalService implements BackgroundRemovalService {
   const PlatformBackgroundRemovalService();
 
   @override
-  Future<Uint8List> removeBackground(Uint8List imageBytes) async {
+  Future<Uint8List> removeBackground(
+    Uint8List imageBytes, {
+    ForegroundSelection? selection,
+  }) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       debugPrint(
         '[BackgroundRemoval] skipped: platform does not support native cutout.',
@@ -34,7 +63,10 @@ class PlatformBackgroundRemovalService implements BackgroundRemovalService {
       debugPrint('[BackgroundRemoval] invoking iOS Vision cutout.');
       final result = await _channel.invokeMethod<Uint8List>(
         'removeBackground',
-        imageBytes,
+        {
+          'image': imageBytes,
+          if (selection != null) 'selection': selection.toJson(),
+        },
       );
       debugPrint(
         '[BackgroundRemoval] iOS Vision returned ${result?.length ?? 0} bytes.',

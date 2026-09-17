@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../models/color.dart';
 import '../models/generated_pattern.dart';
 import '../models/palette.dart';
+import '../models/perler_product_finish.dart';
 import '../models/pattern_chart.dart';
 import '../navigation/home_navigation.dart';
 import '../rendering/pattern_chart_painter.dart';
@@ -17,6 +18,7 @@ import '../services/api/api_scope.dart';
 import '../services/export_watermark_service.dart';
 import '../services/pattern_export_service.dart';
 import '../widgets/app_toast.dart';
+import '../widgets/perler_product_3d_preview.dart';
 import '../widgets/patterns_hint_dialog.dart';
 import '../widgets/rounded_confirmation_dialog.dart';
 import 'bead_mode_screen.dart';
@@ -84,6 +86,8 @@ class _ResultScreenState extends State<ResultScreen> {
   bool _returnToParametersAfterDiscard = false;
   bool _updatingFavorite = false;
   bool _deletingWork = false;
+  bool _showFinishedProduct = false;
+  PerlerProductFinish _selectedIroningFinish = PerlerProductFinish.holeless;
 
   bool get _editingEnabled => _template == null && !widget.isEditingLocked;
   bool get _hasUnsavedGeneratedWork =>
@@ -403,8 +407,17 @@ class _ResultScreenState extends State<ResultScreen> {
             children: [
               _DrawingHeader(
                 pattern: _pattern,
+                showFinishedProduct: _showFinishedProduct,
+                selectedIroningFinish: _selectedIroningFinish,
                 onBack: () => unawaited(_handleBack()),
                 onSaveImage: _showSaveChoices,
+                onToggleFinishedProduct: () => setState(
+                  () => _showFinishedProduct = !_showFinishedProduct,
+                ),
+                onSelectIroningFinish: (finish) => setState(() {
+                  _selectedIroningFinish = finish;
+                  _showFinishedProduct = true;
+                }),
                 onDeleteWork: _canDeleteWork && !_deletingWork
                     ? _confirmDeleteWork
                     : null,
@@ -553,14 +566,22 @@ class _ResultSaveDialogButton extends StatelessWidget {
 
 class _DrawingHeader extends StatelessWidget {
   final GeneratedPattern pattern;
+  final bool showFinishedProduct;
+  final PerlerProductFinish selectedIroningFinish;
   final VoidCallback onBack;
   final VoidCallback onSaveImage;
+  final VoidCallback onToggleFinishedProduct;
+  final ValueChanged<PerlerProductFinish> onSelectIroningFinish;
   final VoidCallback? onDeleteWork;
 
   const _DrawingHeader({
     required this.pattern,
+    required this.showFinishedProduct,
+    required this.selectedIroningFinish,
     required this.onBack,
     required this.onSaveImage,
+    required this.onToggleFinishedProduct,
+    required this.onSelectIroningFinish,
     this.onDeleteWork,
   });
 
@@ -575,8 +596,11 @@ class _DrawingHeader extends StatelessWidget {
           child: Column(
             children: [
               _ResultNavigationBar(
+                showFinishedProduct: showFinishedProduct,
                 onBack: onBack,
                 onSaveImage: onSaveImage,
+                onToggleFinishedProduct: onToggleFinishedProduct,
+                onSelectIroningFinish: onSelectIroningFinish,
                 onDeleteWork: onDeleteWork,
               ),
               LayoutBuilder(
@@ -587,7 +611,12 @@ class _DrawingHeader extends StatelessWidget {
                     dimension: chartAreaSize,
                     child: Padding(
                       padding: const EdgeInsets.all(20),
-                      child: _PatternChartFrame(pattern: pattern),
+                      child: showFinishedProduct
+                          ? _FinishedProductFrame(
+                              pattern: pattern,
+                              finish: selectedIroningFinish,
+                            )
+                          : _PatternChartFrame(pattern: pattern),
                     ),
                   );
                 },
@@ -601,13 +630,19 @@ class _DrawingHeader extends StatelessWidget {
 }
 
 class _ResultNavigationBar extends StatelessWidget {
+  final bool showFinishedProduct;
   final VoidCallback onBack;
   final VoidCallback onSaveImage;
+  final VoidCallback onToggleFinishedProduct;
+  final ValueChanged<PerlerProductFinish> onSelectIroningFinish;
   final VoidCallback? onDeleteWork;
 
   const _ResultNavigationBar({
+    required this.showFinishedProduct,
     required this.onBack,
     required this.onSaveImage,
+    required this.onToggleFinishedProduct,
+    required this.onSelectIroningFinish,
     this.onDeleteWork,
   });
 
@@ -652,6 +687,142 @@ class _ResultNavigationBar extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Semantics(
+                    button: true,
+                    label: showFinishedProduct ? '返回图纸' : '选择烫豆效果',
+                    child: showFinishedProduct
+                        ? GestureDetector(
+                            key: const ValueKey(
+                              'result-finished-product-toggle',
+                            ),
+                            behavior: HitTestBehavior.opaque,
+                            onTap: onToggleFinishedProduct,
+                            child: const SizedBox(
+                              width: 44,
+                              height: 44,
+                              child: Center(
+                                child: Text(
+                                  '图纸',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontSize: 13,
+                                    fontFamily: _roundFontFamily,
+                                    fontFamilyFallback: _fontFallbacks,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : PopupMenuButton<PerlerProductFinish>(
+                            key: const ValueKey('result-ironing-finish-menu'),
+                            tooltip: '选择烫豆效果',
+                            padding: EdgeInsets.zero,
+                            offset: const Offset(0, 8),
+                            position: PopupMenuPosition.under,
+                            color: Colors.white,
+                            surfaceTintColor: Colors.transparent,
+                            elevation: 4,
+                            shadowColor: Colors.black.withValues(alpha: 0.10),
+                            constraints: const BoxConstraints(
+                              minWidth: 184,
+                              maxWidth: 220,
+                            ),
+                            menuPadding: const EdgeInsets.all(8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                              side: const BorderSide(color: _pageBackground),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            onSelected: onSelectIroningFinish,
+                            itemBuilder: (context) => [
+                              for (final finish in PerlerProductFinish.values)
+                                PopupMenuItem<PerlerProductFinish>(
+                                  key: ValueKey(
+                                    'result-ironing-finish-${finish.name}',
+                                  ),
+                                  value: finish,
+                                  height: 48,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          finish.label,
+                                          style: const TextStyle(
+                                            color: Colors.black,
+                                            fontSize: 14,
+                                            fontFamily: _roundFontFamily,
+                                            fontFamilyFallback: _fontFallbacks,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+                                      if (!finish.isSupported) ...[
+                                        const SizedBox(width: 8),
+                                        DecoratedBox(
+                                          decoration: BoxDecoration(
+                                            color: _pageBackground,
+                                            borderRadius: BorderRadius.circular(
+                                              44,
+                                            ),
+                                          ),
+                                          child: const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            child: Text(
+                                              '暂未支持',
+                                              style: TextStyle(
+                                                color: Color(0x99000000),
+                                                fontSize: 11,
+                                                fontFamily: _roundFontFamily,
+                                                fontFamilyFallback:
+                                                    _fontFallbacks,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                            ],
+                            child: const SizedBox(
+                              width: 52,
+                              height: 44,
+                              child: Center(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '烫豆',
+                                      style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 13,
+                                        fontFamily: _roundFontFamily,
+                                        fontFamilyFallback: _fontFallbacks,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    SizedBox(width: 1),
+                                    Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 15,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                  ),
+                  // Keep the mode switch visually distinct from destructive
+                  // and export actions, while leaving those right-aligned.
+                  const SizedBox(width: 12),
                   if (onDeleteWork != null)
                     GestureDetector(
                       key: const ValueKey('result-delete-work-button'),
@@ -792,6 +963,70 @@ class _PatternChartFrame extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FinishedProductFrame extends StatelessWidget {
+  final GeneratedPattern pattern;
+  final PerlerProductFinish finish;
+
+  const _FinishedProductFrame({required this.pattern, required this.finish});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+        final availableHeight = constraints.maxHeight;
+
+        return DecoratedBox(
+          key: const ValueKey('result-finished-product-frame'),
+          decoration: const BoxDecoration(color: Color(0xFFF1F4F8)),
+          child: SizedBox(
+            width: availableWidth,
+            height: availableHeight,
+            child: finish.isSupported
+                ? PerlerProduct3dPreview(
+                    pixels: pattern.pixels,
+                    imageWidth: pattern.width,
+                    imageHeight: pattern.height,
+                    finish: finish,
+                  )
+                : _UnsupportedIroningFinishView(finish: finish),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _UnsupportedIroningFinishView extends StatelessWidget {
+  final PerlerProductFinish finish;
+
+  const _UnsupportedIroningFinishView({required this.finish});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      key: const ValueKey('result-ironing-finish-unsupported'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.auto_awesome_outlined, color: Color(0xFF8B95A1)),
+          const SizedBox(height: 10),
+          Text(
+            '${finish.label}效果暂未支持',
+            style: const TextStyle(
+              color: Color(0xFF5F6B76),
+              fontSize: 14,
+              fontFamily: _roundFontFamily,
+              fontFamilyFallback: _fontFallbacks,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

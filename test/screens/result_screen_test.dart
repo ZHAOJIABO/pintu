@@ -5,6 +5,8 @@ import 'package:bobobeads/models/color.dart';
 import 'package:bobobeads/models/draft_project.dart';
 import 'package:bobobeads/models/generated_pattern.dart';
 import 'package:bobobeads/models/palette.dart';
+import 'package:bobobeads/models/perler_product_finish.dart';
+import 'package:bobobeads/rendering/perler_product_3d_painter.dart';
 import 'package:bobobeads/rendering/pattern_chart_painter.dart';
 import 'package:bobobeads/screens/result_screen.dart';
 import 'package:bobobeads/screens/upload_screen.dart';
@@ -358,7 +360,7 @@ void main() {
       (widget) => widget is SizedBox && widget.height == 44,
     );
 
-    expect(navigationBars, findsNWidgets(3));
+    expect(navigationBars, findsNWidgets(4));
   });
 
   testWidgets('drawing chart keeps 20pt margins inside image area', (
@@ -419,6 +421,228 @@ void main() {
     expect(chartPainter.showBorderCoordinates, isTrue);
     expect(chartPainter.borderColor, PatternChartPainter.defaultBorderColor);
     expect(chartPainter.showCellLabels, isTrue);
+  });
+
+  testWidgets('烫豆菜单展示所有效果，并可切换到无孔烫成品', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    expect(find.byKey(const ValueKey('result-chart-frame')), findsOneWidget);
+    expect(find.text('烫豆'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-menu')));
+    await tester.pumpAndSettle();
+
+    for (final label in ['无孔烫', '澡巾烫', '麻布烫', '毛巾烫', '细闪', '粗闪']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.text('暂未支持'), findsNWidgets(3));
+
+    await tester.tap(
+      find.byKey(const ValueKey('result-ironing-finish-holeless')),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('result-finished-product-frame')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .map((widget) => widget.painter)
+          .whereType<PerlerProduct3dPainter>(),
+      hasLength(1),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('result-finished-product-toggle')),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('result-chart-frame')), findsOneWidget);
+  });
+
+  testWidgets('未支持的烫豆效果不会错误展示为无孔烫效果', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-towel')));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('result-ironing-finish-unsupported')),
+      findsOneWidget,
+    );
+    expect(find.text('毛巾烫效果暂未支持'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('result-finished-product-3d-preview')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('澡巾烫沿用无孔烫的三维成品预览', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('result-ironing-finish-bathTowel')),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('result-finished-product-frame')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('result-ironing-finish-unsupported')),
+      findsNothing,
+    );
+    final painter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<PerlerProduct3dPainter>()
+        .single;
+    expect(painter.finish, PerlerProductFinish.bathTowel);
+  });
+
+  testWidgets('麻布烫沿用无孔烫的三维成品预览', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-linen')));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('result-finished-product-frame')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('result-ironing-finish-unsupported')),
+      findsNothing,
+    );
+    final painter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<PerlerProduct3dPainter>()
+        .single;
+    expect(painter.finish, PerlerProductFinish.linen);
+  });
+
+  testWidgets(
+    'tall finished products fit completely inside the preview frame',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(home: ResultScreen(pattern: _patternWithSize(48, 96))),
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('result-ironing-finish-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('result-ironing-finish-holeless')),
+      );
+      await tester.pump();
+
+      final frameRect = tester.getRect(
+        find.byKey(const ValueKey('result-finished-product-frame')),
+      );
+      final productRect = tester.getRect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is CustomPaint && widget.painter is PerlerProduct3dPainter,
+        ),
+      );
+
+      expect(productRect.left, greaterThanOrEqualTo(frameRect.left));
+      expect(productRect.right, lessThanOrEqualTo(frameRect.right));
+      expect(productRect.top, greaterThanOrEqualTo(frameRect.top));
+      expect(productRect.bottom, lessThanOrEqualTo(frameRect.bottom));
+    },
+  );
+
+  testWidgets('dragging the 3D product preview rotates it toward its back', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(home: ResultScreen(pattern: _pattern())),
+    );
+    await tester.tap(find.byKey(const ValueKey('result-ironing-finish-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('result-ironing-finish-holeless')),
+    );
+    await tester.pump();
+
+    final preview = find.byKey(
+      const ValueKey('result-finished-product-3d-preview'),
+    );
+    final initialPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<PerlerProduct3dPainter>()
+        .single;
+
+    await tester.drag(preview, const Offset(-180, 0));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final rotatedPainter = tester
+        .widgetList<CustomPaint>(find.byType(CustomPaint))
+        .map((widget) => widget.painter)
+        .whereType<PerlerProduct3dPainter>()
+        .single;
+    expect(rotatedPainter.yaw, lessThan(initialPainter.yaw - 1));
+    expect(rotatedPainter.yaw, lessThan(-1.57));
   });
 
   testWidgets('exported PNG uses a high resolution canvas', (tester) async {

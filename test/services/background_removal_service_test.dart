@@ -51,4 +51,36 @@ void main() {
     expect(result, orderedEquals([4]));
     expect(calls, ['isSimulator', 'removeBackground']);
   });
+
+  test('passes the guide as a foreground-instance selection hint', () async {
+    Object? removalArguments;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'isSimulator') return false;
+          if (call.method == 'removeBackground') {
+            removalArguments = call.arguments;
+            return Uint8List.fromList([4]);
+          }
+          throw PlatformException(code: 'unexpected_method');
+        });
+
+    await const PlatformBackgroundRemovalService().removeBackground(
+      Uint8List.fromList([1, 2, 3]),
+      selection: const ForegroundSelection(
+        left: .1,
+        top: .2,
+        width: .7,
+        height: .6,
+      ),
+    );
+
+    final request = removalArguments! as Map<Object?, Object?>;
+    expect(request['image'], orderedEquals([1, 2, 3]));
+    expect(request['selection'], {
+      'left': .1,
+      'top': .2,
+      'width': .7,
+      'height': .6,
+    });
+  });
 }

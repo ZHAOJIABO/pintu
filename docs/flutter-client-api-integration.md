@@ -482,6 +482,8 @@ REST JSON 只接受行优先的一维 `pixels`；`pixelRows` 已不属于接口�
 ```dart
 class TemplateItem {
   final String templateId;
+  final int categoryId;
+  final String categoryName;
   final String title;
   final String previewUrl;
   final String thumbnailUrl;
@@ -499,6 +501,10 @@ class TemplateItem {
   final bool isFavorited;
 }
 ```
+
+`categoryId` 用于客户端选择本地内置的分类图案和文案；它是环境内自增
+ID，测试与生产必须分别核对。盲盒中未识别的分类暂按默认「超稀有」
+展示，直到客户端发布该分类对应的本地图案和文案。
 
 ### 6.5 AIStyleItem
 

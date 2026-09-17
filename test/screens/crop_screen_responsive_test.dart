@@ -31,7 +31,9 @@ void main() {
   const viewports = {
     'iPhone SE 3': Size(375, 667),
     'iPhone 12': Size(390, 844),
+    'iPhone 16': Size(402, 874),
     'Large iPhone': Size(430, 932),
+    'Wider iPhone': Size(440, 956),
   };
 
   for (final entry in viewports.entries) {
@@ -52,6 +54,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      final toolbar = find
+          .ancestor(of: find.text('翻转'), matching: find.byType(ColoredBox))
+          .first;
+      final toolbarRect = tester.getRect(toolbar);
+      expect(toolbarRect.left, closeTo(0, 0.01));
+      expect(toolbarRect.right, closeTo(entry.value.width, 0.01));
+      expect(toolbarRect.bottom, closeTo(entry.value.height, 0.01));
       expect(find.text('裁切'), findsOneWidget);
       expect(find.text('翻转'), findsOneWidget);
       expect(find.text('1:1'), findsOneWidget);

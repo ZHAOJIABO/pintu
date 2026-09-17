@@ -37,8 +37,8 @@ class CropScreen extends StatefulWidget {
 class _CropScreenState extends State<CropScreen>
     with SingleTickerProviderStateMixin {
   static const _displayWidth = 390.0;
-  static const _displayHeight = 706.0;
-  static const _bottomBarHeight = 138.0;
+  double _displayHeight = 706.0;
+  double _bottomBarHeight = 138.0;
   static const _ratioOptions = [
     CropAspectRatio.square,
     CropAspectRatio.landscape169,
@@ -79,21 +79,32 @@ class _CropScreenState extends State<CropScreen>
     _inspectImage();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final mediaQuery = MediaQuery.of(context);
-    final widthScale = math.min(mediaQuery.size.width, 430.0) / _displayWidth;
-    final heightScale = mediaQuery.size.height / 844;
-    final scale = math.min(widthScale, heightScale);
-    final systemTopInset = mediaQuery.padding.top / scale;
+  void _updateViewport(BoxConstraints constraints, MediaQueryData mediaQuery) {
+    final scale = constraints.maxWidth / _displayWidth;
+    final toolbarHeight = math.max(
+      138.0,
+      104 + mediaQuery.padding.bottom / scale,
+    );
+    final stageHeight = constraints.maxHeight / scale - toolbarHeight;
     final nextTopInset = math.max(
       _minimumFreeformTopInset,
-      systemTopInset + _cropHandleTouchRadius + _cropHandleSafetyGap,
+      mediaQuery.padding.top / scale +
+          _cropHandleTouchRadius +
+          _cropHandleSafetyGap,
     );
-    if ((nextTopInset - _freeformCropTopInset).abs() < 0.01) return;
+    if ((nextTopInset - _freeformCropTopInset).abs() < 0.01 &&
+        (stageHeight - _displayHeight).abs() < 0.01 &&
+        (toolbarHeight - _bottomBarHeight).abs() < 0.01) {
+      return;
+    }
 
+    _reboundController.stop();
+    _displayHeight = stageHeight;
+    _bottomBarHeight = toolbarHeight;
     _freeformCropTopInset = nextTopInset;
+    _maxFixedMinImageScale = _availableRatioOptions
+        .map((ratio) => _minImageScale(_cropFrameSize(ratio)))
+        .fold(0.0, math.max);
     _freeformCropRect = _initialFreeformCropRect();
     _imageScale = _minImageScale(_cropFrameRect().size);
     _offset = _clampOffset(
@@ -212,7 +223,7 @@ class _CropScreenState extends State<CropScreen>
   Rect _fixedCropFrameRect(CropAspectRatio ratio) {
     final size = _cropFrameSize(ratio);
     return Rect.fromCenter(
-      center: const Offset(_displayWidth / 2, _displayHeight / 2),
+      center: Offset(_displayWidth / 2, _displayHeight / 2),
       width: size.width,
       height: size.height,
     );
@@ -254,8 +265,7 @@ class _CropScreenState extends State<CropScreen>
   }
 
   Offset _cropFrameCenterOffset(Rect cropRect) {
-    return cropRect.center -
-        const Offset(_displayWidth / 2, _displayHeight / 2);
+    return cropRect.center - Offset(_displayWidth / 2, _displayHeight / 2);
   }
 
   Offset _clampOffset(
@@ -301,8 +311,7 @@ class _CropScreenState extends State<CropScreen>
   }
 
   Offset _stageFocalPoint(Offset localFocalPoint) {
-    return localFocalPoint -
-        const Offset(_displayWidth / 2, _displayHeight / 2);
+    return localFocalPoint - Offset(_displayWidth / 2, _displayHeight / 2);
   }
 
   void _setRatio(CropAspectRatio ratio) {
@@ -390,7 +399,7 @@ class _CropScreenState extends State<CropScreen>
     final renderScale = _clampImageScale(_imageScale, cropSize);
     final offset = _clampOffset(_offset, cropSize, renderScale);
     final cropCenterOffset =
-        cropRect.center - const Offset(_displayWidth / 2, _displayHeight / 2);
+        cropRect.center - Offset(_displayWidth / 2, _displayHeight / 2);
     setState(() => _cropping = true);
     try {
       final cropped = await _cropService.cropToAspectRatioWithTransform(
@@ -433,60 +442,37 @@ class _CropScreenState extends State<CropScreen>
       backgroundColor: _backgroundColor,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final widthScale =
-              math.min(constraints.maxWidth, 430.0) / _displayWidth;
-          final heightScale = constraints.maxHeight / 844;
-          final scale = math.min(widthScale, heightScale);
-          final pageWidth = _displayWidth * scale;
-          final scaledHeight = 844 * scale;
-
-          return Center(
-            child: SizedBox(
-              width: pageWidth,
-              height: math.max(scaledHeight, constraints.maxHeight),
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: SizedBox(
-                  width: _displayWidth * scale,
-                  height: scaledHeight,
-                  child: Transform.scale(
-                    scale: scale,
-                    alignment: Alignment.topCenter,
-                    child: SizedBox(
+          _updateViewport(constraints, MediaQuery.of(context));
+          // FittedBox gives the logical canvas unconstrained layout before
+          // scaling, keeping painted bounds and gesture coordinates aligned.
+          return SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: _displayWidth,
+                height: _displayHeight + _bottomBarHeight,
+                child: Column(
+                  children: [
+                    SizedBox(
                       width: _displayWidth,
-                      height: 844,
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: ColoredBox(color: _backgroundColor),
-                          ),
-                          Positioned(
-                            left: 0,
-                            top: 0,
-                            width: _displayWidth,
-                            height: _displayHeight,
-                            child: _buildCropStage(),
-                          ),
-                          Positioned(
-                            left: 0,
-                            top: _displayHeight,
-                            width: _displayWidth,
-                            height: _bottomBarHeight,
-                            child: _CropToolbar(
-                              selectedRatio: _ratio,
-                              ratioOptions: _availableRatioOptions,
-                              flipped: _flipped,
-                              cropping: _cropping,
-                              onFlip: _toggleFlip,
-                              onRatioSelected: _setRatio,
-                              onCancel: () => Navigator.pop(context),
-                              onConfirm: _cropping ? null : _confirmCrop,
-                            ),
-                          ),
-                        ],
+                      height: _displayHeight,
+                      child: _buildCropStage(),
+                    ),
+                    SizedBox(
+                      width: _displayWidth,
+                      height: _bottomBarHeight,
+                      child: _CropToolbar(
+                        selectedRatio: _ratio,
+                        ratioOptions: _availableRatioOptions,
+                        flipped: _flipped,
+                        cropping: _cropping,
+                        onFlip: _toggleFlip,
+                        onRatioSelected: _setRatio,
+                        onCancel: () => Navigator.pop(context),
+                        onConfirm: _cropping ? null : _confirmCrop,
                       ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),

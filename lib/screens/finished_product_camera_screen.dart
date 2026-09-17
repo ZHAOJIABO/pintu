@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../services/background_removal_service.dart';
+import '../services/cutout_outline_service.dart';
 import '../widgets/app_toast.dart';
 
 const _cameraCancelAsset = 'assets/pin_icon/camera_cancel.svg';
@@ -24,11 +25,13 @@ const _cameraCropCornerAsset = 'assets/pin_icon/camera_crop_corner.svg';
 class FinishedProductCameraScreen extends StatefulWidget {
   final BackgroundRemovalService backgroundRemovalService;
   final bool enableBackgroundRemoval;
+  final double cleanupStrength;
 
   const FinishedProductCameraScreen({
     super.key,
     this.backgroundRemovalService = const PlatformBackgroundRemovalService(),
     this.enableBackgroundRemoval = true,
+    this.cleanupStrength = CutoutOutlineService.defaultCleanup,
   });
 
   @override
@@ -39,6 +42,7 @@ class FinishedProductCameraScreen extends StatefulWidget {
 class _FinishedProductCameraScreenState
     extends State<FinishedProductCameraScreen> {
   final ImagePicker _imagePicker = ImagePicker();
+  final CutoutOutlineService _cutoutOutlineService = CutoutOutlineService();
   CameraController? _cameraController;
   XFile? _capturedPhoto;
   Uint8List? _backgroundRemovedPhoto;
@@ -105,8 +109,16 @@ class _FinishedProductCameraScreenState
     try {
       final result = await widget.backgroundRemovalService.removeBackground(
         await capturedPhoto.readAsBytes(),
+        selection: _subjectSelection(),
       );
-      if (mounted) setState(() => _backgroundRemovedPhoto = result);
+      final refinedResult = _cutoutOutlineService.refineAlpha(
+        result,
+        cleanup: widget.cleanupStrength,
+      );
+      final outlinedResult = _cutoutOutlineService.addBlackOutline(
+        refinedResult,
+      );
+      if (mounted) setState(() => _backgroundRemovedPhoto = outlinedResult);
     } catch (_) {
       if (mounted) {
         showAppToast(context, '去背景失败，请重试');
@@ -162,6 +174,52 @@ class _FinishedProductCameraScreenState
       _capturedPhoto = null;
       _backgroundRemovedPhoto = null;
     });
+  }
+
+  ForegroundSelection? _subjectSelection() {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return null;
+
+    final media = MediaQuery.of(context);
+    final viewportWidth = media.size.width;
+    final viewportHeight = media.size.height;
+    if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+    final cropSize = (viewportWidth - 60).clamp(0, 330.0).toDouble();
+    final safeHeight =
+        viewportHeight - media.padding.top - media.padding.bottom;
+    final cropTop = (safeHeight * .18).clamp(104.0, 140.0).toDouble();
+    final guideLeft = (viewportWidth - cropSize) / 2;
+    final guideTop = media.padding.top + cropTop;
+
+    // CameraPreview is rendered with BoxFit.cover. Map the visible guide back
+    // into the portrait image's normalized coordinate space before Vision
+    // scores each detected instance against it.
+    final sourceAspect = 1 / controller.value.aspectRatio;
+    final viewportAspect = viewportWidth / viewportHeight;
+    final displayWidth = sourceAspect > viewportAspect
+        ? viewportHeight * sourceAspect
+        : viewportWidth;
+    final displayHeight = sourceAspect > viewportAspect
+        ? viewportHeight
+        : viewportWidth / sourceAspect;
+    final displayLeft = (viewportWidth - displayWidth) / 2;
+    final displayTop = (viewportHeight - displayHeight) / 2;
+
+    double normalizeX(double value) =>
+        ((value - displayLeft) / displayWidth).clamp(0.0, 1.0);
+    double normalizeY(double value) =>
+        ((value - displayTop) / displayHeight).clamp(0.0, 1.0);
+    final left = normalizeX(guideLeft);
+    final top = normalizeY(guideTop);
+    final right = normalizeX(guideLeft + cropSize);
+    final bottom = normalizeY(guideTop + cropSize);
+    if (right <= left || bottom <= top) return null;
+    return ForegroundSelection(
+      left: left,
+      top: top,
+      width: right - left,
+      height: bottom - top,
+    );
   }
 
   @override

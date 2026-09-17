@@ -47,3 +47,22 @@ app.*.map.json
 
 # Claude Code (local config & skills)
 .claude/
+
+# Copyright registration deliverables (kept outside version control)
+/copyright_submission/
+/tools/
+
+# Local debug screenshots
+/flutter_01.png
+
+# Runtime style thumbnail cache accidentally written into the project
+/assets/style_thumbnails/
+
+# Onboarding art not wired into onboarding_screen.dart yet; drop these lines
+# when the screen starts referencing them.
+/assets/onboarding/editor_preview_main.svg
+/assets/onboarding/finished_product_bottom_left.jpg
+/assets/onboarding/page_2_2.png
+/assets/onboarding/page_3_1.png
+/assets/onboarding/page_3_2.png
+/assets/onboarding/page_3_3.png

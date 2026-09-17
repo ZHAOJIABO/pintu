@@ -293,7 +293,10 @@ class _FakeBackgroundRemovalService implements BackgroundRemovalService {
   _FakeBackgroundRemovalService(this.result);
 
   @override
-  Future<Uint8List> removeBackground(Uint8List imageBytes) async {
+  Future<Uint8List> removeBackground(
+    Uint8List imageBytes, {
+    ForegroundSelection? selection,
+  }) async {
     callCount++;
     return result;
   }
