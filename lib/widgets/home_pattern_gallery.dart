@@ -34,6 +34,8 @@ class HomePatternGallery extends StatelessWidget {
   final String categoryName;
   final VoidCallback onFilter;
   final bool showFilter;
+  final Widget? header;
+  final Widget? footer;
   final ValueChanged<String>? onTemplateTap;
   final ValueChanged<String>? onItemTap;
   final double gridSpacing;
@@ -41,6 +43,8 @@ class HomePatternGallery extends StatelessWidget {
   final double tileSpacing;
   final double thumbnailPadding;
   final bool showTemplateAuthors;
+  final bool showTemplateDetails;
+  final ValueChanged<TemplateItem>? onFavorite;
 
   const HomePatternGallery({
     super.key,
@@ -49,6 +53,8 @@ class HomePatternGallery extends StatelessWidget {
     required this.categoryName,
     required this.onFilter,
     this.showFilter = true,
+    this.header,
+    this.footer,
     this.onTemplateTap,
     this.onItemTap,
     this.gridSpacing = 12,
@@ -56,6 +62,8 @@ class HomePatternGallery extends StatelessWidget {
     this.tileSpacing = 4,
     this.thumbnailPadding = 0,
     this.showTemplateAuthors = true,
+    this.showTemplateDetails = false,
+    this.onFavorite,
   });
 
   @override
@@ -65,15 +73,19 @@ class HomePatternGallery extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: _GalleryTitle(
-              categoryName: categoryName,
-              onFilter: onFilter,
-              showFilter: showFilter,
+          if (header != null)
+            header!
+          else ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: _GalleryTitle(
+                categoryName: categoryName,
+                onFilter: onFilter,
+                showFilter: showFilter,
+              ),
             ),
-          ),
-          SizedBox(height: gridSpacing),
+            SizedBox(height: gridSpacing),
+          ],
           _GalleryGrid(
             templates: templates,
             items: items,
@@ -83,7 +95,10 @@ class HomePatternGallery extends StatelessWidget {
             tileSpacing: tileSpacing,
             thumbnailPadding: thumbnailPadding,
             showTemplateAuthors: showTemplateAuthors,
+            showTemplateDetails: showTemplateDetails,
+            onFavorite: onFavorite,
           ),
+          if (footer != null) footer!,
         ],
       ),
     );
@@ -193,6 +208,8 @@ class _GalleryGrid extends StatelessWidget {
   final double tileSpacing;
   final double thumbnailPadding;
   final bool showTemplateAuthors;
+  final bool showTemplateDetails;
+  final ValueChanged<TemplateItem>? onFavorite;
 
   const _GalleryGrid({
     required this.templates,
@@ -203,6 +220,8 @@ class _GalleryGrid extends StatelessWidget {
     required this.tileSpacing,
     required this.thumbnailPadding,
     required this.showTemplateAuthors,
+    required this.showTemplateDetails,
+    required this.onFavorite,
   });
 
   List<_GalleryPattern> get _patterns {
@@ -230,7 +249,10 @@ class _GalleryGrid extends StatelessWidget {
             thumbnailUrl: template.thumbnailUrl.isNotEmpty
                 ? template.thumbnailUrl
                 : template.previewUrl,
-            authorName: showTemplateAuthors ? template.displayAuthorName : null,
+            authorName: showTemplateAuthors && !showTemplateDetails
+                ? template.displayAuthorName
+                : null,
+            templateDetails: showTemplateDetails ? template : null,
           ),
         )
         .where((pattern) => pattern.id.isNotEmpty)
@@ -245,7 +267,7 @@ class _GalleryGrid extends StatelessWidget {
       width: 366,
       child: Wrap(
         spacing: tileSpacing,
-        runSpacing: tileSpacing,
+        runSpacing: showTemplateDetails ? 16 : tileSpacing,
         children: [
           for (final pattern in patterns)
             _GalleryTile(
@@ -255,6 +277,7 @@ class _GalleryGrid extends StatelessWidget {
               tileSize: tileSize,
               thumbnailPadding: thumbnailPadding,
               fillHeight: items == null,
+              onFavorite: onFavorite,
             ),
         ],
       ),
@@ -276,6 +299,7 @@ class _GalleryPattern {
   final List<String> alternateThumbnailUrls;
   final bool isPendingReview;
   final String? authorName;
+  final TemplateItem? templateDetails;
 
   const _GalleryPattern({
     required this.id,
@@ -284,6 +308,7 @@ class _GalleryPattern {
     this.alternateThumbnailUrls = const [],
     this.isPendingReview = false,
     this.authorName,
+    this.templateDetails,
   });
 }
 
@@ -293,6 +318,7 @@ class _GalleryTile extends StatelessWidget {
   final double tileSize;
   final double thumbnailPadding;
   final bool fillHeight;
+  final ValueChanged<TemplateItem>? onFavorite;
   final VoidCallback? onTap;
 
   const _GalleryTile({
@@ -301,6 +327,7 @@ class _GalleryTile extends StatelessWidget {
     required this.tileSize,
     required this.thumbnailPadding,
     required this.fillHeight,
+    this.onFavorite,
     this.onTap,
   });
 
@@ -318,7 +345,9 @@ class _GalleryTile extends StatelessWidget {
             SizedBox(
               height: tileSize,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(
+                  pattern.templateDetails == null ? 12 : 20,
+                ),
                 child: DecoratedBox(
                   decoration: const BoxDecoration(color: Colors.white),
                   child: _GalleryTilePreview(
@@ -330,6 +359,10 @@ class _GalleryTile extends StatelessWidget {
                 ),
               ),
             ),
+            if (pattern.templateDetails case final template?) ...[
+              const SizedBox(height: 12),
+              _TemplateDetails(template: template, onFavorite: onFavorite),
+            ],
             if (pattern.authorName case final authorName?) ...[
               const SizedBox(height: 8),
               Text(
@@ -352,6 +385,75 @@ class _GalleryTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _TemplateDetails extends StatelessWidget {
+  final TemplateItem template;
+
+  final ValueChanged<TemplateItem>? onFavorite;
+
+  const _TemplateDetails({required this.template, this.onFavorite});
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      fontFamily: _roundFontFamily,
+      fontFamilyFallback: _fontFallbacks,
+      fontSize: 14,
+      fontWeight: FontWeight.w700,
+      height: 20 / 14,
+      color: Colors.black,
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              template.title,
+              key: ValueKey('gallery-title-${template.templateId}'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onFavorite == null ? null : () => onFavorite!(template),
+            child: Semantics(
+              button: onFavorite != null,
+              label: template.isFavorited ? '取消喜欢' : '喜欢并复制',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Image.asset(
+                    template.isFavorited
+                        ? 'assets/figma_home/template_heart_active.png'
+                        : 'assets/figma_home/template_heart_inactive.png',
+                    key: ValueKey('gallery-heart-${template.templateId}'),
+                    width: 16,
+                    height: 16,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatCount(template.favoriteCount),
+                    style: style.copyWith(color: const Color(0x4D000000)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatCount(int count) {
+    if (count < 10000) return '$count';
+    return '${(count / 10000).toStringAsFixed(1)}万';
   }
 }
 

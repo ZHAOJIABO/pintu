@@ -171,7 +171,7 @@ class _ResultScreenState extends State<ResultScreen> {
           favoriteCount: result.favoriteCount,
         ),
       );
-      services.notifyMyShortcutPreviewsChanged();
+      services.recordFavoriteUpdate(template.templateId, result);
       if (result.isFavorited) {
         await showPatternsHintDialog(
           context,
@@ -432,7 +432,7 @@ class _ResultScreenState extends State<ResultScreen> {
                 onStart: _openBeadMode,
                 secondaryLabel: _template == null
                     ? (widget.isEditingLocked ? '审核中' : '编辑')
-                    : (_template!.isFavorited ? '已收藏' : '收藏'),
+                    : (_template!.isFavorited ? '取消喜欢' : '喜欢并复制'),
                 onSecondary: _template == null
                     ? (_editingEnabled
                           ? _openEditor

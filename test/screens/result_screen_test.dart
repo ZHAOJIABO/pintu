@@ -972,7 +972,7 @@ void main() {
       const ValueKey('result-secondary-action'),
     );
     expect(
-      find.descendant(of: favoriteButton, matching: find.text('收藏')),
+      find.descendant(of: favoriteButton, matching: find.text('喜欢并复制')),
       findsOneWidget,
     );
     expect(
@@ -994,7 +994,7 @@ void main() {
       hasLength(1),
     );
     expect(
-      find.descendant(of: favoriteButton, matching: find.text('已收藏')),
+      find.descendant(of: favoriteButton, matching: find.text('取消喜欢')),
       findsOneWidget,
     );
     expect(
@@ -1029,7 +1029,7 @@ void main() {
       ['POST', 'DELETE'],
     );
     expect(
-      find.descendant(of: favoriteButton, matching: find.text('收藏')),
+      find.descendant(of: favoriteButton, matching: find.text('喜欢并复制')),
       findsOneWidget,
     );
     expect(services.myShortcutPreviewRevision.value, 2);

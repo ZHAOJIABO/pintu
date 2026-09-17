@@ -21,6 +21,23 @@ class BackendServices {
   /// Increments after work/favorite mutations so long-lived "我的" surfaces
   /// can reload their folder-cover thumbnails.
   final ValueNotifier<int> myShortcutPreviewRevision = ValueNotifier(0);
+  final Map<String, TemplateFavoriteResult> _favoriteUpdates = {};
+
+  TemplateItem applyFavoriteUpdate(TemplateItem item) {
+    final update = _favoriteUpdates[item.templateId];
+    return update == null
+        ? item
+        : item.copyWith(
+            isFavorited: update.isFavorited,
+            favoriteCount: update.favoriteCount,
+          );
+  }
+
+  void recordFavoriteUpdate(String id, TemplateFavoriteResult result) {
+    _favoriteUpdates[id] = result;
+    _homeTemplatesRequest = null;
+    notifyMyShortcutPreviewsChanged();
+  }
 
   final ApiSessionStore store;
   final ApiClient client;

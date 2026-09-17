@@ -1177,6 +1177,9 @@ private final class PerlerProduct3dPlatformView: NSObject, FlutterPlatformView {
     let camera = SCNCamera()
     camera.fieldOfView = 38
     camera.usesOrthographicProjection = false
+    // Large charts move the camera beyond SceneKit's default 100-unit far
+    // plane. Fit depth limits to the scene, including after orbiting/zooming.
+    camera.automaticallyAdjustsZRange = true
     cameraNode.camera = camera
     cameraNode.position = SCNVector3(distance * 0.48, distance * 0.82, distance * 0.9)
     cameraNode.look(at: SCNVector3(0, 0, 0))

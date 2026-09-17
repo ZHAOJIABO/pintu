@@ -11,7 +11,7 @@ import '../services/api/api_scope.dart';
 import '../services/image_service.dart';
 import '../widgets/app_toast.dart';
 import '../widgets/blind_box_dialog.dart';
-import '../widgets/home_filter_dialog.dart';
+import '../widgets/home_category_tabs.dart';
 import '../widgets/home_pattern_gallery.dart';
 import '../widgets/pattern_display_placeholder.dart';
 import 'crop_screen.dart';
@@ -29,13 +29,17 @@ const _compactBottomNavDesignHeight = 60.0;
 const _compactHeightBreakpoint = 700.0;
 const _homeBackgroundColor = Color(0xFFF0F0F4);
 const _scrollBottomPadding = 12.0;
-const _galleryColumnCount = 3;
+const _galleryColumnCount = 2;
 const _galleryPageSize = 20;
-const _homeGalleryTop = 525.0;
-const _homeGalleryTitleAndSpacingHeight = 32.0;
-const _homeGalleryTileSize = 119.33;
-const _homeGalleryTileSpacing = 4.0;
-const _homeGalleryAuthorHeight = 21.2;
+// Figma 5249:10522: status bar 47 + top padding 20 + banner 260.
+const _homeBannerTop = 47.0 + 20.0;
+const _homeHeroTop = _homeBannerTop + 53;
+const _homeFeatureTop = _homeBannerTop + 260 + 4;
+const _homeGalleryTop = _homeFeatureTop + 132 + 20;
+const _homeGalleryTitleAndSpacingHeight = 64.0;
+const _homeGalleryTileSize = 177.0;
+const _homeGalleryTileSpacing = 16.0;
+const _homeGalleryDetailsHeight = 32.0;
 
 double _homeContentHeightForTemplateCount(int templateCount) {
   final rowCount =
@@ -43,11 +47,15 @@ double _homeContentHeightForTemplateCount(int templateCount) {
   if (rowCount == 0) return _designContentHeight;
 
   final galleryHeight =
-      rowCount * (_homeGalleryTileSize + _homeGalleryAuthorHeight) +
+      rowCount * (_homeGalleryTileSize + _homeGalleryDetailsHeight) +
       (rowCount - 1) * _homeGalleryTileSpacing;
   return math.max(
     _designContentHeight,
-    _homeGalleryTop + _homeGalleryTitleAndSpacingHeight + galleryHeight + 12,
+    _homeGalleryTop +
+        _homeGalleryTitleAndSpacingHeight +
+        galleryHeight +
+        8 +
+        80,
   );
 }
 
@@ -95,14 +103,24 @@ class _UploadScreenState extends State<UploadScreen> {
   ];
 
   final ImageService _imageService = ImageService();
+  final ScrollController _homeScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _backendServices?.myShortcutPreviewRevision.removeListener(_syncFavorites);
+    _homeScrollController.dispose();
+    super.dispose();
+  }
+
   BackendServices? _backendServices;
   List<TemplateItem> _galleryTemplates = const [];
-  String _galleryCategoryName = '全部';
+  List<TemplateCategory> _galleryCategories = const [];
   int? _galleryCategoryId;
   int _galleryRequestVersion = 0;
   int _galleryPage = 1;
   bool _galleryHasMore = false;
   bool _galleryLoadingMore = false;
+  bool _galleryLoaded = false;
   bool _picking = false;
   bool _openingBlindBox = false;
   bool _loadingBlindBoxQuota = false;
@@ -116,9 +134,12 @@ class _UploadScreenState extends State<UploadScreen> {
     final services = BackendScope.maybeOf(context);
     if (identical(services, _backendServices)) return;
 
+    _backendServices?.myShortcutPreviewRevision.removeListener(_syncFavorites);
     _backendServices = services;
+    services?.myShortcutPreviewRevision.addListener(_syncFavorites);
     if (services != null) {
       _loadGalleryTemplates(services);
+      _loadGalleryCategories(services);
       _loadBlindBoxQuota(services);
     }
   }
@@ -150,7 +171,10 @@ class _UploadScreenState extends State<UploadScreen> {
   }) async {
     final requestVersion = ++_galleryRequestVersion;
     if (mounted && identical(_backendServices, services)) {
-      setState(() => _galleryLoadingMore = true);
+      setState(() {
+        _galleryLoadingMore = true;
+        _galleryLoaded = false;
+      });
     }
     try {
       final result = await services.loadHomeTemplates(
@@ -164,7 +188,10 @@ class _UploadScreenState extends State<UploadScreen> {
         return false;
       }
       setState(() {
-        _galleryTemplates = result.items;
+        _galleryLoaded = true;
+        _galleryTemplates = result.items
+            .map(services.applyFavoriteUpdate)
+            .toList();
         _galleryPage = result.page.page;
         _galleryHasMore = result.page.hasMore;
         _galleryLoadingMore = false;
@@ -198,6 +225,7 @@ class _UploadScreenState extends State<UploadScreen> {
     final services = _backendServices;
     if (services == null || _showingMyPage) return;
 
+    await _loadGalleryCategories(services);
     final results = await Future.wait([
       _loadGalleryTemplates(
         services,
@@ -244,7 +272,9 @@ class _UploadScreenState extends State<UploadScreen> {
       final madeProgress = mergedTemplates.length > _galleryTemplates.length;
       final receivedExpectedPage = result.page.page == nextPage;
       setState(() {
-        _galleryTemplates = mergedTemplates;
+        _galleryTemplates = mergedTemplates
+            .map(services.applyFavoriteUpdate)
+            .toList();
         _galleryPage = nextPage;
         _galleryHasMore =
             receivedExpectedPage && madeProgress && result.page.hasMore;
@@ -283,6 +313,34 @@ class _UploadScreenState extends State<UploadScreen> {
     return false;
   }
 
+  final Set<String> _pendingFavorites = {};
+
+  void _syncFavorites() {
+    final services = _backendServices;
+    if (!mounted || services == null) return;
+    setState(() {
+      _galleryTemplates = _galleryTemplates
+          .map(services.applyFavoriteUpdate)
+          .toList();
+    });
+  }
+
+  Future<void> _toggleGalleryFavorite(TemplateItem template) async {
+    final services = _backendServices;
+    if (services == null || !_pendingFavorites.add(template.templateId)) return;
+    try {
+      final current = services.applyFavoriteUpdate(template);
+      final result = current.isFavorited
+          ? await services.templates.unfavorite(template.templateId)
+          : await services.templates.favorite(template.templateId);
+      services.recordFavoriteUpdate(template.templateId, result);
+    } catch (_) {
+      if (mounted) showAppToast(context, '操作失败，请重试');
+    } finally {
+      _pendingFavorites.remove(template.templateId);
+    }
+  }
+
   Future<void> _openTemplateDetail(String templateId) async {
     final services = _backendServices;
     if (services == null || templateId.isEmpty) return;
@@ -295,7 +353,7 @@ class _UploadScreenState extends State<UploadScreen> {
         MaterialPageRoute(
           builder: (_) => ResultScreen(
             pattern: detail.patternData.toGeneratedPattern(),
-            template: detail.template,
+            template: services.applyFavoriteUpdate(detail.template),
           ),
         ),
       );
@@ -353,7 +411,7 @@ class _UploadScreenState extends State<UploadScreen> {
       await showBlindBoxDialog(
         context,
         rewards: _blindBoxRewards,
-        template: detail.template,
+        template: services.applyFavoriteUpdate(detail.template),
         onOpenTemplate: () async {
           if (!mounted || !identical(_backendServices, services)) return;
           await Navigator.push<void>(
@@ -361,7 +419,7 @@ class _UploadScreenState extends State<UploadScreen> {
             MaterialPageRoute(
               builder: (_) => ResultScreen(
                 pattern: detail.patternData.toGeneratedPattern(),
-                template: detail.template,
+                template: services.applyFavoriteUpdate(detail.template),
               ),
             ),
           );
@@ -392,23 +450,22 @@ class _UploadScreenState extends State<UploadScreen> {
     }
   }
 
-  Future<void> _openFilterDialog() async {
-    final selection = await showHomeFilterDialog(
-      context,
-      loadCategories: _backendServices?.loadTemplateCategories,
-      selectedCategoryId: _galleryCategoryId,
-    );
+  Future<void> _loadGalleryCategories(BackendServices services) async {
+    try {
+      final categories = await services.loadTemplateCategories();
+      if (!mounted || !identical(services, _backendServices)) return;
+      setState(() => _galleryCategories = categories);
+    } catch (_) {
+      // Pull to refresh retries category loading alongside the gallery.
+    }
+  }
+
+  void _selectGalleryCategory(TemplateCategory? category) {
+    if (_galleryCategoryId == category?.categoryId) return;
+    setState(() => _galleryCategoryId = category?.categoryId);
     final services = _backendServices;
-    if (selection != null && services != null) {
-      setState(() {
-        _galleryCategoryId = selection.isDefault
-            ? null
-            : selection.category.categoryId;
-        _galleryCategoryName = selection.isDefault
-            ? '全部'
-            : selection.category.name;
-      });
-      await _loadGalleryTemplates(services, categoryId: _galleryCategoryId);
+    if (services != null) {
+      _loadGalleryTemplates(services, categoryId: _galleryCategoryId);
     }
   }
 
@@ -439,7 +496,21 @@ class _UploadScreenState extends State<UploadScreen> {
                   const Positioned.fill(
                     child: ColoredBox(color: _homeBackgroundColor),
                   ),
+                  if (!_showingMyPage)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: 0,
+                      height: _designContentHeight * metrics.scale,
+                      child: _ScaledDesignSurface(
+                        designWidth: _designWidth,
+                        designHeight: _designContentHeight,
+                        scale: metrics.scale,
+                        child: const _HomeBackground(),
+                      ),
+                    ),
                   Positioned(
+                    key: const ValueKey('home-pages'),
                     left: 0,
                     top: 0,
                     right: 0,
@@ -457,6 +528,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           child: NotificationListener<ScrollNotification>(
                             onNotification: _onHomeScroll,
                             child: SingleChildScrollView(
+                              controller: _homeScrollController,
                               physics: const AlwaysScrollableScrollPhysics(
                                 parent: BouncingScrollPhysics(),
                               ),
@@ -476,7 +548,11 @@ class _UploadScreenState extends State<UploadScreen> {
                                           metrics.designContentHeight,
                                       picking: _picking,
                                       galleryTemplates: _galleryTemplates,
-                                      galleryCategoryName: _galleryCategoryName,
+                                      onFavorite: _toggleGalleryFavorite,
+                                      showGalleryEnd:
+                                          _galleryLoaded &&
+                                          !_galleryHasMore &&
+                                          !_galleryLoadingMore,
                                       onGalleryTemplateTap: _openTemplateDetail,
                                       onPhotoStart: _picking
                                           ? null
@@ -496,7 +572,6 @@ class _UploadScreenState extends State<UploadScreen> {
                                               _blindBoxQuota == null
                                           ? null
                                           : _openBlindBox,
-                                      onFilter: _openFilterDialog,
                                     ),
                                   ),
                                 ),
@@ -510,6 +585,71 @@ class _UploadScreenState extends State<UploadScreen> {
                       ],
                     ),
                   ),
+                  if (!_showingMyPage)
+                    AnimatedBuilder(
+                      animation: _homeScrollController,
+                      builder: (context, _) {
+                        final offset = _homeScrollController.hasClients
+                            ? _homeScrollController.offset
+                            : 0.0;
+                        final safeTop = MediaQuery.paddingOf(context).top;
+                        final naturalTop =
+                            _homeGalleryTop * metrics.scale - offset;
+                        final pinned = naturalTop <= safeTop;
+                        final tabTop = math.max(safeTop, naturalTop);
+                        return Positioned(
+                          left: 0,
+                          right: 0,
+                          top: pinned ? 0 : tabTop,
+                          height: pinned
+                              ? safeTop + 56 * metrics.scale
+                              : 56 * metrics.scale,
+                          child: ClipRect(
+                            child: Stack(
+                              children: [
+                                if (pinned)
+                                  Positioned(
+                                    left: 0,
+                                    right: 0,
+                                    top: 0,
+                                    height:
+                                        _designContentHeight * metrics.scale,
+                                    child: _ScaledDesignSurface(
+                                      designWidth: _designWidth,
+                                      designHeight: _designContentHeight,
+                                      scale: metrics.scale,
+                                      child: const _HomeBackground(),
+                                    ),
+                                  ),
+                                Positioned(
+                                  key: const ValueKey(
+                                    'home-sticky-tabs-position',
+                                  ),
+                                  left: 0,
+                                  right: 0,
+                                  top: pinned ? safeTop : 0,
+                                  child: _ScaledDesignSurface(
+                                    designWidth: _designWidth,
+                                    designHeight: 56,
+                                    scale: metrics.scale,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      child: HomeCategoryTabs(
+                                        categories: _galleryCategories,
+                                        selectedCategoryId: _galleryCategoryId,
+                                        onSelected: _selectGalleryCategory,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   Positioned(
                     left: 0,
                     right: 0,
@@ -581,36 +721,15 @@ class _ScaledDesignSurface extends StatelessWidget {
   }
 }
 
-class _HomeDesignCanvas extends StatelessWidget {
-  final double designContentHeight;
-  final bool picking;
-  final List<TemplateItem> galleryTemplates;
-  final String galleryCategoryName;
-  final ValueChanged<String>? onGalleryTemplateTap;
-  final VoidCallback? onPhotoStart;
-  final VoidCallback? onIllustrationStart;
-  final VoidCallback? onBlindBox;
-  final VoidCallback? onFilter;
-
-  const _HomeDesignCanvas({
-    required this.designContentHeight,
-    required this.picking,
-    required this.galleryTemplates,
-    required this.galleryCategoryName,
-    required this.onGalleryTemplateTap,
-    required this.onPhotoStart,
-    required this.onIllustrationStart,
-    required this.onBlindBox,
-    required this.onFilter,
-  });
+/// Shared opaque star artwork and gradient for the home and pinned header.
+class _HomeBackground extends StatelessWidget {
+  const _HomeBackground();
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: _designWidth,
-      height: designContentHeight,
+    return ColoredBox(
+      color: _homeBackgroundColor,
       child: Stack(
-        clipBehavior: Clip.none,
         children: [
           const Positioned(
             left: 0,
@@ -638,10 +757,47 @@ class _HomeDesignCanvas extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeDesignCanvas extends StatelessWidget {
+  final double designContentHeight;
+  final bool picking;
+  final List<TemplateItem> galleryTemplates;
+  final bool showGalleryEnd;
+  final ValueChanged<TemplateItem> onFavorite;
+  final ValueChanged<String>? onGalleryTemplateTap;
+  final VoidCallback? onPhotoStart;
+  final VoidCallback? onIllustrationStart;
+  final VoidCallback? onBlindBox;
+
+  const _HomeDesignCanvas({
+    required this.designContentHeight,
+    required this.picking,
+    required this.galleryTemplates,
+    required this.showGalleryEnd,
+    required this.onFavorite,
+    required this.onGalleryTemplateTap,
+    required this.onPhotoStart,
+    required this.onIllustrationStart,
+    required this.onBlindBox,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: _designWidth,
+      height: designContentHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
           _HeroCard(picking: picking, onStart: onPhotoStart),
           Positioned(
             left: 12,
-            top: 360.55,
+            top: _homeFeatureTop,
             child: _FeatureCard(
               icon: 'assets/figma_home/feature_illustration_icon.png',
               textImage: 'assets/figma_home/feature_illustration_text.png',
@@ -650,7 +806,7 @@ class _HomeDesignCanvas extends StatelessWidget {
           ),
           Positioned(
             left: 201,
-            top: 360.55,
+            top: _homeFeatureTop,
             child: _FeatureCard(
               key: const ValueKey('home-blind-box-card'),
               icon: 'assets/figma_home/feature_blind_box_icon.png',
@@ -660,13 +816,40 @@ class _HomeDesignCanvas extends StatelessWidget {
           ),
           Positioned(
             left: 12,
-            top: 525,
+            top: _homeGalleryTop,
             child: HomePatternGallery(
               templates: galleryTemplates,
-              categoryName: galleryCategoryName,
-              onFilter: onFilter ?? () {},
+              categoryName: '全部',
+              onFilter: () {},
+              header: const SizedBox(height: 64),
+              footer: showGalleryEnd
+                  ? const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: SizedBox(
+                        key: ValueKey('home-gallery-end'),
+                        height: 80,
+                        width: double.infinity,
+                        child: Center(
+                          child: Text(
+                            '已经到底啦～',
+                            style: TextStyle(
+                              fontFamily: _roundFontFamily,
+                              fontFamilyFallback: _fontFallbacks,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0x99000000),
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : null,
               onTemplateTap: onGalleryTemplateTap,
               thumbnailPadding: 6,
+              showTemplateDetails: true,
+              onFavorite: onFavorite,
+              tileSize: _homeGalleryTileSize,
+              tileSpacing: 12,
             ),
           ),
         ],
@@ -704,7 +887,7 @@ class _HeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned(
       left: 12,
-      top: 154,
+      top: _homeHeroTop,
       child: GestureDetector(
         onTap: onStart,
         behavior: HitTestBehavior.opaque,
@@ -762,8 +945,8 @@ class _HeroCard extends StatelessWidget {
               //   ),
               // ),
               const Positioned(
-                left: 19.61,
-                top: -79.55,
+                left: 33,
+                top: -51.55,
                 child: _RotatedPhotoFrame(
                   image: 'assets/figma_home/girl.png',
                   angle: -18.2,
@@ -776,8 +959,8 @@ class _HeroCard extends StatelessWidget {
                 ),
               ),
               const Positioned(
-                left: 145.62,
-                top: -77.67,
+                left: 147.01,
+                top: -53.67,
                 child: _RotatedPhotoFrame(
                   image: 'assets/figma_home/bead_photo.png',
                   angle: 17.19,

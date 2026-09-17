@@ -278,13 +278,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('blind-box-close')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey('home-filter-category-7')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('home-category-tab-7')), findsOneWidget);
     expect(find.text('节日'), findsOneWidget);
     expect(
       requests.where(
@@ -292,7 +286,7 @@ void main() {
       ),
       hasLength(1),
     );
-    await tester.tap(find.byKey(const ValueKey('home-filter-category-7')));
+    await tester.tap(find.byKey(const ValueKey('home-category-tab-7')));
     await tester.pumpAndSettle();
 
     final filteredTemplateRequest = requests.lastWhere(
@@ -302,29 +296,14 @@ void main() {
     );
     expect(filteredTemplateRequest.url.queryParameters['scene'], 'home');
     expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
-    expect(find.byKey(const ValueKey('home-gallery-category')), findsOneWidget);
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('home-gallery-category')))
-          .data,
-      '动物',
-    );
-
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('home-filter-category-7')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const ValueKey('home-category-tab-7')), findsOneWidget);
     expect(
       requests.where(
         (request) => request.url.path == '/api/v1/templates/categories',
       ),
       hasLength(1),
     );
-    final selectedCategory = find.byKey(
-      const ValueKey('home-filter-category-7'),
-    );
+    final selectedCategory = find.byKey(const ValueKey('home-category-tab-7'));
     expect(
       tester.getSemantics(selectedCategory).hasFlag(SemanticsFlag.isSelected),
       isTrue,
@@ -332,7 +311,7 @@ void main() {
     final templateRequestCountBeforeClearing = requests
         .where((request) => request.url.path == '/api/v1/templates')
         .length;
-    await tester.tap(selectedCategory);
+    await tester.tap(find.byKey(const ValueKey('home-category-tab-all')));
     await tester.pumpAndSettle();
 
     // The unfiltered home response is cached, so clearing a category reuses it
@@ -340,12 +319,6 @@ void main() {
     expect(
       requests.where((request) => request.url.path == '/api/v1/templates'),
       hasLength(templateRequestCountBeforeClearing),
-    );
-    expect(
-      tester
-          .widget<Text>(find.byKey(const ValueKey('home-gallery-category')))
-          .data,
-      '全部',
     );
 
     expect(
@@ -456,10 +429,17 @@ void main() {
       find.byKey(const ValueKey('gallery-thumbnail-template-20')),
       findsOneWidget,
     );
-    await tester.drag(
-      find.byType(SingleChildScrollView).first,
-      const Offset(0, -1200),
+    final galleryScroll = tester.state<ScrollableState>(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down,
+          )
+          .first,
     );
+    galleryScroll.position.jumpTo(galleryScroll.position.maxScrollExtent);
+
     await tester.pumpAndSettle();
 
     expect(

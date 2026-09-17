@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:bobobeads/main.dart';
 import 'package:bobobeads/services/api/api_models.dart';
 import 'package:bobobeads/widgets/home_filter_dialog.dart';
+import 'package:bobobeads/widgets/home_category_tabs.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,93 +20,12 @@ void main() {
     });
   }
 
-  testWidgets('首页筛选按钮会打开符合设计稿尺寸的筛选弹窗', (tester) async {
+  testWidgets('首页直接显示分类 Tab，不再显示筛选入口', (tester) async {
     setViewport(tester);
     await tester.pumpWidget(const BobobeadsApp());
     await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pumpAndSettle();
-
-    final sheet = find.byKey(const ValueKey('home-filter-dialog'));
-    expect(sheet, findsOneWidget);
-    expect(tester.getSize(sheet), const Size(390, 480));
-    expect(tester.getTopLeft(sheet).dy, 364);
-    expect(find.text('筛选'), findsOneWidget);
-    expect(find.text('暂无筛选分类'), findsOneWidget);
-  });
-
-  testWidgets('筛选弹窗可通过关闭按钮和遮罩关闭', (tester) async {
-    setViewport(tester);
-    await tester.pumpWidget(const BobobeadsApp());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pumpAndSettle();
-    await tester.tapAt(const Offset(195, 120));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
-  });
-
-  testWidgets('筛选弹窗以遮罩淡入和底部上滑出现与消失', (tester) async {
-    setViewport(tester);
-    await tester.pumpWidget(const BobobeadsApp());
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-    await tester.pump();
-    await tester.pump();
-
-    final fade = tester.widget<FadeTransition>(
-      find.byKey(const ValueKey('home-filter-dialog-backdrop-transition')),
-    );
-    final slide = tester.widget<SlideTransition>(
-      find.byKey(const ValueKey('home-filter-dialog-sheet-transition')),
-    );
-    final sheetFade = tester.widget<FadeTransition>(
-      find.byKey(const ValueKey('home-filter-dialog-sheet-fade')),
-    );
-    final sheetScale = tester.widget<ScaleTransition>(
-      find.byKey(const ValueKey('home-filter-dialog-sheet-scale')),
-    );
-    expect(fade.opacity.value, 0);
-    expect(sheetFade.opacity.value, 0);
-    expect(sheetScale.scale.value, closeTo(0.94, 0.001));
-    expect(slide.position.value.dy, closeTo(0.035, 0.001));
-
-    await tester.pump(const Duration(milliseconds: 140));
-    expect(fade.opacity.value, greaterThan(0));
-    expect(fade.opacity.value, lessThan(1));
-    expect(sheetFade.opacity.value, greaterThan(0));
-    expect(sheetFade.opacity.value, lessThan(1));
-    expect(sheetScale.scale.value, greaterThan(0.94));
-    expect(slide.position.value.dy, greaterThan(0));
-    expect(slide.position.value.dy, lessThan(0.035));
-
-    await tester.pumpAndSettle();
-    expect(fade.opacity.value, 1);
-    expect(sheetFade.opacity.value, 1);
-    expect(sheetScale.scale.value, 1);
-    expect(slide.position.value.dy, 0);
-
-    await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(fade.opacity.value, greaterThan(0));
-    expect(fade.opacity.value, lessThan(1));
-    expect(sheetFade.opacity.value, greaterThan(0));
-    expect(sheetFade.opacity.value, lessThan(1));
-    expect(sheetScale.scale.value, lessThan(1));
-    expect(slide.position.value.dy, greaterThan(0));
-
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-category-tab-all')), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-gallery-filter')), findsNothing);
     expect(find.byKey(const ValueKey('home-filter-dialog')), findsNothing);
   });
 
@@ -291,29 +211,53 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('筛选弹窗可适配紧凑和大屏 iPhone', (tester) async {
-    for (final config in const [
-      (viewport: Size(375, 667), expectedSheetWidth: 375.0),
-      (viewport: Size(430, 932), expectedSheetWidth: 390.0),
-    ]) {
-      tester.view.physicalSize = config.viewport;
-      tester.view.devicePixelRatio = 1.0;
-      await tester.pumpWidget(const BobobeadsApp());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey('home-gallery-filter')));
-      await tester.pumpAndSettle();
-
-      expect(
-        tester
-            .getSize(find.byKey(const ValueKey('home-filter-dialog-boundary')))
-            .width,
-        closeTo(config.expectedSheetWidth, 0.01),
+  testWidgets('分类 Tab 在紧凑和大屏上可横向滚动至末项并切换', (tester) async {
+    for (final width in [320.0, 430.0]) {
+      tester.view.physicalSize = Size(width, 932);
+      tester.view.devicePixelRatio = 1;
+      int? selected;
+      final categories = [
+        for (final (index, name) in [
+          '可爱',
+          '动漫',
+          '抽象',
+          '艺术',
+          '实用',
+          '游戏',
+          '万能配饰',
+        ].indexed)
+          TemplateCategory(
+            categoryId: index + 1,
+            name: name,
+            iconUrl: '',
+            templateCount: 0,
+          ),
+      ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: HomeCategoryTabs(
+                categories: categories,
+                selectedCategoryId: null,
+                onSelected: (category) => selected = category?.categoryId,
+              ),
+            ),
+          ),
+        ),
       );
-      expect(tester.takeException(), isNull);
-
-      await tester.tap(find.byKey(const ValueKey('home-filter-dialog-close')));
+      await tester.drag(
+        find.byKey(const ValueKey('home-category-tabs')),
+        const Offset(-500, 0),
+      );
       await tester.pumpAndSettle();
+      await tester.tap(find.text('万能配饰'));
+      expect(selected, 7);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
     }
+    tester.view.resetPhysicalSize();
+    tester.view.resetDevicePixelRatio();
   });
 }
