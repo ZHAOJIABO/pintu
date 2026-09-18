@@ -94,7 +94,7 @@ void main() {
         ),
         findsNothing,
       );
-      expect(find.text('制作'), findsAtLeastNWidgets(1));
+      expect(find.text('图库'), findsAtLeastNWidgets(1));
       expect(find.text('我的'), findsAtLeastNWidgets(1));
       expect(tester.takeException(), isNull);
     });

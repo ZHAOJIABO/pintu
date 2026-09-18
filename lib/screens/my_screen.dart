@@ -1,3 +1,4 @@
+import '../widgets/app_bottom_navigation.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -64,7 +65,7 @@ class MyScreen extends StatelessWidget {
       backgroundColor: _pageBackground,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final pageWidth = math.min(constraints.maxWidth, _designWidth);
+          final pageWidth = constraints.maxWidth;
           final scale = pageWidth / _designWidth;
           final compact = constraints.maxHeight <= _compactHeightBreakpoint;
           final navigationHeight = compact
@@ -114,7 +115,7 @@ class MyScreenContent extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final pageWidth = math.min(constraints.maxWidth, _designWidth);
+        final pageWidth = constraints.maxWidth;
         final scale = pageWidth / _designWidth;
         final scrollHeight = math.max(
           constraints.maxHeight,
@@ -483,12 +484,21 @@ class MyFavoritesScreen extends StatelessWidget {
   }
 }
 
+class BeadLibraryContent extends StatelessWidget {
+  const BeadLibraryContent({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const _MyLibraryScreen(initialTab: _LibraryTab.patterns, embedded: true);
+}
+
 enum _LibraryTab { patterns, favorites }
 
 class _MyLibraryScreen extends StatefulWidget {
   final _LibraryTab initialTab;
+  final bool embedded;
 
-  const _MyLibraryScreen({required this.initialTab});
+  const _MyLibraryScreen({required this.initialTab, this.embedded = false});
 
   @override
   State<_MyLibraryScreen> createState() => _MyLibraryScreenState();
@@ -523,6 +533,9 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
   Timer? _taskPollingTimer;
   bool _taskPollInFlight = false;
   late _LibraryTab _selectedTab;
+  int _beadSource = 0;
+  bool _beadLoading = false;
+  bool _beadError = false;
 
   @override
   void initState() {
@@ -544,6 +557,10 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
 
     _backendServices = services;
     if (services != null) {
+      if (widget.embedded) {
+        _reloadBeadSource();
+        return;
+      }
       if (_selectedTab == _LibraryTab.patterns) {
         _loadWorks(services);
         _loadPendingSubmissionWorkIds(services);
@@ -839,7 +856,10 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
           identical(services, _backendServices) &&
           requestVersion == _worksRequestVersion &&
           _selectedTab == _LibraryTab.patterns) {
-        setState(() => _worksLoadingMore = false);
+        setState(() {
+          _worksLoadingMore = false;
+          if (widget.embedded) _beadError = true;
+        });
       }
       // 保留既有界面，后续进入页面或切换页签时可再次尝试加载。
     }
@@ -883,7 +903,10 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
           identical(services, _backendServices) &&
           requestVersion == _worksRequestVersion &&
           _selectedTab == _LibraryTab.patterns) {
-        setState(() => _worksLoadingMore = false);
+        setState(() {
+          _worksLoadingMore = false;
+          if (widget.embedded) _beadError = true;
+        });
       }
       // 已加载的图纸保持可见，用户再次滚动到底部时可重试。
     }
@@ -1166,8 +1189,346 @@ class _MyLibraryScreenState extends State<_MyLibraryScreen> {
     }
   }
 
+  Future<void> _reloadBeadSource() async {
+    final services = _backendServices;
+    if (services == null) return;
+    final source = _beadSource;
+    setState(() {
+      _beadLoading = true;
+      _beadError = false;
+    });
+    try {
+      if (source == 0) {
+        await Future.wait([
+          _loadWorks(services),
+          _loadPendingSubmissionWorkIds(services),
+          _loadRecentCreations(services),
+        ]);
+      } else {
+        final items = <TemplateItem>[];
+        var page = 1;
+        var hasMore = true;
+        while (hasMore) {
+          final result = source == 1
+              ? await services.templates.listFavorites(page: page, pageSize: 20)
+              : await services.templates.listRandomHistory(
+                  page: page,
+                  pageSize: 20,
+                );
+          if (!mounted ||
+              source != _beadSource ||
+              !identical(services, _backendServices)) {
+            return;
+          }
+          items.addAll(result.items);
+          hasMore = result.page.hasMore && result.items.isNotEmpty;
+          page++;
+        }
+        setState(() {
+          if (source == 1) {
+            _templates = items;
+          } else {
+            _blindBoxHistory = items;
+          }
+        });
+      }
+    } catch (_) {
+      if (mounted && source == _beadSource) setState(() => _beadError = true);
+    } finally {
+      if (mounted && source == _beadSource) {
+        setState(() => _beadLoading = false);
+      }
+    }
+  }
+
+  Widget _buildBeadLibrary(BuildContext context) {
+    void soon() => _showMessage('即将上线');
+    final cards = <Widget>[
+      if (_beadSource == 0) ...[
+        for (final task in _recentCreations)
+          _BeadLibraryCard(
+            title: task.styleName,
+            subtitle: _beadAge(task.createdAt),
+            imageUrl: task.isSucceeded ? task.outputImageUrl : '',
+            badge: task.isProcessing
+                ? '生成中'
+                : _newCreationIds.contains(task.taskId)
+                ? '新生成'
+                : null,
+            failed: task.isRetryable,
+            onTap: task.isRetryable
+                ? () => _retryCreationTask(task)
+                : task.isSucceeded
+                ? () => _openCreationTask(task)
+                : null,
+          ),
+        for (final work in _works)
+          _BeadLibraryCard(
+            title: work.title,
+            subtitle:
+                '${work.width}×${work.height} · ${_beadAge(work.createdAt)}',
+            imageUrl: work.thumbnailUrl.isNotEmpty
+                ? work.thumbnailUrl
+                : work.patternImageUrl,
+            badge: _pendingSubmissionWorkIds.contains(work.workId)
+                ? '审核中'
+                : null,
+            onTap: () => _openWork(work.workId),
+          ),
+      ] else
+        for (final template in _beadSource == 1 ? _templates : _blindBoxHistory)
+          _BeadLibraryCard(
+            title: template.title,
+            subtitle: '${template.width}×${template.height}',
+            imageUrl: template.thumbnailUrl.isNotEmpty
+                ? template.thumbnailUrl
+                : template.previewUrl,
+            onTap: () => _openTemplate(template.templateId),
+          ),
+    ];
+    return Stack(
+      key: const ValueKey('bead-library-page'),
+      children: [
+        const Positioned.fill(child: ColoredBox(color: Color(0xFFF0F0F4))),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 480,
+          child: Image.asset(
+            'assets/figma_home/home_header.png',
+            fit: BoxFit.cover,
+          ),
+        ),
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 480,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x00FFFFFF), Color(0xFFF0F0F4)],
+                stops: [0, 0.56969],
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          bottom: false,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onLibraryScroll,
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 56,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        children: [
+                          for (final label in ['图纸', '开拼', '烫豆'])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 24),
+                              child: GestureDetector(
+                                onTap: label == '图纸' ? null : soon,
+                                child: Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontFamily: _roundFontFamily,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                    color: label == '图纸'
+                                        ? Colors.black
+                                        : const Color(0x4D000000),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 76,
+                          child: _BeadAction(
+                            label: '导入',
+                            color: const Color(0xFFFFF09A),
+                            border: const Color(0xFFFFEB7C),
+                            onTap: soon,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _BeadAction(
+                            label: '新建画板',
+                            color: const Color(0xFFFFC7EA),
+                            border: const Color(0xFFFFB5E3),
+                            onTap: soon,
+                            add: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                for (final (index, label) in [
+                                  '我的图纸',
+                                  '图库图纸',
+                                  '盲盒图纸',
+                                ].indexed)
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() => _beadSource = index);
+                                      _selectedTab = index == 0
+                                          ? _LibraryTab.patterns
+                                          : _LibraryTab.favorites;
+                                      if (index != 0) {
+                                        _taskPollingTimer?.cancel();
+                                      }
+                                      _reloadBeadSource();
+                                    },
+                                    child: Container(
+                                      height: 32,
+                                      alignment: Alignment.center,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                      ),
+                                      margin: const EdgeInsets.only(right: 4),
+                                      decoration: BoxDecoration(
+                                        color: _beadSource == index
+                                            ? Colors.white
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontFamily: _roundFontFamily,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: _beadSource == index
+                                              ? Colors.black
+                                              : const Color(0x66000000),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: soon,
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: const Color(0x99FFFFFF),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: SvgPicture.asset(
+                              'assets/figma_home/bead_manage.svg',
+                              width: 20,
+                              height: 20,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final width = (constraints.maxWidth - 12) / 2;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 16,
+                          children: [
+                            for (final card in cards)
+                              SizedBox(width: width, child: card),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  if (_beadLoading)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFFF55BE),
+                      ),
+                    ),
+                  if (_beadError)
+                    TextButton(
+                      onPressed: _reloadBeadSource,
+                      child: const Text('加载失败，点击重试'),
+                    ),
+                  if (!_beadLoading && !_beadError && cards.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text('暂无图纸'),
+                    ),
+                  if (!_beadLoading &&
+                      !_beadError &&
+                      cards.isNotEmpty &&
+                      (_beadSource != 0 || !_worksHasMore))
+                    const SizedBox(
+                      height: 80,
+                      child: Center(
+                        child: Text(
+                          '已经到底啦～',
+                          style: TextStyle(
+                            fontFamily: _roundFontFamily,
+                            fontSize: 12,
+                            color: Color(0x99000000),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _beadAge(int timestamp) {
+    if (timestamp <= 0) return '';
+    final date = DateTime.fromMillisecondsSinceEpoch(
+      timestamp > 100000000000 ? timestamp : timestamp * 1000,
+    );
+    final days = DateTime.now().difference(date).inDays;
+    return days <= 0 ? '今天' : '$days天前';
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) return _buildBeadLibrary(context);
     return Scaffold(
       backgroundColor: _pageBackground,
       body: Stack(
@@ -2735,102 +3096,163 @@ class MyBottomNavigation extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final labelTop = height <= _compactBottomNavigationDesignHeight
-        ? 16.0
-        : 26.0;
+  Widget build(BuildContext context) => AppBottomNavigation(
+    height: height,
+    selectedIndex: 2,
+    onLibraryTap: onMakeTap,
+  );
+}
 
-    return SizedBox(
-      width: _designWidth,
-      height: height,
-      child: Stack(
-        clipBehavior: Clip.none,
+class _BeadAction extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Color border;
+  final VoidCallback onTap;
+  final bool add;
+  const _BeadAction({
+    required this.label,
+    required this.color,
+    required this.border,
+    required this.onTap,
+    this.add = false,
+  });
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      height: 76,
+      decoration: BoxDecoration(
+        color: color,
+        border: Border.all(color: border, width: 3),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              key: const ValueKey('my-bottom-nav-background'),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
+          if (add) ...[
+            SvgPicture.asset(
+              'assets/figma_home/bead_add.svg',
+              width: 16,
+              height: 16,
             ),
-          ),
-          Positioned(
-            left: 63,
-            top: labelTop,
-            width: 88,
-            height: 28,
-            child: Semantics(
-              button: true,
-              label: '制作',
-              child: GestureDetector(
-                key: const ValueKey('my-make-nav-item'),
-                behavior: HitTestBehavior.opaque,
-                onTap: onMakeTap,
-                child: const Center(
-                  child: _BottomNavText('制作', fontSize: 16, selected: false),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 55,
-            top: labelTop - 9,
-            width: 105,
-            height: 38,
-            child: Center(
-              child: Transform.rotate(
-                angle: -9 * math.pi / 180,
-                child: const _BottomNavText(
-                  '我的',
-                  fontSize: 19.2,
-                  selected: true,
-                ),
-              ),
+            const SizedBox(width: 12),
+          ],
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: _roundFontFamily,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF060606),
             ),
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
 }
 
-class _BottomNavText extends StatelessWidget {
-  final String text;
-  final double fontSize;
-  final bool selected;
-
-  const _BottomNavText(
-    this.text, {
-    required this.fontSize,
-    required this.selected,
+class _BeadLibraryCard extends StatelessWidget {
+  final String title, subtitle, imageUrl;
+  final String? badge;
+  final bool failed;
+  final VoidCallback? onTap;
+  const _BeadLibraryCard({
+    required this.title,
+    required this.subtitle,
+    required this.imageUrl,
+    this.badge,
+    this.failed = false,
+    this.onTap,
   });
-
   @override
-  Widget build(BuildContext context) {
-    final baseStyle = TextStyle(
-      fontFamily: _pixelFontFamily,
-      fontSize: fontSize,
-      fontWeight: FontWeight.w900,
-      height: 1,
-      fontFamilyFallback: _fontFallbacks,
-    );
-
-    return Stack(
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          text,
-          style: baseStyle.copyWith(
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = selected ? 6.6 : 3
-              ..strokeJoin = StrokeJoin.round
-              ..strokeCap = StrokeCap.round
-              ..color = selected ? const Color(0xFFFF55BE) : Colors.black,
+        AspectRatio(
+          aspectRatio: 1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: ColoredBox(
+              color: Colors.white,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (imageUrl.isNotEmpty)
+                    _CreationTaskImage(imageUrl: imageUrl),
+                  if (failed)
+                    const Center(
+                      child: Text(
+                        '点击重试',
+                        style: TextStyle(
+                          fontFamily: _roundFontFamily,
+                          fontSize: 11,
+                          color: Color(0xFFFF55BE),
+                        ),
+                      ),
+                    ),
+                  if (badge != null)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: badge == '新生成'
+                              ? const Color(0xFFA9F3F4)
+                              : const Color(0xFFFFC7EA),
+                          borderRadius: BorderRadius.circular(32),
+                        ),
+                        child: Text(
+                          badge!,
+                          style: const TextStyle(
+                            fontFamily: _roundFontFamily,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
-        Text(text, style: baseStyle.copyWith(color: Colors.white)),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: _roundFontFamily,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: _roundFontFamily,
+                  fontSize: 11,
+                  color: Color(0x4D000000),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
-    );
-  }
+    ),
+  );
 }

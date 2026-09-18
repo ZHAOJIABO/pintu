@@ -7,12 +7,14 @@ class HomeCategoryTabs extends StatelessWidget {
   final List<TemplateCategory> categories;
   final int? selectedCategoryId;
   final ValueChanged<TemplateCategory?> onSelected;
+  final EdgeInsetsGeometry padding;
 
   const HomeCategoryTabs({
     super.key,
     required this.categories,
     required this.selectedCategoryId,
     required this.onSelected,
+    this.padding = EdgeInsets.zero,
   });
 
   @override
@@ -22,6 +24,7 @@ class HomeCategoryTabs extends StatelessWidget {
       height: 56,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
+        padding: padding,
         child: Row(
           children: [
             _tab(null),

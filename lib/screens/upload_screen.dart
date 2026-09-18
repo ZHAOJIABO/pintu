@@ -1,3 +1,4 @@
+import '../widgets/app_bottom_navigation.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -70,11 +71,10 @@ class _HomeLayoutMetrics {
   _HomeLayoutMetrics({
     required BoxConstraints constraints,
     required this.designContentHeight,
-  }) : pageWidth = math.min(constraints.maxWidth, _designWidth),
-       scale = math.min(constraints.maxWidth, _designWidth) / _designWidth,
+  }) : pageWidth = constraints.maxWidth,
+       scale = constraints.maxWidth / _designWidth,
        scaledDesignHeight =
-           designContentHeight *
-           (math.min(constraints.maxWidth, _designWidth) / _designWidth),
+           designContentHeight * (constraints.maxWidth / _designWidth),
        bottomNavDesignHeight = constraints.maxHeight <= _compactHeightBreakpoint
            ? _compactBottomNavDesignHeight
            : _bottomNavDesignHeight,
@@ -82,7 +82,7 @@ class _HomeLayoutMetrics {
            (constraints.maxHeight <= _compactHeightBreakpoint
                ? _compactBottomNavDesignHeight
                : _bottomNavDesignHeight) *
-           (math.min(constraints.maxWidth, _designWidth) / _designWidth);
+           (constraints.maxWidth / _designWidth);
 }
 
 class UploadScreen extends StatefulWidget {
@@ -125,7 +125,9 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _openingBlindBox = false;
   bool _loadingBlindBoxQuota = false;
   BlindBoxQuota? _blindBoxQuota;
-  bool _showingMyPage = false;
+  int _selectedPage = 0;
+  bool _beadPageVisited = false;
+  bool get _showingMyPage => _selectedPage == 2;
   Future<void>? _homeRefreshFuture;
 
   @override
@@ -470,10 +472,15 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   void _showMyPage() {
-    setState(() => _showingMyPage = true);
+    setState(() => _selectedPage = 2);
   }
 
-  void _showHomePage() => setState(() => _showingMyPage = false);
+  void _showHomePage() => setState(() => _selectedPage = 0);
+
+  void _showBeadPage() => setState(() {
+    _selectedPage = 1;
+    _beadPageVisited = true;
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -496,7 +503,7 @@ class _UploadScreenState extends State<UploadScreen> {
                   const Positioned.fill(
                     child: ColoredBox(color: _homeBackgroundColor),
                   ),
-                  if (!_showingMyPage)
+                  if (_selectedPage == 0)
                     Positioned(
                       left: 0,
                       right: 0,
@@ -516,7 +523,7 @@ class _UploadScreenState extends State<UploadScreen> {
                     right: 0,
                     bottom: metrics.bottomNavTotalHeight,
                     child: IndexedStack(
-                      index: _showingMyPage ? 1 : 0,
+                      index: _selectedPage,
                       sizing: StackFit.expand,
                       children: [
                         RefreshIndicator(
@@ -581,11 +588,14 @@ class _UploadScreenState extends State<UploadScreen> {
                         ),
                         // 即使用户仍停留在首页，也提前挂载“我的”页：其中的
                         // 首张图纸/收藏请求会在 App 启动时开始，切页无需等待。
+                        _beadPageVisited
+                            ? const BeadLibraryContent()
+                            : const SizedBox(),
                         const MyScreenContent(),
                       ],
                     ),
                   ),
-                  if (!_showingMyPage)
+                  if (_selectedPage == 0)
                     AnimatedBuilder(
                       animation: _homeScrollController,
                       builder: (context, _) {
@@ -632,15 +642,13 @@ class _UploadScreenState extends State<UploadScreen> {
                                     designWidth: _designWidth,
                                     designHeight: 56,
                                     scale: metrics.scale,
-                                    child: Padding(
+                                    child: HomeCategoryTabs(
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 12,
                                       ),
-                                      child: HomeCategoryTabs(
-                                        categories: _galleryCategories,
-                                        selectedCategoryId: _galleryCategoryId,
-                                        onSelected: _selectGalleryCategory,
-                                      ),
+                                      categories: _galleryCategories,
+                                      selectedCategoryId: _galleryCategoryId,
+                                      onSelected: _selectGalleryCategory,
                                     ),
                                   ),
                                 ),
@@ -661,15 +669,13 @@ class _UploadScreenState extends State<UploadScreen> {
                         designWidth: _designWidth,
                         designHeight: metrics.bottomNavDesignHeight,
                         scale: metrics.scale,
-                        child: _showingMyPage
-                            ? MyBottomNavigation(
-                                height: metrics.bottomNavDesignHeight,
-                                onMakeTap: _showHomePage,
-                              )
-                            : _BottomNavigation(
-                                height: metrics.bottomNavDesignHeight,
-                                onMyTap: _showMyPage,
-                              ),
+                        child: AppBottomNavigation(
+                          height: metrics.bottomNavDesignHeight,
+                          selectedIndex: _selectedPage,
+                          onLibraryTap: _showHomePage,
+                          onMyTap: _showMyPage,
+                          onBeadTap: _showBeadPage,
+                        ),
                       ),
                     ),
                   ),
@@ -1864,129 +1870,6 @@ class _FeatureCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _BottomNavigation extends StatelessWidget {
-  final double height;
-  final VoidCallback? onMyTap;
-
-  const _BottomNavigation({this.height = _bottomNavDesignHeight, this.onMyTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final labelTop = height <= _compactBottomNavDesignHeight ? 20.0 : 27.0;
-
-    return SizedBox(
-      width: 390,
-      height: height,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(
-            child: DecoratedBox(
-              key: const ValueKey('bottom-nav-background'),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(18),
-                ),
-                border: Border.all(color: Colors.white),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 83,
-            top: labelTop,
-            child: const _NavLabel(label: '制作', selected: true),
-          ),
-          Positioned(
-            right: 83,
-            top: labelTop,
-            child: GestureDetector(
-              key: const ValueKey('home-my-nav-item'),
-              behavior: HitTestBehavior.opaque,
-              onTap: onMyTap,
-              child: const SizedBox(
-                width: 48,
-                height: 28,
-                child: Center(child: _NavLabel(label: '我的', selected: false)),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _NavLabel extends StatelessWidget {
-  final String label;
-  final bool selected;
-
-  const _NavLabel({required this.label, required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    final child = _OutlinedText(
-      label,
-      fontSize: selected ? 19.2 : 16,
-      fillColor: selected ? Colors.white : Colors.white,
-      strokeColor: selected ? const Color(0xFFFF55BE) : Colors.black,
-      strokeWidth: selected ? 6.6 : 3,
-      letterSpacing: 0,
-    );
-    if (selected) {
-      return Transform.rotate(angle: -9 * math.pi / 180, child: child);
-    }
-    return child;
-  }
-}
-
-class _OutlinedText extends StatelessWidget {
-  final String text;
-  final double fontSize;
-  final Color fillColor;
-  final Color strokeColor;
-  final double strokeWidth;
-  final double letterSpacing;
-
-  const _OutlinedText(
-    this.text, {
-    required this.fontSize,
-    required this.fillColor,
-    required this.strokeColor,
-    required this.strokeWidth,
-    required this.letterSpacing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final baseStyle = TextStyle(
-      fontFamily: _pixelFontFamily,
-      fontFamilyFallback: _fontFallbacks,
-      fontSize: fontSize,
-      fontWeight: FontWeight.w900,
-      letterSpacing: letterSpacing,
-      height: 1,
-    );
-
-    return Stack(
-      children: [
-        Text(
-          text,
-          style: baseStyle.copyWith(
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = strokeWidth
-              ..strokeJoin = StrokeJoin.round
-              ..strokeCap = StrokeCap.round
-              ..color = strokeColor,
-          ),
-        ),
-        Text(text, style: baseStyle.copyWith(color: fillColor)),
-      ],
     );
   }
 }

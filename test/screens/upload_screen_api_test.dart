@@ -12,6 +12,83 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  testWidgets('拼豆分类展示作品、喜欢和盲盒接口返回的图纸', (tester) async {
+    final services = BackendServices(
+      baseUrl: 'http://example.test',
+      store: _MemoryApiSessionStore(),
+      httpClient: MockClient((request) async {
+        final data = switch (request.url.path) {
+          '/api/v1/auth/guest' => {
+            'accessToken': 'test',
+            'refreshToken': 'refresh',
+            'expiresIn': 3600,
+            'user': {'userId': 'guest'},
+          },
+          '/api/v1/works' => {
+            'works': [
+              {
+                'workId': 'work-1',
+                'title': '我的测试图纸',
+                'width': 32,
+                'height': 48,
+              },
+            ],
+          },
+          '/api/v1/templates/favorites' => {
+            'templates': [
+              {
+                'templateId': 'fav-1',
+                'title': '喜欢的测试图纸',
+                'width': 20,
+                'height': 30,
+              },
+            ],
+          },
+          '/api/v1/templates/random/history' => {
+            'templates': [
+              {
+                'templateId': 'box-1',
+                'title': '盲盒测试图纸',
+                'width': 40,
+                'height': 50,
+              },
+            ],
+          },
+          _ => <String, Object?>{},
+        };
+        return http.Response.bytes(
+          utf8.encode(
+            jsonEncode({
+              'header': {'code': 0},
+              'page': {'page': 1, 'hasMore': false},
+              ...data,
+            }),
+          ),
+          200,
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      BackendScope(
+        services: services,
+        child: const MaterialApp(home: UploadScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('bottom-bead-nav-item')));
+    await tester.pumpAndSettle();
+    expect(find.text('我的测试图纸'), findsOneWidget);
+    await tester.tap(find.text('图库图纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('喜欢的测试图纸'), findsOneWidget);
+    expect(find.text('我的测试图纸'), findsNothing);
+    await tester.tap(find.text('盲盒图纸'));
+    await tester.pumpAndSettle();
+    expect(find.text('盲盒测试图纸'), findsOneWidget);
+    expect(find.text('已经到底啦～'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('首页下拉刷新会重新请求模板首屏和盲盒次数', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1.0;
